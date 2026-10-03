@@ -1,3 +1,4 @@
+use super::speed::SpeedSmoother;
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +36,8 @@ pub struct TransferJob {
     pub bytes_total: u64,
     pub current_file: Option<String>,
     pub speed_bps: u64,
+    pub bytes_per_sec: Option<u64>,
+    pub eta_secs: Option<u64>,
     pub errors: Vec<String>,
 }
 
@@ -46,6 +49,7 @@ pub struct JobHandle {
     paused: AtomicBool,
     cancelled: AtomicBool,
     started: Mutex<Option<Instant>>,
+    speed: Mutex<SpeedSmoother>,
     notify: Arc<dyn Fn() + Send + Sync>,
 }
 
@@ -56,12 +60,15 @@ impl JobHandle {
             paused: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
             started: Mutex::new(None),
+            speed: Mutex::new(SpeedSmoother::default()),
             notify,
         }
     }
 
     pub fn snapshot(&self) -> TransferJob {
-        self.job.lock().clone()
+        let mut job = self.job.lock();
+        self.refresh_speed(&mut job);
+        job.clone()
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -117,14 +124,27 @@ impl JobHandle {
             if job.state == JobState::Running && started.is_none() {
                 *started = Some(Instant::now());
             }
-            if let Some(start) = *started {
-                let secs = start.elapsed().as_secs_f64();
-                if secs > 0.5 {
-                    job.speed_bps = (job.bytes_done as f64 / secs) as u64;
-                }
-            }
+            drop(started);
+            self.refresh_speed(&mut job);
         }
         (self.notify)();
+    }
+
+    pub fn elapsed(&self) -> Option<Duration> {
+        self.started.lock().map(|started| started.elapsed())
+    }
+
+    fn refresh_speed(&self, job: &mut TransferJob) {
+        let speed = if job.state == JobState::Running || job.state == JobState::Verifying {
+            self.speed.lock().record(Instant::now(), job.bytes_done)
+        } else {
+            self.speed.lock().current()
+        };
+        job.bytes_per_sec = speed;
+        job.speed_bps = speed.unwrap_or(0);
+        job.eta_secs = speed.and_then(|bps| {
+            (bps > 0).then(|| job.bytes_total.saturating_sub(job.bytes_done).div_ceil(bps))
+        });
     }
 
     pub fn add_bytes(&self, bytes: u64) {

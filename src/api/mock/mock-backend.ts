@@ -58,7 +58,9 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       const n = Math.min(step, job.files_total - job.files_done);
       job.files_done += n;
       job.bytes_done = job.files_done * AVG_FILE;
-      job.speed_bps = 180_000_000;
+      job.bytes_per_sec = 180_000_000;
+      job.speed_bps = job.bytes_per_sec;
+      job.eta_secs = Math.ceil((job.bytes_total - job.bytes_done) / job.bytes_per_sec);
       job.current_file = `IMG_${7412 + job.files_done}.ARW`;
       const c = counts[job.flow_id];
       if (c) {
@@ -68,6 +70,14 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       if (job.files_done >= job.files_total) {
         job.state = "done";
         job.current_file = null;
+        job.eta_secs = 0;
+        const flow = snapshot.flows.find((f) => f.id === job.flow_id);
+        const dst = snapshot.destinations.find((d) => d.id === flow?.destination_id);
+        if (dst?.device_id && job.bytes_total > 0) {
+          snapshot.settings.transfer_speeds ??= {};
+          snapshot.settings.transfer_speeds[dst.device_id] = job.bytes_per_sec ?? job.speed_bps;
+          snapshot.settings.transfer_speeds._global = job.bytes_per_sec ?? job.speed_bps;
+        }
       }
     }
     events.emit("transfers", structuredClone(jobs));
@@ -103,6 +113,8 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       bytes_total: c[1] * AVG_FILE,
       current_file: null,
       speed_bps: 0,
+      bytes_per_sec: null,
+      eta_secs: null,
       errors: [],
     });
     timer ??= setInterval(tick, options.tickMs ?? 400);

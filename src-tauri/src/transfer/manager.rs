@@ -68,6 +68,8 @@ impl TransferManager {
             bytes_total: 0,
             current_file: None,
             speed_bps: 0,
+            bytes_per_sec: None,
+            eta_secs: None,
             errors: vec![],
         };
         let weak = Arc::downgrade(&self.inner);

@@ -3,6 +3,7 @@ mod copy;
 mod handle;
 mod job;
 mod manager;
+mod speed;
 
 pub use copy::{copy_verified, CopyError, CopyOutcome};
 pub use handle::{JobHandle, JobState, TransferJob};

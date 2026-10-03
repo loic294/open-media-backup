@@ -147,6 +147,8 @@ export interface AppSettings {
   preview_apps?: PreviewAppSettings;
   /** Local per-computer app paths for App destinations, keyed by destination id. */
   app_destinations?: Record<string, string>;
+  /** Learned transfer throughput in bytes/sec, keyed by destination device id. `_global` is the fallback. */
+  transfer_speeds?: Record<string, number>;
 }
 
 export interface Snapshot {
@@ -298,7 +300,10 @@ export interface TransferJob {
   bytes_done: number;
   bytes_total: number;
   current_file: string | null;
+  /** Deprecated compatibility alias for bytes_per_sec, or 0 before speed is known. */
   speed_bps: number;
+  bytes_per_sec: number | null;
+  eta_secs: number | null;
   errors: string[];
 }
 

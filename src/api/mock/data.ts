@@ -193,6 +193,7 @@ export function demoSnapshot(): Snapshot {
       active_project_by_space: { travel: "trip" },
       preview_apps: { photos: null, videos: null },
       app_destinations: { d4: "/Applications/Adobe Lightroom.app" },
+      transfer_speeds: { ssd: 185_000_000, nas: 92_000_000, _global: 140_000_000 },
     },
   } satisfies Snapshot);
 }

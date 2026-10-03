@@ -1,5 +1,6 @@
 use super::copy::{copy_verified, CopyError};
 use super::handle::{JobHandle, JobState};
+use crate::app::AppSettings;
 use crate::domain::{FileCopy, FileRecord};
 use crate::paths::{ensure_backup_folder, join_relative, to_relative};
 use crate::plan::{
@@ -79,11 +80,30 @@ pub fn run_transfer(
         }
     }
     writer.flush().map_err(|e| e.to_string())?;
+    let completed_without_errors = flow_failures.is_empty() && handle.snapshot().errors.is_empty();
     if !flow_failures.is_empty() {
         failures.lock().insert(flow_id.to_string(), flow_failures);
     }
+    if completed_without_errors {
+        record_learned_speed(store, &ctx.dest_device.id, handle);
+    }
     handle.update(|j| j.current_file = None);
     Ok(())
+}
+
+fn record_learned_speed(store: &Store, destination_device_id: &str, handle: &JobHandle) {
+    let job = handle.snapshot();
+    let Some(elapsed) = handle.elapsed() else {
+        return;
+    };
+    let mut settings = AppSettings::load(store);
+    if settings.record_transfer_sample(
+        destination_device_id,
+        job.bytes_total,
+        elapsed.as_secs_f64(),
+    ) {
+        let _ = settings.save(store);
+    }
 }
 
 fn prepare(

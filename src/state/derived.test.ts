@@ -24,6 +24,8 @@ const job = (p: Partial<TransferJob>): TransferJob => ({
   bytes_total: 100,
   current_file: null,
   speed_bps: 10,
+  bytes_per_sec: null,
+  eta_secs: null,
   errors: [],
   ...p,
 });
