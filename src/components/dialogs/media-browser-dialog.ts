@@ -8,7 +8,14 @@ import { matchingProjects } from "../../state/projects";
 import { deviceById } from "../../state/selectors";
 import { debounce } from "../../utils/debounce";
 import { DialogBase } from "./dialog-base";
-import { captureLabel, captureTime, captureTimeMs, mergeMedia, selectedCaptureRange, type BrowserMedia } from "./media-browser-data";
+import {
+  captureLabel,
+  captureTime,
+  captureTimeMs,
+  mergeMedia,
+  selectedCaptureRange,
+  type BrowserMedia,
+} from "./media-browser-data";
 import "./media-inspector";
 import "../ui/omb-thumbnail";
 
@@ -169,7 +176,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     if (!snapshot || !source) return nothing;
     const file = this.items.find((item) => item.file.rel_path === this.inspected)?.file;
     const range = selectedCaptureRange(this.items, this.selection.selected);
-    const body = html` <div class="flex flex-col gap-4">
+    const body = html` <div class="flex flex-col gap-4 lg:flex-1 lg:min-h-0">
       <div class="flex flex-wrap items-center gap-3">
         <label class="input input-sm">
           <omb-icon name="search"></omb-icon>
@@ -207,8 +214,12 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
       ${!this.#projectId ? html`<p role="status">Select a project before browsing source media.</p>` : nothing}
       ${!this.#cursors.length ? html`<p role="status">Connect this source to a destination to browse its files.</p>` : nothing}
       ${this.error ? html`<p role="alert" class="text-error">${this.error} Use Load more to retry.</p>` : nothing}
-      <div class="flex flex-col lg:flex-row gap-5">
-        <section class="flex-1 min-w-0" aria-label="Source media gallery" aria-busy=${this.loading}>
+      <div class="flex flex-col lg:flex-row gap-5 lg:flex-1 lg:min-h-0">
+        <section
+          class="flex-1 min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2"
+          aria-label="Source media gallery"
+          aria-busy=${this.loading}
+        >
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             ${repeat(
               this.items,
@@ -265,11 +276,14 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
           ${this.loading ? html`<p role="status" class="py-4"><span class="loading loading-spinner loading-sm"></span> Loading media…</p>` : nothing}
           ${this.hasMore ? html`<button class="btn btn-sm mt-4" ?disabled=${this.loading} @click=${() => this.#load()}>Load more</button>` : nothing}
         </section>
-        <aside class="lg:w-72 shrink-0" aria-label="Media inspector">
+        <aside
+          class="lg:w-72 shrink-0 lg:flex lg:flex-col lg:min-h-0 lg:max-h-full"
+          aria-label="Media inspector"
+        >
           ${
             file
               ? html` <button
-                    class="btn btn-sm mb-3"
+                    class="btn btn-sm mb-3 lg:shrink-0 lg:self-start"
                     ?disabled=${!file.abs_path}
                     @click=${() =>
                       this.store.open({
@@ -280,7 +294,10 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
                   >
                     <omb-icon name="maximize"></omb-icon>View larger in app
                   </button>
-                  <omb-media-inspector .file=${file}></omb-media-inspector>`
+                  <omb-media-inspector
+                    class="lg:flex lg:flex-col lg:flex-1 lg:min-h-0"
+                    .file=${file}
+                  ></omb-media-inspector>`
               : html`<p class="text-sm text-base-content/60">
                   Select a file to inspect its embedded metadata.
                 </p>`
@@ -305,6 +322,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
       subheading=${deviceById(snapshot, source.device_id)?.name ?? "Source"}
       icon="images"
       .body=${body}
+      bodyClass="px-6 py-5 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:flex lg:flex-col"
       .actions=${actions}
       @close=${this.onClosed}
     ></omb-modal>`;

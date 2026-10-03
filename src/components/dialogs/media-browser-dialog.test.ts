@@ -345,6 +345,39 @@ describe("source media browser components", () => {
     expect(preview.compareDocumentPosition(metadata) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("pins the media browser inspector while the gallery scrolls independently on large screens", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("photo", 0)]) : page([]),
+    );
+    const element = await browser();
+    element.querySelector<HTMLButtonElement>('button[aria-label="Select photo"]')!.click();
+    await element.updateComplete;
+
+    const modal = element.querySelector("omb-modal")!;
+    expect(modal.getAttribute("bodyClass")).toContain("lg:overflow-hidden");
+    expect(element.querySelector('section[aria-label="Source media gallery"]')?.className).toContain(
+      "lg:overflow-y-auto",
+    );
+    expect(element.querySelector('aside[aria-label="Media inspector"]')?.className).toContain("lg:flex-col");
+    expect(element.querySelector("omb-media-inspector")?.className).toContain("lg:flex-1");
+  });
+
+  it("keeps inspector metadata in its own scrollable pane below the fixed preview", async () => {
+    const element = new OmbMediaInspector();
+    element.file = file("photo");
+    document.body.append(element);
+    await until(() => element.textContent?.includes("Camera maker") ?? false);
+
+    expect(element.querySelector('section[aria-label="Selected media preview"]')?.className).toContain(
+      "lg:shrink-0",
+    );
+    const metadataCard = [...element.querySelectorAll("section")].find((section) =>
+      section.textContent?.includes("Embedded metadata"),
+    )!;
+    expect(metadataCard.className).toContain("lg:flex-1");
+    expect(metadataCard.className).toContain("lg:overflow-y-auto");
+  });
+
   it("navigates viewer thumbnails and opens the current file in the default app", async () => {
     const openMedia = vi.spyOn(store.backend, "openMedia").mockResolvedValue();
     const element = new OmbMediaViewerDialog();
@@ -361,7 +394,9 @@ describe("source media browser components", () => {
       vi.mocked(store.backend.mediaPreview).mock.calls.some(([path]) => path === "/source/next.jpg"),
     );
     await element.updateComplete;
-    expect(element.querySelector('[aria-label="Preview next.jpg"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(element.querySelector('[aria-label="Preview next.jpg"]')?.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
     [...element.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Open in default app"))!
       .click();

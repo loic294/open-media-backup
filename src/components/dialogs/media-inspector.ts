@@ -116,15 +116,24 @@ export class OmbMediaInspector extends OmbElement {
           ],
         );
     }
-    return html` <div class="flex flex-col gap-3">
-      <section class="card card-border bg-base-200 overflow-hidden" aria-label="Selected media preview">
+    return html` <div class="flex flex-col gap-3 lg:flex-1 lg:min-h-0">
+      <section
+        class="card card-border bg-base-200 overflow-hidden lg:shrink-0"
+        aria-label="Selected media preview"
+      >
         <div class="aspect-[3/2] bg-base-300 grid place-items-center relative">
           ${
             this.previewSrc
-              ? html`<img src=${this.previewSrc} alt=${`Preview of ${this.file.name}`} class="absolute inset-0 size-full object-contain" />`
+              ? html`<img
+                  src=${this.previewSrc}
+                  alt=${`Preview of ${this.file.name}`}
+                  class="absolute inset-0 size-full object-contain"
+                />`
               : html`<div class="flex flex-col items-center gap-2 p-4 text-center text-base-content/50">
                   <omb-icon name=${this.file.media === "video" ? "film" : "image"} class="size-8"></omb-icon>
-                  <span class="text-xs">${this.previewError ?? (this.loading ? "Loading preview…" : "Preview unavailable")}</span>
+                  <span class="text-xs"
+                    >${this.previewError ?? (this.loading ? "Loading preview…" : "Preview unavailable")}</span
+                  >
                 </div>`
           }
         </div>
@@ -133,27 +142,27 @@ export class OmbMediaInspector extends OmbElement {
           ${this.file.media === "video" ? html`<span class="badge badge-xs badge-neutral">VIDEO</span>` : nothing}
         </div>
       </section>
-      <section class="card card-border bg-base-200">
+      <section class="card card-border bg-base-200 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
         <div class="card-body p-4 gap-3">
-        <h4 class="card-title text-sm">Embedded metadata</h4>
-        ${this.loading ? html`<p role="status"><span class="loading loading-spinner loading-sm"></span> Reading metadata…</p>` : nothing}
-        ${
-          this.error
-            ? html`<p role="alert" class="text-sm text-error">${this.error}</p>
-                <button class="btn btn-sm" ?disabled=${!this.file.abs_path} @click=${() => this.#load()}>
-                  Retry metadata
-                </button>`
-            : nothing
-        }
-        <dl class="text-xs flex flex-col gap-2">
-          ${rows.map(
-            ([label, value]) =>
-              html`<div>
-                <dt class="text-base-content/60">${label}</dt>
-                <dd class="break-words">${value ?? "Unavailable"}</dd>
-              </div>`,
-          )}
-        </dl>
+          <h4 class="card-title text-sm">Embedded metadata</h4>
+          ${this.loading ? html`<p role="status"><span class="loading loading-spinner loading-sm"></span> Reading metadata…</p>` : nothing}
+          ${
+            this.error
+              ? html`<p role="alert" class="text-sm text-error">${this.error}</p>
+                  <button class="btn btn-sm" ?disabled=${!this.file.abs_path} @click=${() => this.#load()}>
+                    Retry metadata
+                  </button>`
+              : nothing
+          }
+          <dl class="text-xs flex flex-col gap-2">
+            ${rows.map(
+              ([label, value]) =>
+                html`<div>
+                  <dt class="text-base-content/60">${label}</dt>
+                  <dd class="break-words">${value ?? "Unavailable"}</dd>
+                </div>`,
+            )}
+          </dl>
         </div>
       </section>
     </div>`;
