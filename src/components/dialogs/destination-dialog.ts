@@ -108,6 +108,7 @@ export class OmbDestinationDialog extends DialogBase<
     const device = deviceById(snapshot, d.device_id);
     const set = (patch: Partial<Destination>) => (this.draft = { ...d, ...patch });
     const vars = previewVars(space, project);
+    const projectVariableNames = space.variables.map((variable) => variable.name);
     if (d.use_backup_marker)
       vars.backup_folder = `${vars.date}_${vars.project_name ?? "project"} (from card marker)`;
     const unknownVars = isApp ? [] : templateVars(d.path_template).filter((v) => !(v in vars));
@@ -181,6 +182,7 @@ export class OmbDestinationDialog extends DialogBase<
                   <h4 class="font-medium mb-2">File rules</h4>
                   <omb-rules-editor
                     .rules=${d.rules}
+                    .variables=${projectVariableNames}
                     @rules-change=${(e: CustomEvent) => set({ rules: e.detail })}
                   ></omb-rules-editor>
                 </section>
@@ -244,6 +246,7 @@ export class OmbDestinationDialog extends DialogBase<
                           <h4 class="font-medium mb-2">File rules</h4>
                           <omb-rules-editor
                             .rules=${d.rules}
+                            .variables=${projectVariableNames}
                             @rules-change=${(e: CustomEvent) => set({ rules: e.detail })}
                           ></omb-rules-editor>
                         </section>

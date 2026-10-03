@@ -60,11 +60,28 @@ const destination = (
   subfolder_per_source: true,
   counts_as_safe_copy: true,
   use_backup_marker: false,
-  rules: [
-    { action: "include", syntax: "glob", pattern: "*" },
-    { action: "exclude", syntax: "glob", pattern: "PRIVATE/" },
-    { action: "exclude", syntax: "glob", pattern: "*.THM" },
-  ],
+  rules:
+    id === "d2"
+      ? [
+          {
+            kind: "condition",
+            expr: {
+              op: "and",
+              items: [
+                { op: "eq", var: "client", value: "Personal" },
+                { op: "not", item: { op: "eq", var: "project_name", value: "Client_event" } },
+              ],
+            },
+          },
+          { action: "include", syntax: "glob", pattern: "*" },
+          { action: "exclude", syntax: "glob", pattern: "PRIVATE/" },
+          { action: "exclude", syntax: "glob", pattern: "*.THM" },
+        ]
+      : [
+          { action: "include", syntax: "glob", pattern: "*" },
+          { action: "exclude", syntax: "glob", pattern: "PRIVATE/" },
+          { action: "exclude", syntax: "glob", pattern: "*.THM" },
+        ],
   position,
 });
 
