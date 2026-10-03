@@ -14,12 +14,12 @@
   --color-base-200: oklch(96.5% 0.005 260);
   --color-base-300: oklch(91% 0.008 260);
   --color-base-content: oklch(25% 0.02 260);
-  --color-primary: oklch(58% 0.21 277);
-  --color-primary-content: oklch(98% 0.01 277);
-  --color-secondary: oklch(62% 0.15 230);
-  --color-secondary-content: oklch(98% 0.01 230);
-  --color-accent: oklch(66% 0.15 175);
-  --color-accent-content: oklch(98% 0.01 175);
+  --color-primary: #ffc700;
+  --color-primary-content: #1f1600;
+  --color-secondary: #b77900;
+  --color-secondary-content: #1f1600;
+  --color-accent: #f59e0b;
+  --color-accent-content: #1f1600;
   --color-neutral: oklch(35% 0.02 260);
   --color-neutral-content: oklch(97% 0.005 260);
   --color-info: oklch(62% 0.16 240);
@@ -49,12 +49,12 @@
   --color-base-200: oklch(20.5% 0.012 260);
   --color-base-300: oklch(31% 0.014 260);
   --color-base-content: oklch(93% 0.006 260);
-  --color-primary: oklch(62% 0.2 277);
-  --color-primary-content: oklch(98% 0.01 277);
-  --color-secondary: oklch(68% 0.14 230);
-  --color-secondary-content: oklch(18% 0.03 230);
-  --color-accent: oklch(72% 0.14 175);
-  --color-accent-content: oklch(18% 0.03 175);
+  --color-primary: #ffc700;
+  --color-primary-content: #1f1600;
+  --color-secondary: #b77900;
+  --color-secondary-content: #1f1600;
+  --color-accent: #f59e0b;
+  --color-accent-content: #1f1600;
   --color-neutral: oklch(30% 0.014 260);
   --color-neutral-content: oklch(90% 0.006 260);
   --color-info: oklch(70% 0.14 230);
@@ -83,4 +83,38 @@
 /* Custom elements default to inline; our Lit components are layout blocks. */
 :where([data-omb-block]) {
   display: block;
+}
+
+:where([data-theme="omb-light"]) {
+  --omb-readable-primary: #8a6a00;
+  --omb-readable-secondary: #805200;
+  --omb-readable-accent: #8a3f00;
+}
+
+:where([data-theme="omb-light"]) :is(.text-primary, .link-primary) {
+  color: var(--omb-readable-primary);
+}
+
+:where([data-theme="omb-light"]) :is(.text-secondary, .link-secondary) {
+  color: var(--omb-readable-secondary);
+}
+
+:where([data-theme="omb-light"]) :is(.text-accent, .link-accent) {
+  color: var(--omb-readable-accent);
+}
+
+:where([data-theme="omb-light"]) :is(.border-primary, .hover\:border-primary:hover) {
+  border-color: var(--omb-readable-primary);
+}
+
+:where([data-theme="omb-light"]) .border-primary\/40 {
+  border-color: color-mix(in oklab, var(--omb-readable-primary) 40%, transparent);
+}
+
+:where([data-theme="omb-light"]) .ring-primary {
+  --tw-ring-color: var(--omb-readable-primary);
+}
+
+:where([data-theme="omb-light"]) .ring-primary\/40 {
+  --tw-ring-color: color-mix(in oklab, var(--omb-readable-primary) 40%, transparent);
 }
