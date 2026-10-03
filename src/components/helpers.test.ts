@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 import type { FlowStatus, PeerStatus, SyncStatus } from "../api/types";
 import { variableErrors } from "./dialogs/space-dialog";
+import { hashVerificationSummary, hashVerificationTooltip } from "./footer/hash-verification";
 import { ruleError } from "./form/rules-editor";
 import { syncSummary } from "./top-bar/sync-pill";
 import { flowTooltipLabel } from "./workspace/flow-canvas";
 import { safeTone } from "./workspace/source-card";
 
 const peer = (state: PeerStatus["state"]): PeerStatus =>
-  ({ id: state, name: state, address: "", os: "", state, progress: 0, last_synced: null, latency_ms: null, message: null }) as PeerStatus;
+  ({
+    id: state,
+    name: state,
+    address: "",
+    os: "",
+    state,
+    progress: 0,
+    last_synced: null,
+    latency_ms: null,
+    message: null,
+  }) as PeerStatus;
 const sync = (states: PeerStatus["state"][], syncing = false): SyncStatus =>
   ({ listen_address: "", token: "", syncing, progress: 0, peers: states.map(peer) }) as SyncStatus;
 
@@ -48,9 +59,25 @@ describe("component helpers", () => {
     });
 
     expect(flowTooltipLabel("done", fs("done", { transferred: 12 }))).toBe("Transferred · 12 files");
-    expect(flowTooltipLabel("pending", fs("pending", { to_transfer: 3, bytes_to_transfer: 2500 }))).toBe("To transfer · 3 files · 2.5 KB");
-    expect(flowTooltipLabel("error", fs("error", { failed: 1, error: "Hash mismatch" }))).toBe("Issue · 1 hash mismatch");
-    expect(flowTooltipLabel("unavailable", fs("unavailable", { error: "Source offline" }))).toBe("Unavailable · Source offline");
+    expect(flowTooltipLabel("pending", fs("pending", { to_transfer: 3, bytes_to_transfer: 2500 }))).toBe(
+      "To transfer · 3 files · 2.5 KB",
+    );
+    expect(flowTooltipLabel("error", fs("error", { failed: 1, error: "Hash mismatch" }))).toBe(
+      "Issue · 1 hash mismatch",
+    );
+    expect(flowTooltipLabel("unavailable", fs("unavailable", { error: "Source offline" }))).toBe(
+      "Unavailable · Source offline",
+    );
+  });
+
+  it("formats hash verification labels for every supported combination", () => {
+    expect(hashVerificationSummary("blake3", "reread")).toBe("BLAKE3 re-read verification on");
+    expect(hashVerificationSummary("blake3", "inline")).toBe("BLAKE3 verification on");
+    expect(hashVerificationSummary("xxh64", "reread")).toBe("xxHash64 re-read verification on");
+    expect(hashVerificationSummary("xxh64", "inline")).toBe("xxHash64 verification on");
+    expect(hashVerificationTooltip("blake3", "reread", 3)).toBe(
+      "Algorithm: BLAKE3\nStatus: re-read verification on\nMismatches: 3 this run",
+    );
   });
 
   it("picks the safe-copy tone", () => {
