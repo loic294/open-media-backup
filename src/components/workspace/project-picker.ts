@@ -2,27 +2,26 @@ import { html, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
 import { OmbElement } from "../ui/omb-element";
 
-/** Shows the active project and links to the dedicated project management page. */
+/** Opens project management actions while keeping active project state internal. */
 @customElement("omb-project-picker")
 export class OmbProjectPicker extends OmbElement {
   override render() {
-    const { project, space } = this.store;
+    const { space } = this.store;
     if (!space) return nothing;
-    return html`<div class="flex items-center gap-3">
-      <span class="text-sm tracking-wide text-base-content/60 uppercase">Project</span>
-      <span class="flex min-w-0 items-center gap-2" aria-live="polite">
-        ${
-          project
-            ? html`<span
-                class="size-3 shrink-0 rounded-full border border-base-content/20"
-                style=${`background-color:${project.color ?? "var(--color-primary)"}`}
-              ></span>`
-            : nothing
-        }
-        <span class="font-semibold truncate">${project?.name ?? "No project selected"}</span>
-      </span>
-      <button class="btn btn-sm gap-2" @click=${() => this.store.openProjectsPage()}>
-        <omb-icon name="folder-open"></omb-icon>Projects
+    return html`<div class="flex items-center justify-center gap-2">
+      <button
+        class="btn btn-sm btn-primary btn-outline gap-2 px-5"
+        aria-label="Open projects"
+        @click=${() => this.store.openProjectsPage()}
+      >
+        <omb-icon name="folder"></omb-icon>Projects
+      </button>
+      <button
+        class="btn btn-sm btn-primary gap-2 px-5"
+        aria-label="Create new project"
+        @click=${() => this.store.open({ type: "project", projectId: null })}
+      >
+        <omb-icon name="plus"></omb-icon>New project
       </button>
     </div>`;
   }
