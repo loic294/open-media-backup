@@ -5,16 +5,35 @@ use crate::testing::Fixture;
 fn record_copy(fx: &Fixture, file: &str, size: u64, device: &str, path: &str) {
     let id = FileRecord::id_for(HashAlgo::Xxh64, file);
     fx.store
-        .put(&FileRecord { id: id.clone(), hash: file.into(), size, name: path.into(), ..Default::default() })
+        .put(&FileRecord {
+            id: id.clone(),
+            hash: file.into(),
+            size,
+            name: path.into(),
+            ..Default::default()
+        })
         .unwrap();
     fx.store
-        .put(&FileCopy { id: FileCopy::id_for(&id, device, path), file_id: id, device_id: device.into(), path: path.into(), ..Default::default() })
+        .put(&FileCopy {
+            id: FileCopy::id_for(&id, device, path),
+            file_id: id,
+            device_id: device.into(),
+            path: path.into(),
+            ..Default::default()
+        })
         .unwrap();
 }
 
 fn status(fx: &Fixture) -> ProjectStatus {
     let catalog = Catalog::load(&fx.store).unwrap();
-    project_status(&fx.store, &fx.resolver, &catalog, &fx.project.id, &FailureMap::new()).unwrap()
+    project_status(
+        &fx.store,
+        &fx.resolver,
+        &catalog,
+        &fx.project.id,
+        &FailureMap::new(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -22,7 +41,10 @@ fn resolves_paths_with_variables_and_subfolder() {
     let fx = Fixture::new();
     let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
     assert_eq!(ctx.source_folder_rel, "DCIM");
-    assert_eq!(ctx.target_rel("100/A.ARW"), "photo/Trip/Camera A Card 1/100/A.ARW");
+    assert_eq!(
+        ctx.target_rel("100/A.ARW"),
+        "photo/Trip/Camera A Card 1/100/A.ARW"
+    );
     assert!(ctx.config_error.is_none());
 }
 
@@ -41,17 +63,30 @@ fn missing_variable_is_a_config_error() {
 fn classifies_pending_transferred_and_ignored() {
     let fx = Fixture::new();
     let mut dst = fx.destination.clone();
-    dst.rules = vec![FileRule { action: RuleAction::Exclude, syntax: RuleSyntax::Glob, pattern: "*.THM".into() }];
+    dst.rules = vec![FileRule {
+        action: RuleAction::Exclude,
+        syntax: RuleSyntax::Glob,
+        pattern: "*.THM".into(),
+    }];
     fx.store.put(&dst).unwrap();
     fx.write_card_file("DCIM/100/A.ARW", b"aaaa");
     fx.write_card_file("DCIM/100/B.ARW", b"bbbbbb");
     fx.write_card_file("DCIM/100/A.THM", b"t");
     record_copy(&fx, "hashA", 4, "card", "DCIM/100/A.ARW");
-    record_copy(&fx, "hashA", 4, "nas", "photo/Trip/Camera A Card 1/100/A.ARW");
+    record_copy(
+        &fx,
+        "hashA",
+        4,
+        "nas",
+        "photo/Trip/Camera A Card 1/100/A.ARW",
+    );
 
     let s = status(&fx);
     let flow = &s.flows[0];
-    assert_eq!((flow.transferred, flow.to_transfer, flow.ignored), (1, 1, 1));
+    assert_eq!(
+        (flow.transferred, flow.to_transfer, flow.ignored),
+        (1, 1, 1)
+    );
     assert_eq!(flow.bytes_to_transfer, 6);
     assert_eq!(flow.state, FlowState::Pending);
     let src = &s.sources[0];

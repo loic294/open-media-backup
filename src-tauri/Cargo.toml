@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -34,11 +34,18 @@ gethostname = "1"
 plist = "1"
 parking_lot = "0.12"
 log = "0.4"
+jpeg-decoder = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
-tauri = { version = "2", features = ["protocol-asset", "test"] }
+tauri = { version = "2", features = ["test"] }
 
 [profile.release]
 lto = true
 codegen-units = 1
+
+# Image decoding is ~20x slower unoptimized; keep dependencies fast in `tauri dev`.
+[profile.dev.package."*"]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false

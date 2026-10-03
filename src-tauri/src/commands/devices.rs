@@ -9,17 +9,27 @@ pub async fn list_volumes(state: State<'_, Shared>) -> CmdResult<Vec<VolumeInfo>
 }
 
 #[tauri::command]
-pub async fn register_device(state: State<'_, Shared>, mount_path: String, device: Device) -> CmdResult<Device> {
+pub async fn register_device(
+    state: State<'_, Shared>,
+    mount_path: String,
+    device: Device,
+) -> CmdResult<Device> {
     blocking(&state, move |s| {
-        crate::devices::register_device(&s.core.store, &mount_path, device).map_err(|e| e.to_string())
+        crate::devices::register_device(&s.core.store, &mount_path, device)
+            .map_err(|e| e.to_string())
     })
     .await
 }
 
 #[tauri::command]
-pub async fn relink_device(state: State<'_, Shared>, device_id: String, mount_path: String) -> CmdResult<Device> {
+pub async fn relink_device(
+    state: State<'_, Shared>,
+    device_id: String,
+    mount_path: String,
+) -> CmdResult<Device> {
     blocking(&state, move |s| {
-        crate::devices::relink_device(&s.core.store, &device_id, &mount_path).map_err(|e| e.to_string())
+        crate::devices::relink_device(&s.core.store, &device_id, &mount_path)
+            .map_err(|e| e.to_string())
     })
     .await
 }

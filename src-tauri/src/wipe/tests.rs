@@ -29,7 +29,15 @@ fn backed_up() -> Fixture {
     let fx = Fixture::new();
     fx.write_card_file("DCIM/A.JPG", b"a");
     fx.write_card_file("DCIM/B.JPG", b"b");
-    run_transfer(&fx.store, &fx.resolver, "project", "flow", &handle(), &Mutex::new(FailureMap::new())).unwrap();
+    run_transfer(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "flow",
+        &handle(),
+        &Mutex::new(FailureMap::new()),
+    )
+    .unwrap();
     fx
 }
 
@@ -40,7 +48,15 @@ fn plan_blocks_until_enough_copies() {
     let plan = plan_wipe(&fx.store, &fx.resolver, "project", "src").unwrap();
     assert!(!plan.eligible);
     assert_eq!(plan.reason.as_deref(), Some("Needs Home NAS"));
-    assert!(wipe(&fx.store, &fx.resolver, "project", "src", WipeMethod::DeleteFiles, &handle()).is_err());
+    assert!(wipe(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle()
+    )
+    .is_err());
     assert!(fx.card_dir.path().join("DCIM/A.JPG").exists());
 }
 
@@ -49,19 +65,41 @@ fn delete_files_after_verification() {
     let fx = backed_up();
     let plan = plan_wipe(&fx.store, &fx.resolver, "project", "src").unwrap();
     assert!(plan.eligible, "{:?}", plan.reason);
-    wipe(&fx.store, &fx.resolver, "project", "src", WipeMethod::DeleteFiles, &handle()).unwrap();
+    wipe(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle(),
+    )
+    .unwrap();
     assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
     assert!(fx.card_dir.path().join("DCIM").is_dir());
     let copies = fx.store.list::<FileCopy>().unwrap();
-    assert!(copies.iter().filter(|c| c.device_id == "card").all(|c| c.removed));
-    assert!(copies.iter().filter(|c| c.device_id == "nas").all(|c| !c.removed));
+    assert!(copies
+        .iter()
+        .filter(|c| c.device_id == "card")
+        .all(|c| c.removed));
+    assert!(copies
+        .iter()
+        .filter(|c| c.device_id == "nas")
+        .all(|c| !c.removed));
 }
 
 #[test]
 fn modified_file_aborts_everything() {
     let fx = backed_up();
     std::fs::write(fx.card_dir.path().join("DCIM/B.JPG"), b"x").unwrap();
-    let err = wipe(&fx.store, &fx.resolver, "project", "src", WipeMethod::DeleteFiles, &handle()).unwrap_err();
+    let err = wipe(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle(),
+    )
+    .unwrap_err();
     assert!(err.contains("B.JPG"), "{err}");
     assert!(fx.card_dir.path().join("DCIM/A.JPG").exists());
 }

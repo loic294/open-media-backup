@@ -28,15 +28,27 @@ pub struct FinalTarget<'a> {
 }
 
 /// `files` are `(path relative to the source folder, known file id)`.
-pub fn safe_copy_report(files: &[(String, Option<String>)], finals: &[FinalTarget], catalog: &Catalog) -> SafeCopyReport {
-    let required = |target: &FinalTarget, rel: &str| target.rules.is_empty() || target.rules.iter().any(|r| r.allows(rel));
+pub fn safe_copy_report(
+    files: &[(String, Option<String>)],
+    finals: &[FinalTarget],
+    catalog: &Catalog,
+) -> SafeCopyReport {
+    let required = |target: &FinalTarget, rel: &str| {
+        target.rules.is_empty() || target.rules.iter().any(|r| r.allows(rel))
+    };
     let copies: Vec<DeviceCopies> = finals
         .iter()
         .map(|target| {
-            let wanted: Vec<_> = files.iter().filter(|(rel, _)| required(target, rel)).collect();
+            let wanted: Vec<_> = files
+                .iter()
+                .filter(|(rel, _)| required(target, rel))
+                .collect();
             let verified = wanted
                 .iter()
-                .filter(|(_, id)| id.as_ref().is_some_and(|id| catalog.has_copy_on(id, &target.device.id)))
+                .filter(|(_, id)| {
+                    id.as_ref()
+                        .is_some_and(|id| catalog.has_copy_on(id, &target.device.id))
+                })
                 .count();
             DeviceCopies {
                 device_id: target.device.id.clone(),
@@ -49,12 +61,18 @@ pub fn safe_copy_report(files: &[(String, Option<String>)], finals: &[FinalTarge
     let ignored = if finals.is_empty() {
         0
     } else {
-        files.iter().filter(|(rel, _)| !finals.iter().any(|t| required(t, rel))).count()
+        files
+            .iter()
+            .filter(|(rel, _)| !finals.iter().any(|t| required(t, rel)))
+            .count()
     };
     SafeCopyReport {
         files_total: files.len(),
         ignored,
-        safe_copies: copies.iter().filter(|c| c.total > 0 && c.verified == c.total).count(),
+        safe_copies: copies
+            .iter()
+            .filter(|c| c.total > 0 && c.verified == c.total)
+            .count(),
         copies,
     }
 }

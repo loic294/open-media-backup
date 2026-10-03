@@ -21,14 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'",
-      "assetProtocol": {
-        "enable": true,
-        "scope": [
-          "$APPDATA/thumbnails/**",
-          "$APPLOCALDATA/thumbnails/**"
-        ]
-      }
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

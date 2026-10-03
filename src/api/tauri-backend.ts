@@ -1,7 +1,22 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
+
+const thumbnails = new Map<string, Promise<string | null>>();
+
+/** Thumbnails arrive as raw JPEG bytes; each becomes a blob URL, cached for the session. */
+function thumbnailUrl(absPath: string): Promise<string | null> {
+  let url = thumbnails.get(absPath);
+  if (!url) {
+    url = invoke<ArrayBuffer>("thumbnail", { absPath }).then((bytes) =>
+      bytes.byteLength ? URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) : null,
+    );
+    url.catch(() => thumbnails.delete(absPath));
+    thumbnails.set(absPath, url);
+  }
+  return url;
+}
 
 /** Thin typed wrapper over Tauri commands (see src-tauri/src/commands). */
 export const tauriBackend: Backend = {
@@ -12,10 +27,7 @@ export const tauriBackend: Backend = {
 
   getProjectStatus: (projectId) => invoke("get_project_status", { projectId }),
   listFiles: (req) => invoke("list_files", { req }),
-  thumbnail: async (absPath) => {
-    const path = await invoke<string | null>("thumbnail", { absPath });
-    return path ? convertFileSrc(path) : null;
-  },
+  thumbnail: (absPath) => thumbnailUrl(absPath),
 
   runFlow: (projectId, flowId) => invoke("run_flow", { projectId, flowId }),
   runAll: (projectId) => invoke("run_all", { projectId }),

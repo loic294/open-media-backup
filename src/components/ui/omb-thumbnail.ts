@@ -57,7 +57,7 @@ export class OmbThumbnail extends OmbPureElement {
       <figure class="flex flex-col gap-1" title=${f.error ?? f.target_path ?? f.rel_path}>
         <div class="relative aspect-[3/2] rounded-field overflow-hidden bg-base-300 grid place-items-center ${tone}">
           ${this.src
-            ? html`<img src=${this.src} alt=${f.name} loading="lazy" class="absolute inset-0 size-full object-cover" />`
+            ? html`<img src=${this.src} alt=${f.name} class="absolute inset-0 size-full object-cover" @error=${() => (this.src = null)} />`
             : html`<omb-icon name=${MEDIA_ICON[f.media]} class="size-6 text-base-content/40"></omb-icon>`}
           ${f.media === "video" ? html`<span class="absolute bottom-1 right-1 badge badge-xs badge-neutral">VIDEO</span>` : nothing}
           ${f.media === "raw" ? html`<span class="absolute bottom-1 right-1 badge badge-xs badge-neutral">RAW</span>` : nothing}

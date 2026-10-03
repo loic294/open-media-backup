@@ -33,7 +33,11 @@ impl Fixture {
     pub fn new() -> Self {
         let store = Arc::new(Store::open_in_memory().unwrap());
         let (card_dir, nas_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let space = Space { id: "space".into(), name: "Travel".into(), ..Default::default() };
+        let space = Space {
+            id: "space".into(),
+            name: "Travel".into(),
+            ..Default::default()
+        };
         let project = Project {
             id: "project".into(),
             space_id: space.id.clone(),
@@ -41,8 +45,18 @@ impl Fixture {
             final_copies_required: 1,
             ..Default::default()
         };
-        let card = Device { id: "card".into(), name: "Camera A Card 1".into(), role: DeviceRole::Original, ..Default::default() };
-        let nas = Device { id: "nas".into(), name: "Home NAS".into(), role: DeviceRole::Final, ..Default::default() };
+        let card = Device {
+            id: "card".into(),
+            name: "Camera A Card 1".into(),
+            role: DeviceRole::Original,
+            ..Default::default()
+        };
+        let nas = Device {
+            id: "nas".into(),
+            name: "Home NAS".into(),
+            role: DeviceRole::Final,
+            ..Default::default()
+        };
         let source = Source {
             id: "src".into(),
             space_id: space.id.clone(),
@@ -58,7 +72,12 @@ impl Fixture {
             path_template: "photo/{project_name}".into(),
             ..Default::default()
         };
-        let flow = Flow { id: "flow".into(), space_id: space.id.clone(), source_id: source.id.clone(), destination_id: destination.id.clone() };
+        let flow = Flow {
+            id: "flow".into(),
+            space_id: space.id.clone(),
+            source_id: source.id.clone(),
+            destination_id: destination.id.clone(),
+        };
         store.put(&space).unwrap();
         store.put(&project).unwrap();
         store.put_all(&[card.clone(), nas.clone()]).unwrap();

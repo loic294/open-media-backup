@@ -20,22 +20,59 @@ pub struct Assessed {
     pub assessment: SourceAssessment,
 }
 
-pub fn assess(store: &Store, resolver: &dyn RootResolver, project_id: &str, source_id: &str) -> Result<Assessed, String> {
-    let project: Project = store.get(project_id).map_err(|e| e.to_string())?.ok_or("project not found")?;
-    let source: Source = store.get(source_id).map_err(|e| e.to_string())?.ok_or("source not found")?;
-    let space: Space = store.get(&source.space_id).map_err(|e| e.to_string())?.ok_or("space not found")?;
-    let device: Device = store.get(&source.device_id).map_err(|e| e.to_string())?.ok_or("device not found")?;
+pub fn assess(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    project_id: &str,
+    source_id: &str,
+) -> Result<Assessed, String> {
+    let project: Project = store
+        .get(project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("project not found")?;
+    let source: Source = store
+        .get(source_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("source not found")?;
+    let space: Space = store
+        .get(&source.space_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("space not found")?;
+    let device: Device = store
+        .get(&source.device_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("device not found")?;
     if project.space_id != space.id {
         return Err("source and project belong to different spaces".into());
     }
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
     let finals = FinalSet::load(store).map_err(|e| e.to_string())?;
-    let assessment = assess_source(resolver, &catalog, &space, &project, &device, &source, &finals.targets());
-    Ok(Assessed { source, device, catalog, assessment })
+    let assessment = assess_source(
+        resolver,
+        &catalog,
+        &space,
+        &project,
+        &device,
+        &source,
+        &finals.targets(),
+    );
+    Ok(Assessed {
+        source,
+        device,
+        catalog,
+        assessment,
+    })
 }
 
-pub fn plan_wipe(store: &Store, resolver: &dyn RootResolver, project_id: &str, source_id: &str) -> Result<WipePlan, String> {
-    let Assessed { assessment, source, .. } = assess(store, resolver, project_id, source_id)?;
+pub fn plan_wipe(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    project_id: &str,
+    source_id: &str,
+) -> Result<WipePlan, String> {
+    let Assessed {
+        assessment, source, ..
+    } = assess(store, resolver, project_id, source_id)?;
     let reason = match &assessment.status.blocking_reason {
         Some(r) => Some(r.clone()),
         None if !source.offer_wipe => Some("Wiping is disabled for this source".into()),

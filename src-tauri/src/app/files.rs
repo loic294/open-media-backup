@@ -40,13 +40,22 @@ pub fn list_files(
     failures: &FailureMap,
     req: &ListFilesRequest,
 ) -> Result<FilePage, String> {
-    let ctx = resolve_flow(store, resolver, &req.project_id, &req.flow_id).map_err(|e| e.to_string())?;
+    let ctx =
+        resolve_flow(store, resolver, &req.project_id, &req.flow_id).map_err(|e| e.to_string())?;
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
-    let filter = req.filter.as_deref().map(str::to_lowercase).filter(|f| !f.is_empty());
+    let filter = req
+        .filter
+        .as_deref()
+        .map(str::to_lowercase)
+        .filter(|f| !f.is_empty());
     let matching: Vec<_> = classify_flow(&ctx, &catalog, failures.get(&req.flow_id))
         .into_iter()
         .filter(|f| f.category == req.category)
-        .filter(|f| filter.as_ref().is_none_or(|q| f.rel_path.to_lowercase().contains(q)))
+        .filter(|f| {
+            filter
+                .as_ref()
+                .is_none_or(|q| f.rel_path.to_lowercase().contains(q))
+        })
         .collect();
     Ok(FilePage {
         total: matching.len(),
@@ -56,7 +65,12 @@ pub fn list_files(
             .skip(req.offset)
             .take(req.limit.clamp(1, 1000))
             .map(|f| FileEntry {
-                name: f.rel_path.rsplit('/').next().unwrap_or_default().to_string(),
+                name: f
+                    .rel_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
                 media: media_kind(Path::new(&f.rel_path)),
                 abs_path: f.abs_path.as_ref().map(|p| p.display().to_string()),
                 target_path: (f.category != Category::Ignored).then(|| ctx.target_rel(&f.rel_path)),

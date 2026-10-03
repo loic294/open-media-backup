@@ -1,4 +1,7 @@
-use super::{safe_copy_report, source_files, template_vars, Catalog, FinalTarget, RootResolver, SafeCopyReport, SourceStatus};
+use super::{
+    safe_copy_report, source_files, template_vars, Catalog, FinalTarget, RootResolver,
+    SafeCopyReport, SourceStatus,
+};
 use crate::domain::{Destination, Device, DeviceRole, Project, Source, Space};
 use crate::paths::expand;
 use crate::rules::RuleSet;
@@ -14,7 +17,11 @@ pub struct FinalSet {
 
 impl FinalSet {
     pub fn load(store: &Store) -> StoreResult<Self> {
-        let devices = store.list::<Device>()?.into_iter().filter(|d| d.role == DeviceRole::Final).collect();
+        let devices = store
+            .list::<Device>()?
+            .into_iter()
+            .filter(|d| d.role == DeviceRole::Final)
+            .collect();
         let rules = store
             .list::<Destination>()?
             .into_iter()
@@ -29,7 +36,12 @@ impl FinalSet {
             .iter()
             .map(|device| FinalTarget {
                 device,
-                rules: self.rules.iter().filter(|(id, _)| *id == device.id).map(|(_, r)| r).collect(),
+                rules: self
+                    .rules
+                    .iter()
+                    .filter(|(id, _)| *id == device.id)
+                    .map(|(_, r)| r)
+                    .collect(),
             })
             .collect()
     }
@@ -68,7 +80,10 @@ pub fn assess_source(
 ) -> SourceAssessment {
     let root = resolver.device_root(&device.id).filter(|p| p.exists());
     let vars = template_vars(space, project, device);
-    let folder = expand(&source.path_template, &vars).unwrap_or_default().trim_matches('/').to_string();
+    let folder = expand(&source.path_template, &vars)
+        .unwrap_or_default()
+        .trim_matches('/')
+        .to_string();
     let files = source_files(root.as_deref(), &folder, &device.id, catalog);
     let mut assessment = SourceAssessment {
         status: SourceStatus {
@@ -92,12 +107,22 @@ pub fn assess_source(
         .iter()
         .map(|f| {
             let path = assessment.device_path(&f.rel_path);
-            (f.rel_path.clone(), catalog.file_at(&device.id, &path, Some(f.size)).map(|r| r.id.clone()))
+            (
+                f.rel_path.clone(),
+                catalog
+                    .file_at(&device.id, &path, Some(f.size))
+                    .map(|r| r.id.clone()),
+            )
         })
         .collect();
     assessment.files = files;
     let report = safe_copy_report(&assessment.known, finals, catalog);
-    let missing: Vec<&str> = report.copies.iter().filter(|c| c.verified < c.total).map(|c| c.device_name.as_str()).collect();
+    let missing: Vec<&str> = report
+        .copies
+        .iter()
+        .filter(|c| c.verified < c.total)
+        .map(|c| c.device_name.as_str())
+        .collect();
     let enough = report.safe_copies as u32 >= project.final_copies_required;
     let blocking_reason = if assessment.root.is_none() {
         Some(format!("{} not mounted", device.name))

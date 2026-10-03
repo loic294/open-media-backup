@@ -46,7 +46,10 @@ impl Snapshot {
 pub fn local_computer(store: &Store) -> Computer {
     Computer {
         id: store.computer_id().to_string(),
-        name: gethostname::gethostname().to_string_lossy().trim_end_matches(".local").to_string(),
+        name: gethostname::gethostname()
+            .to_string_lossy()
+            .trim_end_matches(".local")
+            .to_string(),
         os: std::env::consts::OS.to_string(),
     }
 }

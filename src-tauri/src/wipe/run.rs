@@ -27,9 +27,17 @@ pub fn wipe(
     method: WipeMethod,
     handle: &JobHandle,
 ) -> Result<(), String> {
-    let Assessed { device, catalog, assessment, source } = assess(store, resolver, project_id, source_id)?;
+    let Assessed {
+        device,
+        catalog,
+        assessment,
+        source,
+    } = assess(store, resolver, project_id, source_id)?;
     if !assessment.status.wipe_eligible || !source.offer_wipe {
-        return Err(assessment.status.blocking_reason.unwrap_or_else(|| "Wiping is disabled for this source".into()));
+        return Err(assessment
+            .status
+            .blocking_reason
+            .unwrap_or_else(|| "Wiping is disabled for this source".into()));
     }
     let root = assessment.root.clone().ok_or("device is not connected")?;
     let known: Vec<(String, String)> = assessment
@@ -47,14 +55,18 @@ pub fn wipe(
     for (path, id) in &known {
         handle.checkpoint().map_err(|_| "cancelled".to_string())?;
         handle.update(|j| j.current_file = Some(path.clone()));
-        let record = catalog.record(id).ok_or_else(|| format!("{path}: missing catalog record"))?;
+        let record = catalog
+            .record(id)
+            .ok_or_else(|| format!("{path}: missing catalog record"))?;
         let actual = hash_file(&join_relative(&root, path), record.hash_algo, |n| {
             handle.add_bytes(n);
             handle.checkpoint().is_ok()
         })
         .map_err(|e| format!("{path}: {e}"))?;
         if actual != record.hash {
-            return Err(format!("{path} changed since it was backed up; nothing was wiped"));
+            return Err(format!(
+                "{path} changed since it was backed up; nothing was wiped"
+            ));
         }
         handle.update(|j| j.files_done += 1);
     }
@@ -68,7 +80,8 @@ pub fn wipe(
         WipeMethod::DeleteFiles => {
             let mut removed = Vec::new();
             for (path, id) in &known {
-                std::fs::remove_file(join_relative(&root, path)).map_err(|e| format!("{path}: {e}"))?;
+                std::fs::remove_file(join_relative(&root, path))
+                    .map_err(|e| format!("{path}: {e}"))?;
                 removed.push(mark_removed(id, &device.id, path));
             }
             let _ = remove_backup_folder(&root);
@@ -79,7 +92,10 @@ pub fn wipe(
             if let Err(e) = crate::devices::write_marker(&root, &device) {
                 log::warn!("could not rewrite device marker after format: {e}");
             }
-            catalog.copies_under(&device.id, "").map(|c| mark_removed(&c.file_id, &device.id, &c.path)).collect()
+            catalog
+                .copies_under(&device.id, "")
+                .map(|c| mark_removed(&c.file_id, &device.id, &c.path))
+                .collect()
         }
     };
     store.put_all(&removed).map_err(|e| e.to_string())

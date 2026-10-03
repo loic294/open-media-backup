@@ -9,7 +9,12 @@ use std::time::{Duration, Instant};
 fn core(fx: &Fixture) -> (AppCore, tempfile::TempDir) {
     let roots = fx.resolver.0.lock().clone();
     let thumbs = tempfile::tempdir().unwrap();
-    let core = AppCore::new(fx.store.clone(), Arc::new(MapResolver(parking_lot::Mutex::new(roots))), thumbs.path().into(), |_| {});
+    let core = AppCore::new(
+        fx.store.clone(),
+        Arc::new(MapResolver(parking_lot::Mutex::new(roots))),
+        thumbs.path().into(),
+        |_| {},
+    );
     (core, thumbs)
 }
 
@@ -50,10 +55,16 @@ fn delete_cascades_and_guards_devices() {
 fn save_entity_validates() {
     let fx = Fixture::new();
     let (core, _t) = core(&fx);
-    core.save_entity("source", json!({"id": "s2", "space_id": "space", "device_id": "card"})).unwrap();
+    core.save_entity(
+        "source",
+        json!({"id": "s2", "space_id": "space", "device_id": "card"}),
+    )
+    .unwrap();
     assert!(fx.store.get::<Source>("s2").unwrap().is_some());
     assert!(core.save_entity("file_copy", json!({"id": "x"})).is_err());
-    assert!(core.save_entity("source", json!({"space_id": "space"})).is_err());
+    assert!(core
+        .save_entity("source", json!({"space_id": "space"}))
+        .is_err());
 }
 
 #[test]
@@ -73,14 +84,23 @@ fn run_all_then_list_files() {
     };
     let page = core.list_files(&req(Category::ToTransfer, 1, 1)).unwrap();
     assert_eq!((page.total, page.total_bytes, page.items.len()), (3, 4, 1));
-    assert_eq!(page.items[0].target_path.as_deref(), Some("photo/Trip/Camera A Card 1/B.MOV"));
+    assert_eq!(
+        page.items[0].target_path.as_deref(),
+        Some("photo/Trip/Camera A Card 1/B.MOV")
+    );
     assert_eq!(core.run_all("project").unwrap().len(), 1);
     wait_idle(&core);
-    assert_eq!(core.list_files(&req(Category::Transferred, 0, 50)).unwrap().total, 3);
+    assert_eq!(
+        core.list_files(&req(Category::Transferred, 0, 50))
+            .unwrap()
+            .total,
+        3
+    );
     assert!(core.run_all("project").unwrap().is_empty());
     let status = core.project_status("project").unwrap();
     assert!(status.sources[0].wipe_eligible);
-    core.start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles).unwrap();
+    core.start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
+        .unwrap();
     wait_idle(&core);
     assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
 }

@@ -1,9 +1,9 @@
 //! Thin Tauri command wrappers over `AppCore` and `SyncService`.
 pub(crate) mod catalog;
 pub(crate) mod devices;
-mod setup;
 #[cfg(test)]
 mod ipc_tests;
+mod setup;
 pub(crate) mod sync;
 pub(crate) mod transfers;
 
@@ -11,9 +11,9 @@ use crate::app::AppCore;
 use crate::sync::SyncService;
 use std::sync::Arc;
 
-pub use setup::setup;
 #[cfg(test)]
 use setup::init;
+pub use setup::setup;
 
 pub struct AppState {
     pub core: AppCore,
@@ -29,7 +29,9 @@ pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce(&AppState) -> CmdResult<T> + Send + 'static,
 ) -> CmdResult<T> {
     let state = Arc::clone(state);
-    tauri::async_runtime::spawn_blocking(move || work(&state)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || work(&state))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[macro_export]

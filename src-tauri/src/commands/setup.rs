@@ -2,9 +2,9 @@ use super::{AppState, Shared};
 use crate::app::{AppCore, AppSettings, DeviceResolver};
 use crate::store::Store;
 use crate::sync::SyncService;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use std::path::Path;
 use tauri::{App, AppHandle, Emitter, Manager, Runtime};
 
 const CATALOG_KINDS: [&str; 2] = ["file_record", "file_copy"];
@@ -16,7 +16,10 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Same as `setup` with an explicit data directory (used by IPC tests).
-pub fn init<R: Runtime>(handle: &AppHandle<R>, data_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn init<R: Runtime>(
+    handle: &AppHandle<R>,
+    data_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(data_dir)?;
     let store = Arc::new(Store::open(&data_dir.join("omb.sqlite3"))?);
     let handle = handle.clone();
@@ -36,7 +39,10 @@ pub fn init<R: Runtime>(handle: &AppHandle<R>, data_dir: &Path) -> Result<(), Bo
     let sync = SyncService::new(store.clone(), move |status| {
         let _ = emitter.emit("sync-status", status);
     });
-    handle.manage::<Shared>(Arc::new(AppState { core, sync: sync.clone() }));
+    handle.manage::<Shared>(Arc::new(AppState {
+        core,
+        sync: sync.clone(),
+    }));
 
     start_sync(sync, store.clone());
     forward_store_changes(handle.clone(), store.clone());
@@ -57,7 +63,9 @@ fn start_sync(sync: SyncService, store: Arc<Store>) {
         let interval_store = store.clone();
         sync.spawn_auto_sync(Arc::new(move || {
             let settings = AppSettings::load(&interval_store);
-            settings.auto_sync.then(|| Duration::from_secs(u64::from(settings.auto_sync_minutes.max(1)) * 60))
+            settings
+                .auto_sync
+                .then(|| Duration::from_secs(u64::from(settings.auto_sync_minutes.max(1)) * 60))
         }));
     });
 }

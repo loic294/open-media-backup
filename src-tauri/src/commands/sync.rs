@@ -10,7 +10,10 @@ pub fn sync_status(state: State<'_, Shared>) -> SyncStatus {
 #[tauri::command]
 pub async fn add_peer(state: State<'_, Shared>, address: String, token: String) -> CmdResult<()> {
     let sync = state.sync.clone();
-    sync.add_peer(&address, &token).await.map(|_| ()).map_err(|e| e.to_string())
+    sync.add_peer(&address, &token)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

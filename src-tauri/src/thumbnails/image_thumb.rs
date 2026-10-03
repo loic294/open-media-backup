@@ -8,40 +8,26 @@ use image::{DynamicImage, ImageReader};
 
 use crate::media::{media_kind, MediaKind};
 use crate::thumbnails::embedded_jpeg::extract_embedded_jpegs;
+use crate::thumbnails::jpeg_scaled;
 use crate::thumbnails::orientation::{jpeg_orientation, Orientation};
 use crate::thumbnails::ThumbnailError;
 
 const MAX_EDGE: u32 = 360;
 const JPEG_QUALITY: u8 = 80;
 const EMBEDDED_SCAN_LIMIT: u64 = 64 * 1024 * 1024;
-const LARGE_JPEG_FALLBACK: u64 = 8 * 1024 * 1024;
 
 pub fn create_image_thumbnail(path: &Path, out: &Path) -> Result<bool, ThumbnailError> {
-    let kind = media_kind(path);
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let metadata = fs::metadata(path).map_err(|source| ThumbnailError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
 
-    if matches!(kind, MediaKind::Raw) || ext == "heic" || ext == "heif" {
+    if matches!(media_kind(path), MediaKind::Raw) || ext == "heic" || ext == "heif" {
         return create_from_embedded_preview(path, out);
     }
-
-    let directly_supported = matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp");
-    if !directly_supported {
+    if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp") {
         return Ok(false);
-    }
-
-    if (ext == "jpg" || ext == "jpeg")
-        && metadata.len() > LARGE_JPEG_FALLBACK
-        && create_from_embedded_preview(path, out)?
-    {
-        return Ok(true);
     }
 
     let bytes = fs::read(path).map_err(|source| ThumbnailError::Io {
@@ -52,58 +38,54 @@ pub fn create_image_thumbnail(path: &Path, out: &Path) -> Result<bool, Thumbnail
     Ok(true)
 }
 
+/// Uses the smallest embedded JPEG preview that is still at least `MAX_EDGE` on its long side
+/// (or the largest one if all are smaller). Only headers are parsed to choose.
 pub fn create_from_embedded_preview(path: &Path, out: &Path) -> Result<bool, ThumbnailError> {
     let file = fs::File::open(path).map_err(|source| ThumbnailError::Io {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut limit = file.take(EMBEDDED_SCAN_LIMIT);
     let mut bytes = Vec::new();
-    limit
+    file.take(EMBEDDED_SCAN_LIMIT)
         .read_to_end(&mut bytes)
         .map_err(|source| ThumbnailError::Io {
             path: path.to_path_buf(),
             source,
         })?;
 
-    let mut best: Option<(usize, RangeBytes)> = None;
-    for range in extract_embedded_jpegs(&bytes) {
-        if range.len() <= best.as_ref().map_or(0, |(len, _)| *len) {
-            continue;
-        }
-        if image::load_from_memory_with_format(&bytes[range.clone()], image::ImageFormat::Jpeg)
-            .is_ok()
-        {
-            best = Some((
-                range.len(),
-                RangeBytes {
-                    start: range.start,
-                    end: range.end,
-                },
-            ));
-        }
-    }
+    let candidates = extract_embedded_jpegs(&bytes)
+        .into_iter()
+        .filter_map(|r| jpeg_scaled::dimensions(&bytes[r.clone()]).map(|(w, h)| (w.max(h), r)));
+    let best = candidates.fold(
+        None::<(u32, std::ops::Range<usize>)>,
+        |best, (edge, r)| match &best {
+            None => Some((edge, r)),
+            Some((b, _)) if (*b < MAX_EDGE && edge > *b) || (edge >= MAX_EDGE && edge < *b) => {
+                Some((edge, r))
+            }
+            _ => best,
+        },
+    );
 
-    if let Some((_, range)) = best {
-        create_from_bytes(&bytes[range.start..range.end], out, true)?;
-        Ok(true)
-    } else {
-        Ok(false)
+    match best {
+        Some((_, range)) => create_from_bytes(&bytes[range], out, true).map(|()| true),
+        None => Ok(false),
     }
 }
 
-struct RangeBytes {
-    start: usize,
-    end: usize,
-}
-
-fn create_from_bytes(bytes: &[u8], out: &Path, orient_jpeg: bool) -> Result<(), ThumbnailError> {
-    let mut image = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(ThumbnailError::ImageReader)?
-        .decode()
-        .map_err(ThumbnailError::Image)?;
-    if orient_jpeg {
+fn create_from_bytes(bytes: &[u8], out: &Path, is_jpeg: bool) -> Result<(), ThumbnailError> {
+    let mut image = match is_jpeg
+        .then(|| jpeg_scaled::decode_scaled(bytes, MAX_EDGE))
+        .flatten()
+    {
+        Some(image) => image,
+        None => ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .map_err(ThumbnailError::ImageReader)?
+            .decode()
+            .map_err(ThumbnailError::Image)?,
+    };
+    if is_jpeg {
         image = apply_orientation(image, jpeg_orientation(bytes));
     }
     write_resized_jpeg(image, out)

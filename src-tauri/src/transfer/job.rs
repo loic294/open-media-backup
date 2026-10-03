@@ -2,7 +2,10 @@ use super::copy::{copy_verified, CopyError};
 use super::handle::{JobHandle, JobState};
 use crate::domain::{FileCopy, FileRecord};
 use crate::paths::{ensure_backup_folder, to_relative};
-use crate::plan::{classify_flow, resolve_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile, RootResolver};
+use crate::plan::{
+    classify_flow, resolve_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile,
+    RootResolver,
+};
 use crate::store::Store;
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -66,7 +69,12 @@ pub fn run_transfer(
     Ok(())
 }
 
-fn prepare(store: &Store, resolver: &dyn RootResolver, project_id: &str, flow_id: &str) -> Result<FlowContext, String> {
+fn prepare(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    project_id: &str,
+    flow_id: &str,
+) -> Result<FlowContext, String> {
     let mut ctx = resolve_flow(store, resolver, project_id, flow_id).map_err(|e| e.to_string())?;
     if ctx.source_root.is_none() {
         return Err(format!("{} is not connected", ctx.source_device.name));
@@ -93,7 +101,9 @@ fn transfer_one(
     handle: &JobHandle,
 ) -> Result<(String, String), CopyError> {
     let src = file.abs_path.as_ref().ok_or(CopyError::SourceChanged)?;
-    let dst = ctx.target_abs(&file.rel_path).ok_or(CopyError::SourceChanged)?;
+    let dst = ctx
+        .target_abs(&file.rel_path)
+        .ok_or(CopyError::SourceChanged)?;
     let known = file
         .file_id
         .as_deref()
@@ -101,12 +111,20 @@ fn transfer_one(
         .filter(|r| r.hash_algo == ctx.space.hash_algo)
         .map(|r| r.hash.clone());
     let before = handle.snapshot().bytes_done;
-    let outcome = copy_verified(src, &dst, ctx.space.hash_algo, ctx.space.verify_mode, known.as_deref(), handle);
+    let outcome = copy_verified(
+        src,
+        &dst,
+        ctx.space.hash_algo,
+        ctx.space.verify_mode,
+        known.as_deref(),
+        handle,
+    );
     // Keep the byte counter aligned with the file size, whatever was re-read or skipped.
     handle.update(|j| j.bytes_done = before + file.size);
     let outcome = outcome?;
     let root = ctx.dest_root.as_ref().expect("checked in prepare");
-    let dest_rel = to_relative(root, &outcome.final_path).unwrap_or_else(|| ctx.target_rel(&file.rel_path));
+    let dest_rel =
+        to_relative(root, &outcome.final_path).unwrap_or_else(|| ctx.target_rel(&file.rel_path));
     Ok((outcome.hash, dest_rel))
 }
 
@@ -120,7 +138,13 @@ struct RecordWriter<'a> {
 
 impl<'a> RecordWriter<'a> {
     fn new(store: &'a Store, catalog: &'a Catalog) -> Self {
-        Self { store, catalog, written: HashSet::new(), records: vec![], copies: vec![] }
+        Self {
+            store,
+            catalog,
+            written: HashSet::new(),
+            records: vec![],
+            copies: vec![],
+        }
     }
 
     fn len(&self) -> usize {
@@ -137,14 +161,22 @@ impl<'a> RecordWriter<'a> {
                 hash,
                 hash_algo: algo,
                 size: file.size,
-                name: file.rel_path.rsplit('/').next().unwrap_or_default().to_string(),
+                name: file
+                    .rel_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
                 origin_device_id: ctx.source_device.id.clone(),
                 origin_path: source_path.clone(),
                 modified_at: file.modified_ms,
             });
         }
         let now = chrono::Utc::now().timestamp_millis();
-        for (device, path) in [(&ctx.source_device.id, source_path), (&ctx.dest_device.id, dest_rel)] {
+        for (device, path) in [
+            (&ctx.source_device.id, source_path),
+            (&ctx.dest_device.id, dest_rel),
+        ] {
             self.copies.push(FileCopy {
                 id: FileCopy::id_for(&file_id, device, &path),
                 file_id: file_id.clone(),

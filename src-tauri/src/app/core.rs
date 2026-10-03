@@ -38,8 +38,12 @@ impl AppCore {
     /// Records this computer in the synced catalog so peers can show its name.
     pub fn register_computer(&self) -> Result<(), String> {
         let me = super::snapshot::local_computer(&self.store);
-        let known: Option<crate::domain::Computer> = self.store.get(&me.id).map_err(|e| e.to_string())?;
-        if known.as_ref().is_some_and(|k| !k.name.is_empty() && k.os == me.os) {
+        let known: Option<crate::domain::Computer> =
+            self.store.get(&me.id).map_err(|e| e.to_string())?;
+        if known
+            .as_ref()
+            .is_some_and(|k| !k.name.is_empty() && k.os == me.os)
+        {
             return Ok(());
         }
         self.store.put(&me).map_err(|e| e.to_string())
@@ -67,23 +71,39 @@ impl AppCore {
 
     pub fn project_status(&self, project_id: &str) -> Result<ProjectStatus, String> {
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
-        let mut status = project_status(&self.store, self.resolver.as_ref(), &catalog, project_id, &self.failures.lock())
-            .map_err(|e| e.to_string())?;
+        let mut status = project_status(
+            &self.store,
+            self.resolver.as_ref(),
+            &catalog,
+            project_id,
+            &self.failures.lock(),
+        )
+        .map_err(|e| e.to_string())?;
         for dest in &mut status.destinations {
-            dest.free_bytes = dest.root_path.as_deref().and_then(|p| free_space(Path::new(p)));
+            dest.free_bytes = dest
+                .root_path
+                .as_deref()
+                .and_then(|p| free_space(Path::new(p)));
         }
         Ok(status)
     }
 
     pub fn list_files(&self, req: &ListFilesRequest) -> Result<FilePage, String> {
-        files::list_files(&self.store, self.resolver.as_ref(), &self.failures.lock(), req)
+        files::list_files(
+            &self.store,
+            self.resolver.as_ref(),
+            &self.failures.lock(),
+            req,
+        )
     }
 
     pub fn thumbnail(&self, path: &Path) -> Result<Option<PathBuf>, String> {
         if crate::media::media_kind(path) == crate::media::MediaKind::Other {
             return Ok(None);
         }
-        self.thumbnails.get_or_create(path).map_err(|e| e.to_string())
+        self.thumbnails
+            .get_or_create(path)
+            .map_err(|e| e.to_string())
     }
 }
 

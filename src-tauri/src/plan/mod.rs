@@ -13,7 +13,9 @@ pub use catalog::Catalog;
 pub use classify::{classify_files, classify_flow, source_files, Category, PlannedFile};
 pub use context::{resolve_flow, FlowContext, PlanError};
 pub use safe_copies::{safe_copy_report, DeviceCopies, FinalTarget, SafeCopyReport};
-pub use status::{project_status, DestinationStatus, FlowState, FlowStatus, ProjectStatus, SourceStatus};
+pub use status::{
+    project_status, DestinationStatus, FlowState, FlowStatus, ProjectStatus, SourceStatus,
+};
 pub use vars::{backup_folder_name, template_vars};
 
 use std::collections::HashMap;
@@ -28,8 +30,16 @@ pub trait RootResolver: Sync {
 pub type FailureMap = HashMap<String, HashMap<String, String>>;
 
 pub(crate) fn sanitize_segment(name: &str) -> String {
-    let cleaned: String =
-        name.chars().map(|c| if "/\\:*?\"<>|".contains(c) || c.is_control() { '_' } else { c }).collect();
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if "/\\:*?\"<>|".contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
     cleaned.trim().trim_matches('.').to_string()
 }
 

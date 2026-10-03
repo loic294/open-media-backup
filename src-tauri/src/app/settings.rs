@@ -41,6 +41,9 @@ impl AppSettings {
     }
 
     pub fn save(&self, store: &Store) -> StoreResult<()> {
-        store.set_setting(KEY, &serde_json::to_string(self).expect("settings serialize"))
+        store.set_setting(
+            KEY,
+            &serde_json::to_string(self).expect("settings serialize"),
+        )
     }
 }

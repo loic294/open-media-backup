@@ -3,6 +3,7 @@ use crate::app::{AppSettings, FilePage, ListFilesRequest, Snapshot};
 use crate::plan::ProjectStatus;
 use serde_json::Value;
 use std::path::PathBuf;
+use tauri::ipc::Response;
 use tauri::State;
 
 #[tauri::command]
@@ -26,7 +27,10 @@ pub async fn save_settings(state: State<'_, Shared>, settings: AppSettings) -> C
 }
 
 #[tauri::command]
-pub async fn get_project_status(state: State<'_, Shared>, project_id: String) -> CmdResult<ProjectStatus> {
+pub async fn get_project_status(
+    state: State<'_, Shared>,
+    project_id: String,
+) -> CmdResult<ProjectStatus> {
     blocking(&state, move |s| s.core.project_status(&project_id)).await
 }
 
@@ -35,7 +39,16 @@ pub async fn list_files(state: State<'_, Shared>, req: ListFilesRequest) -> CmdR
     blocking(&state, move |s| s.core.list_files(&req)).await
 }
 
+/// JPEG bytes of a cached thumbnail, sent as a raw IPC payload (empty when none can be made).
+/// Avoids the asset protocol, so no filesystem scope or CSP exception is needed.
 #[tauri::command]
-pub async fn thumbnail(state: State<'_, Shared>, abs_path: String) -> CmdResult<Option<PathBuf>> {
-    blocking(&state, move |s| s.core.thumbnail(&PathBuf::from(abs_path))).await
+pub async fn thumbnail(state: State<'_, Shared>, abs_path: String) -> CmdResult<Response> {
+    blocking(&state, move |s| {
+        let bytes = match s.core.thumbnail(&PathBuf::from(abs_path))? {
+            Some(path) => std::fs::read(path).map_err(|e| e.to_string())?,
+            None => Vec::new(),
+        };
+        Ok(Response::new(bytes))
+    })
+    .await
 }

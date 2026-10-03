@@ -67,10 +67,19 @@ impl JobHandle {
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::SeqCst);
         let mut job = self.job.lock();
-        if paused && matches!(job.state, JobState::Running | JobState::Verifying | JobState::Queued) {
+        if paused
+            && matches!(
+                job.state,
+                JobState::Running | JobState::Verifying | JobState::Queued
+            )
+        {
             job.state = JobState::Paused;
         } else if !paused && job.state == JobState::Paused {
-            job.state = if self.started.lock().is_some() { JobState::Running } else { JobState::Queued };
+            job.state = if self.started.lock().is_some() {
+                JobState::Running
+            } else {
+                JobState::Queued
+            };
         }
         drop(job);
         (self.notify)();

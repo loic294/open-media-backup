@@ -36,10 +36,17 @@ pub struct FlowContext {
 }
 
 fn load<E: crate::domain::Entity>(store: &Store, id: &str, what: &str) -> Result<E, PlanError> {
-    store.get::<E>(id)?.ok_or_else(|| PlanError::NotFound(format!("{what} {id}")))
+    store
+        .get::<E>(id)?
+        .ok_or_else(|| PlanError::NotFound(format!("{what} {id}")))
 }
 
-pub fn resolve_flow(store: &Store, resolver: &dyn RootResolver, project_id: &str, flow_id: &str) -> Result<FlowContext, PlanError> {
+pub fn resolve_flow(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    project_id: &str,
+    flow_id: &str,
+) -> Result<FlowContext, PlanError> {
     let flow: Flow = load(store, flow_id, "flow")?;
     let project: Project = load(store, project_id, "project")?;
     let space: Space = load(store, &flow.space_id, "space")?;
@@ -47,8 +54,12 @@ pub fn resolve_flow(store: &Store, resolver: &dyn RootResolver, project_id: &str
     let destination: Destination = load(store, &flow.destination_id, "destination")?;
     let source_device: Device = load(store, &source.device_id, "device")?;
     let dest_device: Device = load(store, &destination.device_id, "device")?;
-    let source_root = resolver.device_root(&source.device_id).filter(|p| p.exists());
-    let dest_root = resolver.device_root(&destination.device_id).filter(|p| p.exists());
+    let source_root = resolver
+        .device_root(&source.device_id)
+        .filter(|p| p.exists());
+    let dest_root = resolver
+        .device_root(&destination.device_id)
+        .filter(|p| p.exists());
 
     let mut errors = Vec::new();
     let mut vars = template_vars(&space, &project, &source_device);
@@ -65,10 +76,17 @@ pub fn resolve_flow(store: &Store, resolver: &dyn RootResolver, project_id: &str
         })
     };
     let source_folder_rel = normalize(&expand_or_note(&source.path_template, "source path"));
-    let mut dest_folder_rel = normalize(&expand_or_note(&destination.path_template, "destination path"));
+    let mut dest_folder_rel = normalize(&expand_or_note(
+        &destination.path_template,
+        "destination path",
+    ));
     if destination.subfolder_per_source {
         let segment = sanitize_segment(&source_device.name);
-        dest_folder_rel = if dest_folder_rel.is_empty() { segment } else { format!("{dest_folder_rel}/{segment}") };
+        dest_folder_rel = if dest_folder_rel.is_empty() {
+            segment
+        } else {
+            format!("{dest_folder_rel}/{segment}")
+        };
     }
     let rules = RuleSet::compile(&destination.rules).unwrap_or_else(|e| {
         errors.push(e.to_string());
@@ -93,12 +111,17 @@ pub fn resolve_flow(store: &Store, resolver: &dyn RootResolver, project_id: &str
 }
 
 fn normalize(path: &str) -> String {
-    path.split(['/', '\\']).filter(|p| !p.is_empty() && *p != "." && *p != "..").collect::<Vec<_>>().join("/")
+    path.split(['/', '\\'])
+        .filter(|p| !p.is_empty() && *p != "." && *p != "..")
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 impl FlowContext {
     pub fn source_folder(&self) -> Option<PathBuf> {
-        self.source_root.as_ref().map(|r| join_relative(r, &self.source_folder_rel))
+        self.source_root
+            .as_ref()
+            .map(|r| join_relative(r, &self.source_folder_rel))
     }
 
     /// Path relative to the source device root for a path relative to the source folder.
@@ -112,7 +135,9 @@ impl FlowContext {
     }
 
     pub fn target_abs(&self, rel: &str) -> Option<PathBuf> {
-        self.dest_root.as_ref().map(|r| join_relative(r, &self.target_rel(rel)))
+        self.dest_root
+            .as_ref()
+            .map(|r| join_relative(r, &self.target_rel(rel)))
     }
 
     pub fn label(&self) -> String {

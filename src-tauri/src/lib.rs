@@ -9,9 +9,9 @@ pub mod plan;
 pub mod rules;
 pub mod scan;
 pub mod store;
+pub mod sync;
 #[cfg(test)]
 pub mod testing;
-pub mod sync;
 pub mod thumbnails;
 pub mod transfer;
 pub mod wipe;

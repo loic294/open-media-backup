@@ -3,17 +3,29 @@ use std::process::Command;
 
 /// Volume labels are limited (exFAT: 11 chars on macOS diskutil, 15 on Windows).
 fn label(name: &str) -> String {
-    let clean: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '_').collect();
+    let clean: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '_')
+        .collect();
     let trimmed: String = clean.trim().chars().take(11).collect();
-    if trimmed.is_empty() { "MEDIA".into() } else { trimmed.to_uppercase() }
+    if trimmed.is_empty() {
+        "MEDIA".into()
+    } else {
+        trimmed.to_uppercase()
+    }
 }
 
 fn run(mut cmd: Command) -> Result<(), String> {
-    let output = cmd.output().map_err(|e| format!("could not start formatter: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("could not start formatter: {e}"))?;
     if output.status.success() {
         Ok(())
     } else {
-        Err(format!("format failed: {}", String::from_utf8_lossy(&output.stderr).trim()))
+        Err(format!(
+            "format failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
     }
 }
 
@@ -27,7 +39,12 @@ pub fn quick_format(root: &Path, name: &str) -> Result<(), String> {
         cmd.args(["eraseVolume", "ExFAT", &label(name)]).arg(root);
         run(cmd)
     } else if cfg!(target_os = "windows") {
-        let letter = root.to_string_lossy().chars().next().filter(|c| c.is_ascii_alphabetic()).ok_or("no drive letter")?;
+        let letter = root
+            .to_string_lossy()
+            .chars()
+            .next()
+            .filter(|c| c.is_ascii_alphabetic())
+            .ok_or("no drive letter")?;
         if letter.eq_ignore_ascii_case(&'C') {
             return Err("refusing to format the system drive".into());
         }

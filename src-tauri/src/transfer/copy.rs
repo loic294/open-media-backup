@@ -49,7 +49,11 @@ pub fn copy_verified(
             None => hash_checked(src, algo, handle)?,
         };
         if hash_checked(&target, algo, handle)? == src_hash {
-            return Ok(CopyOutcome { hash: src_hash, final_path: target, adopted: true });
+            return Ok(CopyOutcome {
+                hash: src_hash,
+                final_path: target,
+                adopted: true,
+            });
         }
         target = free_name(dst);
     }
@@ -62,20 +66,30 @@ pub fn copy_verified(
             return Err(CopyError::SourceChanged);
         }
         if let Ok(modified) = fs::metadata(src).and_then(|m| m.modified()) {
-            let _ = File::options().write(true).open(&partial).and_then(|f| f.set_modified(modified));
+            let _ = File::options()
+                .write(true)
+                .open(&partial)
+                .and_then(|f| f.set_modified(modified));
         }
         fs::rename(&partial, &target)?;
         if verify == VerifyMode::Reread {
             let actual = hash_checked(&target, algo, handle)?;
             if actual != hash {
                 let _ = fs::remove_file(&target);
-                return Err(CopyError::HashMismatch { expected: hash, actual });
+                return Err(CopyError::HashMismatch {
+                    expected: hash,
+                    actual,
+                });
             }
         }
         Ok(hash)
     });
     match result {
-        Ok(hash) => Ok(CopyOutcome { hash, final_path: target, adopted: false }),
+        Ok(hash) => Ok(CopyOutcome {
+            hash,
+            final_path: target,
+            adopted: false,
+        }),
         Err(e) => {
             let _ = fs::remove_file(&partial);
             Err(e)
@@ -83,9 +97,18 @@ pub fn copy_verified(
     }
 }
 
-fn stream_copy(src: &Path, partial: &Path, algo: HashAlgo, handle: &JobHandle) -> Result<String, CopyError> {
+fn stream_copy(
+    src: &Path,
+    partial: &Path,
+    algo: HashAlgo,
+    handle: &JobHandle,
+) -> Result<String, CopyError> {
     let mut input = File::open(src)?;
-    let mut output = OpenOptions::new().write(true).create(true).truncate(true).open(partial)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(partial)?;
     let mut state = hasher(algo);
     let mut buf = vec![0u8; BUFFER_SIZE];
     loop {
@@ -119,8 +142,15 @@ fn partial_path(target: &Path) -> PathBuf {
 }
 
 fn free_name(path: &Path) -> PathBuf {
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-    let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let ext = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
     (1..)
         .map(|n| path.with_file_name(format!("{stem} ({n}){ext}")))
         .find(|p| !p.exists())

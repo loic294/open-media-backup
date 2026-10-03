@@ -34,7 +34,9 @@ fn is_skipped(entry: &DirEntry) -> bool {
     if entry.file_type().is_dir() {
         SKIPPED_DIRS.contains(&name.as_ref())
     } else {
-        SKIPPED_FILES.contains(&name.as_ref()) || name.starts_with("._") || name.ends_with(".omb-partial")
+        SKIPPED_FILES.contains(&name.as_ref())
+            || name.starts_with("._")
+            || name.ends_with(".omb-partial")
     }
 }
 

@@ -38,7 +38,11 @@ pub struct TransferManager {
 
 impl TransferManager {
     pub fn new(on_change: impl Fn(Vec<TransferJob>) + Send + Sync + 'static) -> Self {
-        let inner = Arc::new(Inner { entries: Mutex::new(vec![]), dirty: AtomicBool::new(false), on_change: Box::new(on_change) });
+        let inner = Arc::new(Inner {
+            entries: Mutex::new(vec![]),
+            dirty: AtomicBool::new(false),
+            on_change: Box::new(on_change),
+        });
         spawn_emitter(Arc::downgrade(&inner));
         Self { inner }
     }
@@ -72,7 +76,11 @@ impl TransferManager {
                 inner.dirty.store(true, Ordering::SeqCst);
             }
         });
-        entries.push(Entry { handle: Arc::new(JobHandle::new(job, notify)), devices: spec.devices, work: Some(spec.work) });
+        entries.push(Entry {
+            handle: Arc::new(JobHandle::new(job, notify)),
+            devices: spec.devices,
+            work: Some(spec.work),
+        });
         prune(&mut entries);
         drop(entries);
         self.schedule();
@@ -81,7 +89,12 @@ impl TransferManager {
     }
 
     pub fn jobs(&self) -> Vec<TransferJob> {
-        self.inner.entries.lock().iter().map(|e| e.handle.snapshot()).collect()
+        self.inner
+            .entries
+            .lock()
+            .iter()
+            .map(|e| e.handle.snapshot())
+            .collect()
     }
 
     pub fn is_busy(&self) -> bool {
@@ -101,19 +114,31 @@ impl TransferManager {
     pub fn cancel(&self, id: &str) {
         self.with_handle(id, |h| h.cancel());
         let mut entries = self.inner.entries.lock();
-        if let Some(entry) = entries.iter_mut().find(|e| e.handle.snapshot().id == id && e.work.is_some()) {
+        if let Some(entry) = entries
+            .iter_mut()
+            .find(|e| e.handle.snapshot().id == id && e.work.is_some())
+        {
             entry.work = None;
             entry.handle.update(|j| j.state = JobState::Cancelled);
         }
     }
 
     pub fn clear_finished(&self) {
-        self.inner.entries.lock().retain(|e| !e.handle.snapshot().state.is_finished());
+        self.inner
+            .entries
+            .lock()
+            .retain(|e| !e.handle.snapshot().state.is_finished());
         self.inner.dirty.store(true, Ordering::SeqCst);
     }
 
     fn with_handle(&self, id: &str, f: impl FnOnce(&JobHandle)) {
-        let handle = self.inner.entries.lock().iter().find(|e| e.handle.snapshot().id == id).map(|e| e.handle.clone());
+        let handle = self
+            .inner
+            .entries
+            .lock()
+            .iter()
+            .find(|e| e.handle.snapshot().id == id)
+            .map(|e| e.handle.clone());
         if let Some(h) = handle {
             f(&h);
         }
@@ -160,7 +185,10 @@ impl TransferManager {
 }
 
 fn prune(entries: &mut Vec<Entry>) {
-    let finished = entries.iter().filter(|e| e.handle.snapshot().state.is_finished()).count();
+    let finished = entries
+        .iter()
+        .filter(|e| e.handle.snapshot().state.is_finished())
+        .count();
     let mut excess = finished.saturating_sub(KEEP_FINISHED);
     entries.retain(|e| {
         if excess > 0 && e.handle.snapshot().state.is_finished() {
@@ -176,7 +204,12 @@ fn spawn_emitter(weak: Weak<Inner>) {
         std::thread::sleep(EMIT_INTERVAL);
         let Some(inner) = weak.upgrade() else { return };
         if inner.dirty.swap(false, Ordering::SeqCst) {
-            let jobs = inner.entries.lock().iter().map(|e| e.handle.snapshot()).collect();
+            let jobs = inner
+                .entries
+                .lock()
+                .iter()
+                .map(|e| e.handle.snapshot())
+                .collect();
             (inner.on_change)(jobs);
         }
     });
