@@ -217,7 +217,7 @@ export class OmbRulesEditor extends OmbPureElement {
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
           ${this.#typeSelect(rule, i)}
           <span
-            class="badge badge-outline badge-lg h-auto min-h-8 max-w-full whitespace-normal rounded-full px-3 py-1 text-left leading-snug"
+            class="badge badge-ghost h-auto min-h-6 max-w-full whitespace-normal rounded-full px-3 py-0.5 text-left font-mono text-xs leading-snug"
           >
             ${conditionRuleSummary(rule)}
           </span>
