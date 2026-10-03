@@ -4,6 +4,7 @@ import type { Destination } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { newDestination } from "../../state/factories";
 import { deviceById, mappingFor, nextPosition, spaceDestinations } from "../../state/selectors";
+import { appDisplayName, configuredDestinationApp } from "../../utils/preview-apps";
 import { previewVars, templateVars } from "../../utils/template";
 import { ruleError } from "../form/rules-editor";
 import { DialogBase } from "./dialog-base";
@@ -16,6 +17,7 @@ export class OmbDestinationDialog extends DialogBase<
   Extract<DialogRequest, { type: "destination-settings" }>
 > {
   @state() private draft!: Destination;
+  @state() private pendingAppPath: string | null | undefined;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -31,8 +33,33 @@ export class OmbDestinationDialog extends DialogBase<
   }
 
   async #save() {
-    await this.store.save("destination", this.draft);
+    const saved = await this.store.save("destination", this.draft);
+    if (!saved) return;
+    if ((this.draft.kind ?? "folder") === "app" && this.pendingAppPath !== undefined) {
+      await this.#saveLocalApp(this.draft.id, this.pendingAppPath);
+    }
     this.dismiss();
+  }
+
+  async #pickApp() {
+    const app = await this.store.backend.pickPreviewApp(this.store.snapshot?.computer.os ?? "");
+    if (!app) return;
+    this.pendingAppPath = app;
+    this.draft = { ...this.draft, app_name: appDisplayName(app) };
+    if (!this.#isNew) await this.#saveLocalApp(this.draft.id, app);
+  }
+
+  async #clearApp() {
+    this.pendingAppPath = null;
+    if (!this.#isNew) await this.#saveLocalApp(this.draft.id, null);
+  }
+
+  async #saveLocalApp(destinationId: string, appPath: string | null) {
+    const current = this.store.snapshot?.settings.app_destinations ?? {};
+    const app_destinations = { ...current };
+    if (appPath?.trim()) app_destinations[destinationId] = appPath.trim();
+    else delete app_destinations[destinationId];
+    await this.store.saveSettings({ app_destinations });
   }
 
   #delete() {
@@ -73,68 +100,83 @@ export class OmbDestinationDialog extends DialogBase<
     const { snapshot, space, project } = this.store;
     if (!snapshot || !space) return nothing;
     const d = this.draft;
+    const isApp = (d.kind ?? "folder") === "app";
+    const localAppPath =
+      this.pendingAppPath !== undefined
+        ? this.pendingAppPath
+        : configuredDestinationApp(snapshot.settings, d.id);
     const device = deviceById(snapshot, d.device_id);
     const set = (patch: Partial<Destination>) => (this.draft = { ...d, ...patch });
     const vars = previewVars(space, project);
     if (d.use_backup_marker)
       vars.backup_folder = `${vars.date}_${vars.project_name ?? "project"} (from card marker)`;
-    const unknownVars = templateVars(d.path_template).filter((v) => !(v in vars));
-    const invalid = d.rules.some((r) => ruleError(r)) || unknownVars.length > 0;
+    const unknownVars = isApp ? [] : templateVars(d.path_template).filter((v) => !(v in vars));
+    const invalid =
+      d.rules.some((r) => ruleError(r)) ||
+      unknownVars.length > 0 ||
+      (isApp ? !d.app_name?.trim() && !localAppPath?.trim() : !d.device_id);
     const body = html`
       <div class="flex flex-col gap-5">
         <section>
-          <h4 class="font-medium mb-2">Device</h4>
-          <omb-device-field
-            .deviceId=${d.device_id || null}
-            defaultRole="final"
-            @device-change=${(e: CustomEvent<string>) => set({ device_id: e.detail })}
-          ></omb-device-field>
+          <h4 class="font-medium mb-2">Type</h4>
+          <div class="inline-flex rounded-field border border-base-300 bg-base-200 p-1">
+            <button
+              class="btn btn-sm ${isApp ? "btn-ghost" : "btn-primary"}"
+              @click=${() => set({ kind: "folder" })}
+            >
+              Folder
+            </button>
+            <button
+              class="btn btn-sm ${isApp ? "btn-primary" : "btn-ghost"}"
+              @click=${() =>
+                set({
+                  kind: "app",
+                  device_id: "",
+                  path_template: "",
+                  subfolder_per_source: false,
+                  counts_as_safe_copy: false,
+                  use_backup_marker: false,
+                })}
+            >
+              App
+            </button>
+          </div>
         </section>
         ${
-          device
+          isApp
             ? html`
-                <omb-template-input
-                  label="Destination folder"
-                  .prefix=${mappingFor(snapshot, device.id)?.root_path ?? device.name}
-                  .value=${d.path_template}
-                  .vars=${vars}
-                  hint="Use {variables} from the space; values come from the selected project."
-                  @value-change=${(e: CustomEvent<string>) => set({ path_template: e.detail })}
-                ></omb-template-input>
-                ${
-                  unknownVars.includes("backup_folder")
-                    ? html`<p class="text-sm text-warning -mt-2">
-                        {backup_folder} comes from the card marker: turn on “Full-card backup folder” below.
-                      </p>`
-                    : nothing
-                }
-                <div class="flex flex-col gap-3">
-                  ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source device, e.g. …/Camera A · Card 1/.")}
-                  ${this.#toggle(
-                    "use_backup_marker",
-                    "Full-card backup folder",
-                    `Every file of a card goes to the same folder. Its name is stored in a small file on the card and used as {backup_folder}; when missing it is created from “${space.backup_marker_template}”.`,
-                  )}
-                  ${
-                    device.role === "final"
-                      ? this.#toggle(
-                          "counts_as_safe_copy",
-                          "Counts as a safe copy",
-                          "Verified copies here count one-for-one toward the copies required before wiping a card.",
-                        )
-                      : device.role === "temporary"
-                        ? this.#toggle(
-                            "counts_as_safe_copy",
-                            "Counts as a temporary safe copy",
-                            (space.temporary_copies_per_final ?? 0) > 0
-                              ? `${space.temporary_copies_per_final} verified temporary ${space.temporary_copies_per_final === 1 ? "copy counts" : "copies count"} as one final copy for this space.`
-                              : "Enable temporary safe copies in space settings before temporary destinations contribute.",
-                          )
-                        : html`<p class="text-sm text-base-content/60">
-                            Original devices never count as safe-copy destinations.
-                          </p>`
-                  }
-                </div>
+                <section>
+                  <h4 class="font-medium mb-2">Application</h4>
+                  <div class="flex items-center gap-3 rounded-box border border-base-300 bg-base-100 p-3">
+                    <span
+                      class="grid size-10 place-items-center rounded-box bg-base-200 text-base-content/70"
+                    >
+                      <omb-icon name="external-link" class="size-5"></omb-icon>
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="font-medium truncate">
+                        ${d.app_name || (localAppPath ? appDisplayName(localAppPath) : "No application selected")}
+                      </div>
+                      <div class="text-sm text-base-content/60 truncate">
+                        ${localAppPath || "Not set on this computer"}
+                      </div>
+                    </div>
+                    <button class="btn btn-sm" @click=${() => this.#pickApp()}>
+                      ${localAppPath ? "Change…" : "Choose…"}
+                    </button>
+                    ${
+                      localAppPath
+                        ? html`<button class="btn btn-ghost btn-sm" @click=${() => this.#clearApp()}>
+                            Clear
+                          </button>`
+                        : nothing
+                    }
+                  </div>
+                  <p class="mt-2 text-sm text-base-content/60">
+                    App destinations are manual only. They open matching files in the selected app and never
+                    run during automatic transfers.
+                  </p>
+                </section>
                 <section>
                   <h4 class="font-medium mb-2">File rules</h4>
                   <omb-rules-editor
@@ -143,22 +185,95 @@ export class OmbDestinationDialog extends DialogBase<
                   ></omb-rules-editor>
                 </section>
               `
-            : nothing
+            : html`
+                <section>
+                  <h4 class="font-medium mb-2">Device</h4>
+                  <omb-device-field
+                    .deviceId=${d.device_id || null}
+                    defaultRole="final"
+                    @device-change=${(e: CustomEvent<string>) => set({ device_id: e.detail })}
+                  ></omb-device-field>
+                </section>
+                ${
+                  device
+                    ? html`
+                        <omb-template-input
+                          label="Destination folder"
+                          .prefix=${mappingFor(snapshot, device.id)?.root_path ?? device.name}
+                          .value=${d.path_template}
+                          .vars=${vars}
+                          hint="Use {variables} from the space; values come from the selected project."
+                          @value-change=${(e: CustomEvent<string>) => set({ path_template: e.detail })}
+                        ></omb-template-input>
+                        ${
+                          unknownVars.includes("backup_folder")
+                            ? html`<p class="text-sm text-warning -mt-2">
+                                {backup_folder} comes from the card marker: turn on “Full-card backup folder”
+                                below.
+                              </p>`
+                            : nothing
+                        }
+                        <div class="flex flex-col gap-3">
+                          ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source device, e.g. …/Camera A · Card 1/.")}
+                          ${this.#toggle(
+                            "use_backup_marker",
+                            "Full-card backup folder",
+                            `Every file of a card goes to the same folder. Its name is stored in a small file on the card and used as {backup_folder}; when missing it is created from “${space.backup_marker_template}”.`,
+                          )}
+                          ${
+                            device.role === "final"
+                              ? this.#toggle(
+                                  "counts_as_safe_copy",
+                                  "Counts as a safe copy",
+                                  "Verified copies here count one-for-one toward the copies required before wiping a card.",
+                                )
+                              : device.role === "temporary"
+                                ? this.#toggle(
+                                    "counts_as_safe_copy",
+                                    "Counts as a temporary safe copy",
+                                    (space.temporary_copies_per_final ?? 0) > 0
+                                      ? `${space.temporary_copies_per_final} verified temporary ${space.temporary_copies_per_final === 1 ? "copy counts" : "copies count"} as one final copy for this space.`
+                                      : "Enable temporary safe copies in space settings before temporary destinations contribute.",
+                                  )
+                                : html`<p class="text-sm text-base-content/60">
+                                    Original devices never count as safe-copy destinations.
+                                  </p>`
+                          }
+                        </div>
+                        <section>
+                          <h4 class="font-medium mb-2">File rules</h4>
+                          <omb-rules-editor
+                            .rules=${d.rules}
+                            @rules-change=${(e: CustomEvent) => set({ rules: e.detail })}
+                          ></omb-rules-editor>
+                        </section>
+                      `
+                    : nothing
+                }
+              `
         }
       </div>
     `;
     const actions = html`
       ${this.#isNew ? nothing : html`<button class="btn btn-ghost text-error mr-auto" @click=${() => this.#delete()}><omb-icon name="trash"></omb-icon>Remove</button>`}
       <button class="btn btn-ghost" @click=${() => this.dismiss()}>Cancel</button>
-      <button class="btn btn-primary" ?disabled=${!d.device_id || invalid} @click=${() => this.#save()}>
+      <button class="btn btn-primary" ?disabled=${invalid} @click=${() => this.#save()}>
         ${this.#isNew ? "Add destination" : "Save"}
       </button>
     `;
     return html`<omb-modal
       size="lg"
-      heading=${this.#isNew ? "Add destination" : `Destination · ${device?.name ?? ""}`}
-      subheading="Where files are copied and verified: an SSD, NAS or archive drive."
-      icon="log-out"
+      heading=${
+        this.#isNew
+          ? "Add destination"
+          : `Destination · ${isApp ? d.app_name || (localAppPath ? appDisplayName(localAppPath) : "App") : (device?.name ?? "")}`
+      }
+      subheading=${
+        isApp
+          ? "Open matching files in an application for a manual import."
+          : "Where files are copied and verified: an SSD, NAS or archive drive."
+      }
+      icon=${isApp ? "external-link" : "log-out"}
       @close=${this.onClosed}
       .body=${body}
       .actions=${actions}

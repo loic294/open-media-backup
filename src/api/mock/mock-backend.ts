@@ -74,6 +74,7 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
     const src = snapshot.sources.find((s) => s.id === flow?.source_id);
     const dst = snapshot.destinations.find((d) => d.id === flow?.destination_id);
     if (flow) validateProjectConfiguration(snapshot, flow.space_id);
+    if (dst?.kind === "app") throw new Error("App destinations can only be triggered manually");
     if (!c[1] || offline.has(dst?.device_id ?? "")) return;
     if (jobs.some((j) => j.flow_id === flowId && !["done", "failed", "cancelled"].includes(j.state))) return;
     jobs.push({
@@ -176,11 +177,38 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
         video: null,
       }) satisfies MediaMetadata,
     openMedia: async (absPath) => console.info(`Demo mode would open ${absPath}`),
+    openFlowInApp: async (_projectId, flowId) => {
+      const flow = snapshot.flows.find((f) => f.id === flowId);
+      const dest = snapshot.destinations.find((d) => d.id === flow?.destination_id);
+      if (dest?.kind !== "app") throw new Error("This destination is not an app destination");
+      const appPath = snapshot.settings.app_destinations?.[dest.id]?.trim();
+      const appName = dest.app_name ?? (appPath ? appPath.split(/[\\/]/).pop() : null) ?? "Application";
+      if (!appPath) throw new Error(`Choose the application for ${appName} on this computer`);
+      const c = counts[flowId] ?? [0, 0, 0, 0];
+      const files = Array.from({ length: c[1] }, (_, i) => ({
+        rel_path: `100MSDCF/IMG_${String(7412 + i).padStart(5, "0")}.JPG`,
+        project_id: null,
+      }));
+      console.info(`Demo mode would open ${files.length} files in ${appPath}`);
+      return { token: crypto.randomUUID(), app_name: appName, files };
+    },
+    confirmAppImport: async (_projectId, flowId) => {
+      const c = counts[flowId] ?? [0, 0, 0, 0];
+      const marked = c[1];
+      c[0] += marked;
+      c[1] = 0;
+      changed();
+      return marked;
+    },
     runFlow: async (_projectId, flowId) => startFlow(flowId),
     runAll: async (projectId) => {
       const status = mockStatus(snapshot, projectId, counts, offline);
       status.flows
         .filter((f) => f.state === "pending" || f.state === "error")
+        .filter((f) => {
+          const flow = snapshot.flows.find((flow) => flow.id === f.flow_id);
+          return snapshot.destinations.find((d) => d.id === flow?.destination_id)?.kind !== "app";
+        })
         .forEach((f) => startFlow(f.flow_id));
     },
     setTransferPaused: async (jobId, isPaused) => {

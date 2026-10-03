@@ -238,6 +238,8 @@ export class OmbFlowCanvas extends OmbElement {
     if (!this.menu) return nothing;
     const { flow, at } = this.menu;
     const fs = flowStatus(this.store.status, flow.id);
+    const dest = this.store.snapshot?.destinations.find((d) => d.id === flow.destination_id);
+    const isApp = (dest?.kind ?? "folder") === "app";
     return html`
       <ul
         data-flow-menu
@@ -247,9 +249,13 @@ export class OmbFlowCanvas extends OmbElement {
         <li>
           <button
             ?disabled=${!fs || fs.to_transfer + fs.failed === 0}
-            @click=${() => this.#menuAction(() => void this.store.runFlow(flow.id))}
+            @click=${() =>
+              this.#menuAction(() =>
+                isApp ? void this.store.openFlowInApp(flow.id) : void this.store.runFlow(flow.id),
+              )}
           >
-            <omb-icon name="play"></omb-icon>Run this flow
+            <omb-icon name=${isApp ? "external-link" : "play"}></omb-icon
+            >${isApp ? "Open in app" : "Run this flow"}
           </button>
         </li>
         <li>

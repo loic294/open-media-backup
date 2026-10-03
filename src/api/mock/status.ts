@@ -122,13 +122,16 @@ export function mockStatus(
       const own = flowStatuses.filter((f) => flows.find((x) => x.id === f.flow_id)?.destination_id === d.id);
       const sum = (key: "transferred" | "to_transfer" | "ignored" | "failed" | "bytes_to_transfer") =>
         own.reduce((a, f) => a + f[key], 0);
-      const available = !offline.has(d.device_id);
+      const isApp = (d.kind ?? "folder") === "app";
+      const available = isApp || !offline.has(d.device_id);
       return {
         destination_id: d.id,
         available,
-        root_path: available
-          ? (snapshot.mappings.find((m) => m.device_id === d.device_id)?.root_path ?? null)
-          : null,
+        root_path: isApp
+          ? (snapshot.settings.app_destinations?.[d.id] ?? null)
+          : available
+            ? (snapshot.mappings.find((m) => m.device_id === d.device_id)?.root_path ?? null)
+            : null,
         free_bytes: available ? 1.2e12 : null,
         transferred: sum("transferred"),
         to_transfer: sum("to_transfer"),

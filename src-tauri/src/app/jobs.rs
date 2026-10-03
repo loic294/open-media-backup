@@ -1,5 +1,5 @@
 use super::AppCore;
-use crate::domain::{Device, Source};
+use crate::domain::{DestinationKind, Device, Source};
 use crate::plan::{project_status, resolve_flow, Catalog, FlowState};
 use crate::transfer::{run_transfer, JobSpec};
 use crate::wipe::{wipe, WipeMethod};
@@ -8,6 +8,9 @@ impl AppCore {
     pub fn run_flow(&self, project_id: &str, flow_id: &str) -> Result<String, String> {
         let ctx = resolve_flow(&self.store, self.resolver.as_ref(), project_id, flow_id)
             .map_err(|e| e.to_string())?;
+        if ctx.destination.kind == DestinationKind::App {
+            return Err("App destinations can only be triggered manually".into());
+        }
         let (store, resolver, failures) = (
             self.store.clone(),
             self.resolver.clone(),
@@ -49,7 +52,12 @@ impl AppCore {
                 matches!(f.state, FlowState::Pending | FlowState::Error)
                     && f.to_transfer + f.failed > 0
             })
-            .map(|f| self.run_flow(project_id, &f.flow_id))
+            .filter_map(|f| {
+                let ctx = resolve_flow(&self.store, self.resolver.as_ref(), project_id, &f.flow_id)
+                    .ok()?;
+                (ctx.destination.kind == DestinationKind::Folder)
+                    .then(|| self.run_flow(project_id, &f.flow_id))
+            })
             .collect()
     }
 

@@ -1,5 +1,8 @@
 use super::{backup_folder_name, sanitize_segment, template_vars, RootResolver};
-use crate::domain::{validate_project_ranges, Destination, Device, Flow, Project, Source, Space};
+use crate::domain::{
+    validate_project_ranges, Destination, DestinationKind, Device, DeviceKind, DeviceRole, Flow,
+    Project, Source, Space,
+};
 use crate::paths::{expand, join_relative, TemplateVars};
 use crate::rules::RuleSet;
 use crate::store::{Store, StoreError};
@@ -54,13 +57,31 @@ pub fn resolve_flow(
     let source: Source = load(store, &flow.source_id, "source")?;
     let destination: Destination = load(store, &flow.destination_id, "destination")?;
     let source_device: Device = load(store, &source.device_id, "device")?;
-    let dest_device: Device = load(store, &destination.device_id, "device")?;
+    let dest_device: Device = if destination.kind == DestinationKind::App {
+        Device {
+            id: destination.id.clone(),
+            name: app_destination_name(&destination),
+            description: destination
+                .app_name
+                .clone()
+                .unwrap_or_else(|| "Application".into()),
+            role: DeviceRole::Temporary,
+            kind: DeviceKind::Other,
+            ..Default::default()
+        }
+    } else {
+        load(store, &destination.device_id, "device")?
+    };
     let source_root = resolver
         .device_root(&source.device_id)
         .filter(|p| p.exists());
-    let dest_root = resolver
-        .device_root(&destination.device_id)
-        .filter(|p| p.exists());
+    let dest_root = (destination.kind == DestinationKind::Folder)
+        .then(|| {
+            resolver
+                .device_root(&destination.device_id)
+                .filter(|p| p.exists())
+        })
+        .flatten();
 
     let mut errors = Vec::new();
     let projects: Vec<Project> = store.list_by("space_id", &space.id)?;
@@ -100,8 +121,11 @@ pub fn resolve_flow(
     let source_folder_rel = normalize(&expand_or_note(&source.path_template, "source path"));
     // The selected project's preview is retained for old callers. Actual routing below
     // expands the destination separately for each file's matching projects.
-    let mut dest_folder_rel =
-        normalize(&expand(&destination.path_template, &vars).unwrap_or_default());
+    let mut dest_folder_rel = if destination.kind == DestinationKind::App {
+        String::new()
+    } else {
+        normalize(&expand(&destination.path_template, &vars).unwrap_or_default())
+    };
     let mut validation_vars = vars.clone();
     for name in ["project", "project_name"] {
         validation_vars.insert(name.into(), "validation".into());
@@ -114,10 +138,12 @@ pub fn resolve_flow(
     {
         validation_vars.insert(name.clone(), "validation".into());
     }
-    if let Err(error) = expand(&destination.path_template, &validation_vars) {
-        errors.push(format!("destination path: {error}"));
+    if destination.kind == DestinationKind::Folder {
+        if let Err(error) = expand(&destination.path_template, &validation_vars) {
+            errors.push(format!("destination path: {error}"));
+        }
     }
-    if destination.subfolder_per_source {
+    if destination.kind == DestinationKind::Folder && destination.subfolder_per_source {
         let segment = sanitize_segment(&source_device.name);
         dest_folder_rel = if dest_folder_rel.is_empty() {
             segment
@@ -172,6 +198,12 @@ impl FlowContext {
         rel: &str,
         project: Option<&Project>,
     ) -> Result<Option<String>, String> {
+        if self.destination.kind == DestinationKind::App {
+            return Ok(Some(match project {
+                Some(project) => join_rel(&project.id, rel),
+                None => rel.to_string(),
+            }));
+        }
         if project.is_none()
             && super::uses_project_variables(
                 &self.destination.path_template,
@@ -223,6 +255,16 @@ impl FlowContext {
     pub fn label(&self) -> String {
         format!("{} → {}", self.source_device.name, self.dest_device.name)
     }
+}
+
+fn app_destination_name(destination: &Destination) -> String {
+    destination
+        .app_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "Application".into())
 }
 
 fn join_rel(base: &str, rel: &str) -> String {

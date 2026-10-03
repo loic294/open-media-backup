@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::{Flow, Source};
+use crate::domain::{Destination, DestinationKind, Flow, Source};
 use crate::plan::Category;
 use crate::testing::{Fixture, MapResolver};
 use serde_json::json;
@@ -103,6 +103,96 @@ fn run_all_then_list_files() {
         .unwrap();
     wait_idle(&core);
     assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
+}
+
+#[test]
+fn destination_kind_defaults_to_folder_for_old_snapshots() {
+    let destination: Destination = serde_json::from_value(json!({
+        "id": "dst",
+        "space_id": "space",
+        "device_id": "nas",
+        "path_template": "photo",
+        "app_path": "/old/local/path"
+    }))
+    .unwrap();
+    assert_eq!(destination.kind, DestinationKind::Folder);
+}
+
+#[test]
+fn app_destinations_are_excluded_from_run_all() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    let mut destination = fx.destination.clone();
+    destination.kind = DestinationKind::App;
+    destination.device_id.clear();
+    destination.path_template.clear();
+    destination.app_name = Some("Lightroom".into());
+    destination.counts_as_safe_copy = false;
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    assert!(core
+        .run_flow("project", "flow")
+        .unwrap_err()
+        .contains("manually"));
+    assert!(core.run_all("project").unwrap().is_empty());
+}
+
+#[test]
+fn confirming_app_import_only_marks_current_to_transfer_files() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    fx.write_card_file("DCIM/B.MOV", b"bb");
+    let mut destination = fx.destination.clone();
+    destination.kind = DestinationKind::App;
+    destination.device_id.clear();
+    destination.path_template.clear();
+    destination.app_name = Some("Lightroom".into());
+    destination.counts_as_safe_copy = false;
+    destination.rules = vec![crate::domain::FileRule {
+        action: crate::domain::RuleAction::Include,
+        syntax: crate::domain::RuleSyntax::Glob,
+        pattern: "*.JPG".into(),
+    }];
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    let err = core.prepare_app_import("project", "flow").unwrap_err();
+    assert_eq!(err, "Choose the application for Lightroom on this computer");
+    let mut settings = core.settings();
+    settings
+        .app_destinations
+        .insert(destination.id.clone(), "/Applications/Lightroom.app".into());
+    core.save_settings(&settings).unwrap();
+    let prepared = core.prepare_app_import("project", "flow").unwrap();
+    assert_eq!(prepared.app_name, "Lightroom");
+    assert_eq!(prepared.app_path, "/Applications/Lightroom.app");
+    assert_eq!(prepared.paths.len(), 1);
+    assert_eq!(prepared.files[0].rel_path, "A.JPG");
+
+    destination.rules.clear();
+    destination.rules.push(crate::domain::FileRule {
+        action: crate::domain::RuleAction::Exclude,
+        syntax: crate::domain::RuleSyntax::Glob,
+        pattern: "*.JPG".into(),
+    });
+    fx.store.put(&destination).unwrap();
+    assert_eq!(
+        core.confirm_app_import("project", "flow", &prepared.token)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        core.list_files(&ListFilesRequest {
+            project_id: "project".into(),
+            flow_id: "flow".into(),
+            category: Category::Transferred,
+            offset: 0,
+            limit: 50,
+            filter: None,
+        })
+        .unwrap()
+        .total,
+        0
+    );
 }
 
 #[test]

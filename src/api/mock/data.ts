@@ -53,8 +53,10 @@ const destination = (
 ): Destination => ({
   id,
   space_id: "travel",
+  kind: "folder",
   device_id,
   path_template,
+  app_name: null,
   subfolder_per_source: true,
   counts_as_safe_copy: true,
   use_backup_marker: false,
@@ -62,6 +64,23 @@ const destination = (
     { action: "include", syntax: "glob", pattern: "*" },
     { action: "exclude", syntax: "glob", pattern: "PRIVATE/" },
     { action: "exclude", syntax: "glob", pattern: "*.THM" },
+  ],
+  position,
+});
+
+const appDestination = (id: string, appName: string, position: number): Destination => ({
+  id,
+  space_id: "travel",
+  kind: "app",
+  device_id: "",
+  path_template: "",
+  app_name: appName,
+  subfolder_per_source: false,
+  counts_as_safe_copy: false,
+  use_backup_marker: false,
+  rules: [
+    { action: "include", syntax: "glob", pattern: "*.JPG" },
+    { action: "include", syntax: "glob", pattern: "*.jpg" },
   ],
   position,
 });
@@ -154,6 +173,7 @@ export function demoSnapshot(): Snapshot {
       destination("d1", "ssd", "Projects/{project_name}/RAW", 0),
       destination("d2", "nas", "photo/{backup_folder}/{project_name}", 1),
       destination("d3", "hdd", "Archive/{project_name}", 2),
+      appDestination("d4", "Lightroom", 3),
     ],
     flows: [
       flow("f1", "s1", "d1"),
@@ -162,6 +182,7 @@ export function demoSnapshot(): Snapshot {
       flow("f4", "s2", "d2"),
       flow("f5", "s3", "d1"),
       flow("f6", "s3", "d3"),
+      flow("f7", "s1", "d4"),
     ],
     settings: {
       theme: "system",
@@ -171,6 +192,7 @@ export function demoSnapshot(): Snapshot {
       active_space_id: "travel",
       active_project_by_space: { travel: "trip" },
       preview_apps: { photos: null, videos: null },
+      app_destinations: { d4: "/Applications/Adobe Lightroom.app" },
     },
   } satisfies Snapshot);
 }
@@ -183,6 +205,7 @@ export const demoCounts: Record<string, [number, number, number, number]> = {
   f4: [0, 1061, 0, 0],
   f5: [0, 0, 0, 3],
   f6: [0, 302, 16, 0],
+  f7: [0, 1061, 319, 0],
 };
 
 export const demoOffline = new Set(["hdd"]);

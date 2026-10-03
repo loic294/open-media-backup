@@ -206,6 +206,9 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
     if (!snapshot || !space) return nothing;
     const flows = spaceFlows(snapshot, space.id);
     const fs = this.flowId ? flowStatus(this.store.status, this.flowId) : undefined;
+    const selectedFlow = flows.find((f) => f.id === this.flowId);
+    const selectedDestination = snapshot.destinations.find((d) => d.id === selectedFlow?.destination_id);
+    const isApp = (selectedDestination?.kind ?? "folder") === "app";
     const counts: Record<FileCategory, number> = {
       to_transfer: fs?.to_transfer ?? 0,
       transferred: fs?.transferred ?? 0,
@@ -285,9 +288,16 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
       <button
         class="btn"
         ?disabled=${!canRun}
-        @click=${() => (this.flowId && this.store.runFlow(this.flowId), this.dismiss())}
+        @click=${() => {
+          if (this.flowId) {
+            if (isApp) void this.store.openFlowInApp(this.flowId);
+            else void this.store.runFlow(this.flowId);
+          }
+          this.dismiss();
+        }}
       >
-        <omb-icon name="play"></omb-icon>Run this flow
+        <omb-icon name=${isApp ? "external-link" : "play"}></omb-icon
+        >${isApp ? "Open in app" : "Run this flow"}
       </button>
       <button class="btn btn-primary" @click=${() => (this.store.runAll(), this.dismiss())}>
         <omb-icon name="play"></omb-icon>Run all transfers

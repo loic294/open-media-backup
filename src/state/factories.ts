@@ -69,8 +69,10 @@ export function newDestination(spaceId: string, deviceId: string, position: numb
   return {
     id: newId(),
     space_id: spaceId,
+    kind: "folder",
     device_id: deviceId,
     path_template: "{project_name}",
+    app_name: null,
     subfolder_per_source: true,
     counts_as_safe_copy: true,
     use_backup_marker: false,

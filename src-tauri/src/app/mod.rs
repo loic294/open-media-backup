@@ -7,7 +7,7 @@ mod resolver;
 mod settings;
 mod snapshot;
 
-pub use core::AppCore;
+pub use core::{AppCore, AppImportFile, PreparedAppImport};
 pub use files::{FileEntry, FilePage, ListFilesRequest};
 pub use resolver::DeviceResolver;
 pub use settings::AppSettings;

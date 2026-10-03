@@ -92,8 +92,11 @@ export interface Source {
 export interface Destination {
   id: string;
   space_id: string;
+  /** Missing in older snapshots means folder. */
+  kind?: "folder" | "app";
   device_id: string;
   path_template: string;
+  app_name?: string | null;
   subfolder_per_source: boolean;
   counts_as_safe_copy: boolean;
   use_backup_marker: boolean;
@@ -125,6 +128,8 @@ export interface AppSettings {
   active_project_by_space: Record<string, string>;
   /** Per-device custom apps. Missing on older snapshots means system defaults. */
   preview_apps?: PreviewAppSettings;
+  /** Local per-computer app paths for App destinations, keyed by destination id. */
+  app_destinations?: Record<string, string>;
 }
 
 export interface Snapshot {
@@ -251,6 +256,17 @@ export interface FilePage {
   total: number;
   total_bytes: number;
   items: FileEntry[];
+}
+
+export interface AppImportFile {
+  rel_path: string;
+  project_id: string | null;
+}
+
+export interface OpenAppImportResult {
+  token: string;
+  app_name: string;
+  files: AppImportFile[];
 }
 
 export type TransferState = "queued" | "running" | "verifying" | "paused" | "done" | "failed" | "cancelled";

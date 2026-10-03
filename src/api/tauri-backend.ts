@@ -30,6 +30,8 @@ export const tauriBackend: Backend = {
   thumbnail: (absPath) => thumbnailUrl(absPath),
   getMediaMetadata: (absPath) => invoke("get_media_metadata", { absPath }),
   openMedia: (absPath) => invoke("open_media_file", { absPath }),
+  openFlowInApp: (projectId, flowId) => invoke("open_flow_in_app", { projectId, flowId }),
+  confirmAppImport: (projectId, flowId, token) => invoke("confirm_app_import", { projectId, flowId, token }),
 
   runFlow: (projectId, flowId) => invoke("run_flow", { projectId, flowId }),
   runAll: (projectId) => invoke("run_all", { projectId }),

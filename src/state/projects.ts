@@ -25,9 +25,25 @@ function colorForHue(hue: number): string {
   const h = hue / 60;
   const x = chroma * (1 - Math.abs((h % 2) - 1));
   const [r, g, b] =
-    h < 1 ? [chroma, x, 0] : h < 2 ? [x, chroma, 0] : h < 3 ? [0, chroma, x] : h < 4 ? [0, x, chroma] : h < 5 ? [x, 0, chroma] : [chroma, 0, x];
+    h < 1
+      ? [chroma, x, 0]
+      : h < 2
+        ? [x, chroma, 0]
+        : h < 3
+          ? [0, chroma, x]
+          : h < 4
+            ? [0, x, chroma]
+            : h < 5
+              ? [x, 0, chroma]
+              : [chroma, 0, x];
   const m = 0.58 - chroma / 2;
-  return `#${[r, g, b].map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, "0")).join("")}`;
+  return `#${[r, g, b]
+    .map((channel) =>
+      Math.round((channel + m) * 255)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
 }
 
 /** Prefer the two-row palette, then generate a distinct color when all swatches are in use. */
@@ -134,6 +150,7 @@ export function validateSourceDestination(
   space: Space,
   projects: Project[],
 ): void {
+  if ((destination.kind ?? "folder") === "app") return;
   if (
     source.project_scope?.mode === "none" &&
     usesProjectVariables(destination.path_template, space, projects, destination.use_backup_marker)

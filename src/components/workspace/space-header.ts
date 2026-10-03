@@ -31,7 +31,7 @@ export class OmbSpaceHeader extends OmbElement {
   override render() {
     const { space, snapshot, status } = this.store;
     if (!space || !snapshot) return nothing;
-    const totals = projectTotals(status, spaceFlows(snapshot, space.id));
+    const totals = projectTotals(status, spaceFlows(snapshot, space.id), snapshot.destinations);
     const open = (focus?: "name" | "variables") =>
       this.store.open({ type: "space-settings", spaceId: space.id, focus });
     return html`

@@ -65,7 +65,17 @@ describe("AppStore with the mock backend", () => {
 
   it("runs all transfers to completion", async () => {
     await setup();
-    const pending = () => store.status!.flows.reduce((n, f) => n + (f.state === "pending" ? f.to_transfer : 0), 0);
+    const appDestinations = new Set(
+      store.snapshot!.destinations.filter((d) => (d.kind ?? "folder") === "app").map((d) => d.id),
+    );
+    const automaticFlowIds = new Set(
+      store.snapshot!.flows.filter((f) => !appDestinations.has(f.destination_id)).map((f) => f.id),
+    );
+    const pending = () =>
+      store.status!.flows.reduce(
+        (n, f) => n + (automaticFlowIds.has(f.flow_id) && f.state === "pending" ? f.to_transfer : 0),
+        0,
+      );
     expect(pending()).toBeGreaterThan(0);
     await store.runAll();
     await until(() => store.transfers.length > 0);

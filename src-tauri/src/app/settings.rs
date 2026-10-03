@@ -16,6 +16,7 @@ pub struct AppSettings {
     pub active_space_id: Option<String>,
     pub active_project_by_space: HashMap<String, String>,
     pub preview_apps: PreviewAppSettings,
+    pub app_destinations: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ impl Default for AppSettings {
             active_space_id: None,
             active_project_by_space: HashMap::new(),
             preview_apps: PreviewAppSettings::default(),
+            app_destinations: HashMap::new(),
         }
     }
 }

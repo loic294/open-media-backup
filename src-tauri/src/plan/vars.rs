@@ -65,6 +65,9 @@ pub fn validate_source_destination(
     space: &Space,
     projects: &[Project],
 ) -> Result<(), String> {
+    if destination.kind == crate::domain::DestinationKind::App {
+        return Ok(());
+    }
     if matches!(source.project_scope, crate::domain::ProjectScope::None)
         && uses_project_variables(
             &destination.path_template,

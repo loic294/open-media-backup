@@ -14,6 +14,11 @@ export function configuredPreviewApp(settings: AppSettings, file: Pick<FileEntry
   return previewApps(settings)[previewMediaType(file)];
 }
 
+export function configuredDestinationApp(settings: AppSettings, destinationId: string): string | null {
+  const app = settings.app_destinations?.[destinationId]?.trim();
+  return app || null;
+}
+
 export function appDisplayName(app: string): string {
   const trimmed = app.trim().replace(/[\\/]+$/, "");
   const name = trimmed.split(/[\\/]/).pop() ?? trimmed;

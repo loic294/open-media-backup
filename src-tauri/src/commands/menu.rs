@@ -125,12 +125,12 @@ fn app_submenu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Submenu<R>> {
 fn file_submenu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Submenu<R>> {
     #[cfg(target_os = "macos")]
     {
-        return Submenu::with_items(
+        Submenu::with_items(
             app,
             "File",
             true,
             &[&PredefinedMenuItem::close_window(app, None)?],
-        );
+        )
     }
     #[cfg(not(target_os = "macos"))]
     Submenu::with_items(

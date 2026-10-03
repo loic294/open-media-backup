@@ -188,6 +188,29 @@ export class AppStore extends EventTarget {
     if (project) await this.#guard(() => this.backend.runAll(project.id));
   }
 
+  async openFlowInApp(flowId: string): Promise<void> {
+    const project = this.project;
+    if (!project) return;
+    const opened = await this.#guardResult(() => this.backend.openFlowInApp(project.id, flowId));
+    if (!opened) return;
+    const count = opened.files.length;
+    this.open({
+      type: "confirm",
+      title: `Did ${opened.app_name} finish importing?`,
+      message: `${count.toLocaleString("en-US")} ${count === 1 ? "file was" : "files were"} opened in ${opened.app_name}. Mark ${count === 1 ? "it" : "them"} as transferred once the import has finished.`,
+      confirmLabel: "Mark as transferred",
+      cancelLabel: "Not yet",
+      onConfirm: async () => {
+        const marked = await this.backend.confirmAppImport(project.id, flowId, opened.token);
+        this.toast(
+          "success",
+          `${marked.toLocaleString("en-US")} ${marked === 1 ? "file" : "files"} marked transferred`,
+        );
+        this.refreshStatus();
+      },
+    });
+  }
+
   async setPaused(jobId: string | null, paused: boolean): Promise<void> {
     await this.#guard(() =>
       jobId ? this.backend.setTransferPaused(jobId, paused) : this.backend.setAllPaused(paused),
@@ -230,6 +253,16 @@ export class AppStore extends EventTarget {
       console.error(e);
       this.toast("error", String(e));
       return false;
+    }
+  }
+
+  async #guardResult<T>(fn: () => Promise<T>): Promise<T | null> {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error(e);
+      this.toast("error", String(e));
+      return null;
     }
   }
 

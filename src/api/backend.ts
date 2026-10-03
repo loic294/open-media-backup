@@ -8,6 +8,7 @@ import type {
   FilePage,
   Flow,
   MediaMetadata,
+  OpenAppImportResult,
   Project,
   ProjectStatus,
   Snapshot,
@@ -60,6 +61,8 @@ export interface Backend {
   thumbnail(absPath: string): Promise<string | null>;
   getMediaMetadata(absPath: string): Promise<MediaMetadata>;
   openMedia(absPath: string): Promise<void>;
+  openFlowInApp(projectId: string, flowId: string): Promise<OpenAppImportResult>;
+  confirmAppImport(projectId: string, flowId: string, token: string): Promise<number>;
 
   runFlow(projectId: string, flowId: string): Promise<void>;
   runAll(projectId: string): Promise<void>;

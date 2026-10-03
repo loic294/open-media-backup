@@ -1,4 +1,11 @@
-import type { DestinationStatus, Flow, FlowStatus, ProjectStatus, TransferJob } from "../api/types";
+import type {
+  Destination,
+  DestinationStatus,
+  Flow,
+  FlowStatus,
+  ProjectStatus,
+  TransferJob,
+} from "../api/types";
 
 /** Used for ETA estimates before a transfer has measured its real speed. */
 export const ASSUMED_SPEED_BPS = 120_000_000;
@@ -10,13 +17,30 @@ export interface ProjectTotals {
   runnable: number;
 }
 
-export function projectTotals(status: ProjectStatus | null, flows: Flow[]): ProjectTotals {
+export function projectTotals(
+  status: ProjectStatus | null,
+  flows: Flow[],
+  destinations: Destination[] = [],
+): ProjectTotals {
   const all = status?.flows ?? [];
+  if (!destinations.length) {
+    return {
+      flows: flows.length,
+      pending: all.reduce((n, f) => n + f.to_transfer, 0),
+      errors: all.reduce((n, f) => n + f.failed, 0),
+      runnable: all.filter(isRunnable).reduce((n, f) => n + f.to_transfer + f.failed, 0),
+    };
+  }
+  const appDestinations = new Set(
+    destinations.filter((d) => (d.kind ?? "folder") === "app").map((d) => d.id),
+  );
+  const autoFlowIds = new Set(flows.filter((f) => !appDestinations.has(f.destination_id)).map((f) => f.id));
+  const automatic = all.filter((f) => autoFlowIds.has(f.flow_id));
   return {
     flows: flows.length,
-    pending: all.reduce((n, f) => n + f.to_transfer, 0),
-    errors: all.reduce((n, f) => n + f.failed, 0),
-    runnable: all.filter(isRunnable).reduce((n, f) => n + f.to_transfer + f.failed, 0),
+    pending: automatic.reduce((n, f) => n + f.to_transfer, 0),
+    errors: automatic.reduce((n, f) => n + f.failed, 0),
+    runnable: automatic.filter(isRunnable).reduce((n, f) => n + f.to_transfer + f.failed, 0),
   };
 }
 
@@ -37,7 +61,9 @@ export function sourceStatus(status: ProjectStatus | null, id: string) {
 }
 
 export function isActive(job: TransferJob): boolean {
-  return job.state === "queued" || job.state === "running" || job.state === "verifying" || job.state === "paused";
+  return (
+    job.state === "queued" || job.state === "running" || job.state === "verifying" || job.state === "paused"
+  );
 }
 
 export interface TransferTotals {
@@ -66,6 +92,7 @@ export function transferTotals(jobs: TransferJob[]): TransferTotals {
 
 /** Human label for a flow's failure, e.g. "3 hash mismatches". */
 export function failureLabel(failed: number, error: string | null): string {
-  if (error?.toLowerCase().includes("hash")) return `${failed.toLocaleString("en-US")} hash ${failed === 1 ? "mismatch" : "mismatches"}`;
+  if (error?.toLowerCase().includes("hash"))
+    return `${failed.toLocaleString("en-US")} hash ${failed === 1 ? "mismatch" : "mismatches"}`;
   return `${failed.toLocaleString("en-US")} ${failed === 1 ? "error" : "errors"}`;
 }

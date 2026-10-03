@@ -20,6 +20,7 @@ impl FinalSet {
         let rules: Vec<(String, RuleSet)> = store
             .list::<Destination>()?
             .into_iter()
+            .filter(|d| d.kind == crate::domain::DestinationKind::Folder)
             .filter(|d| d.counts_as_safe_copy)
             .filter_map(|d| Some((d.device_id.clone(), RuleSet::compile(&d.rules).ok()?)))
             .collect();

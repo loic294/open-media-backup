@@ -1,6 +1,6 @@
 use super::assess::{assess_source, FinalSet};
 use super::{classify_files, resolve_flow, Catalog, Category, FailureMap, PlanError, RootResolver};
-use crate::domain::{Destination, Device, Flow, Project, Source, Space};
+use crate::domain::{Destination, DestinationKind, Device, Flow, Project, Source, Space};
 use crate::scan::ScannedFile;
 use crate::store::Store;
 use serde::Serialize;
@@ -123,7 +123,8 @@ pub fn project_status(
             .filter(|f| f.category == Category::ToTransfer)
             .map(|f| f.size)
             .sum();
-        let available = ctx.source_root.is_some() && ctx.dest_root.is_some();
+        let available = ctx.source_root.is_some()
+            && (ctx.destination.kind == DestinationKind::App || ctx.dest_root.is_some());
         let state = if ctx.config_error.is_some() || failed > 0 {
             FlowState::Error
         } else if to_transfer > 0 {
@@ -134,7 +135,7 @@ pub fn project_status(
             }
         } else if transferred > 0 {
             FlowState::Done
-        } else if ctx.dest_root.is_none() {
+        } else if ctx.destination.kind == DestinationKind::Folder && ctx.dest_root.is_none() {
             FlowState::Unavailable
         } else {
             FlowState::Empty
@@ -147,8 +148,12 @@ pub fn project_status(
             .entry(ctx.destination.id.clone())
             .or_insert_with(|| DestinationStatus {
                 destination_id: ctx.destination.id.clone(),
-                available: ctx.dest_root.is_some(),
-                root_path: ctx.dest_root.as_ref().map(|p| p.display().to_string()),
+                available: ctx.destination.kind == DestinationKind::App || ctx.dest_root.is_some(),
+                root_path: if ctx.destination.kind == DestinationKind::App {
+                    None
+                } else {
+                    ctx.dest_root.as_ref().map(|p| p.display().to_string())
+                },
                 ..Default::default()
             });
         dest.transferred += transferred;
@@ -172,11 +177,17 @@ pub fn project_status(
     }
     for dest in store.list_by::<Destination>("space_id", &space.id)? {
         dest_statuses.entry(dest.id.clone()).or_insert_with(|| {
-            let root = resolver.device_root(&dest.device_id).filter(|p| p.exists());
+            let root = (dest.kind == DestinationKind::Folder)
+                .then(|| resolver.device_root(&dest.device_id).filter(|p| p.exists()))
+                .flatten();
             DestinationStatus {
                 destination_id: dest.id.clone(),
-                available: root.is_some(),
-                root_path: root.map(|p| p.display().to_string()),
+                available: dest.kind == DestinationKind::App || root.is_some(),
+                root_path: if dest.kind == DestinationKind::App {
+                    None
+                } else {
+                    root.map(|p| p.display().to_string())
+                },
                 ..Default::default()
             }
         });

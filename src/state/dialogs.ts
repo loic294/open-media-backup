@@ -19,6 +19,7 @@ export type DialogRequest =
       title: string;
       message: string;
       confirmLabel: string;
+      cancelLabel?: string;
       danger?: boolean;
       onConfirm: () => void | Promise<void>;
     };

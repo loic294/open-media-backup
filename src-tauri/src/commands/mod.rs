@@ -48,6 +48,8 @@ macro_rules! omb_handlers {
             $crate::commands::catalog::get_media_metadata,
             $crate::commands::catalog::thumbnail,
             $crate::commands::catalog::open_media_file,
+            $crate::commands::catalog::open_flow_in_app,
+            $crate::commands::catalog::confirm_app_import,
             $crate::commands::transfers::run_flow,
             $crate::commands::transfers::run_all,
             $crate::commands::transfers::set_transfer_paused,

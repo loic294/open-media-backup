@@ -1,5 +1,5 @@
 use super::{blocking, CmdResult, Shared};
-use crate::app::{AppSettings, FilePage, ListFilesRequest, Snapshot};
+use crate::app::{AppImportFile, AppSettings, FilePage, ListFilesRequest, Snapshot};
 use crate::metadata::MediaMetadata;
 use crate::plan::ProjectStatus;
 use serde_json::Value;
@@ -82,42 +82,118 @@ pub async fn open_media_file(state: State<'_, Shared>, abs_path: String) -> CmdR
         Ok((path, app))
     })
     .await?;
-    tauri::async_runtime::spawn_blocking(move || open_with_app(&path, app.as_deref()))
+    tauri::async_runtime::spawn_blocking(move || open_paths_with_app(&[path], app.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn open_with_app(path: &std::path::Path, app: Option<&str>) -> CmdResult<()> {
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OpenAppImportResult {
+    pub token: String,
+    pub app_name: String,
+    pub files: Vec<AppImportFile>,
+}
+
+#[tauri::command]
+pub async fn open_flow_in_app(
+    state: State<'_, Shared>,
+    project_id: String,
+    flow_id: String,
+) -> CmdResult<OpenAppImportResult> {
+    let prepared = blocking(&state, move |s| {
+        s.core.prepare_app_import(&project_id, &flow_id)
+    })
+    .await?;
+    let token = prepared.token;
+    let app_name = prepared.app_name;
+    let app_path = prepared.app_path;
+    let paths = prepared.paths;
+    let files = prepared.files;
+    tauri::async_runtime::spawn_blocking(move || {
+        open_paths_with_app(&paths, Some(app_path.as_str()))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(OpenAppImportResult {
+        token,
+        app_name,
+        files,
+    })
+}
+
+#[tauri::command]
+pub async fn confirm_app_import(
+    state: State<'_, Shared>,
+    project_id: String,
+    flow_id: String,
+    token: String,
+) -> CmdResult<usize> {
+    blocking(&state, move |s| {
+        s.core.confirm_app_import(&project_id, &flow_id, &token)
+    })
+    .await
+}
+
+fn open_paths_with_app(paths: &[PathBuf], app: Option<&str>) -> CmdResult<()> {
     let app = app.map(str::trim).filter(|app| !app.is_empty());
+    if paths.is_empty() {
+        return Ok(());
+    }
+    for chunk in chunk_paths(paths) {
+        let mut command = open_command(app, chunk);
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Could not launch the media app: {error}"))?;
+    }
+    Ok(())
+}
+
+fn chunk_paths(paths: &[PathBuf]) -> Vec<&[PathBuf]> {
+    const MAX_ARGS: usize = 400;
+    const MAX_BYTES: usize = 96 * 1024;
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut bytes = 0;
+    for (i, path) in paths.iter().enumerate() {
+        let len = path.as_os_str().to_string_lossy().len().max(1);
+        if i > start && (i - start >= MAX_ARGS || bytes + len > MAX_BYTES) {
+            chunks.push(&paths[start..i]);
+            start = i;
+            bytes = 0;
+        }
+        bytes += len;
+    }
+    chunks.push(&paths[start..]);
+    chunks
+}
+
+fn open_command(app: Option<&str>, paths: &[PathBuf]) -> Command {
     #[cfg(target_os = "macos")]
-    let mut command = {
+    {
         let mut command = Command::new("open");
         if let Some(app) = app {
             command.arg("-a").arg(app);
         }
-        command.arg(path);
+        command.args(paths);
         command
-    };
+    }
     #[cfg(target_os = "windows")]
-    let mut command = {
+    {
         let mut command = match app {
             Some(app) => Command::new(app),
             None => Command::new("explorer.exe"),
         };
-        command.arg(path);
+        command.args(paths);
         command
-    };
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
+    {
         let mut command = match app {
             Some(app) => Command::new(app),
             None => Command::new("xdg-open"),
         };
-        command.arg(path);
+        command.args(paths);
         command
-    };
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Could not launch the media app: {error}"))
+    }
 }

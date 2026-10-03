@@ -26,8 +26,12 @@ export class OmbConfirmDialog extends DialogBase<Extract<DialogRequest, { type: 
       @close=${this.onClosed}
       .body=${html`<p class="text-sm text-base-content/70">${r.message}</p>`}
       .actions=${html`
-        <button class="btn btn-ghost" @click=${() => this.dismiss()}>Cancel</button>
-        <button class="btn ${r.danger ? "btn-error" : "btn-primary"}" ?disabled=${this.busy} @click=${() => this.#confirm()}>
+        <button class="btn btn-ghost" @click=${() => this.dismiss()}>${r.cancelLabel ?? "Cancel"}</button>
+        <button
+          class="btn ${r.danger ? "btn-error" : "btn-primary"}"
+          ?disabled=${this.busy}
+          @click=${() => this.#confirm()}
+        >
           ${this.busy ? html`<span class="loading loading-spinner loading-sm"></span>` : null}${r.confirmLabel}
         </button>
       `}

@@ -3,7 +3,15 @@ import type { FlowStatus, ProjectStatus, TransferJob } from "../api/types";
 import { failureLabel, isRunnable, projectTotals, transferTotals } from "./derived";
 
 const flow = (p: Partial<FlowStatus>): FlowStatus =>
-  ({ flow_id: "f", state: "pending", to_transfer: 0, failed: 0, transferred: 0, ignored: 0, ...p }) as FlowStatus;
+  ({
+    flow_id: "f",
+    state: "pending",
+    to_transfer: 0,
+    failed: 0,
+    transferred: 0,
+    ignored: 0,
+    ...p,
+  }) as FlowStatus;
 
 const job = (p: Partial<TransferJob>): TransferJob => ({
   id: "j",
@@ -30,10 +38,35 @@ describe("derived", () => {
 
   it("sums project totals", () => {
     const status = {
-      flows: [flow({ to_transfer: 3 }), flow({ state: "error", failed: 2 }), flow({ state: "unavailable", to_transfer: 7 })],
+      flows: [
+        flow({ to_transfer: 3 }),
+        flow({ state: "error", failed: 2 }),
+        flow({ state: "unavailable", to_transfer: 7 }),
+      ],
     } as ProjectStatus;
-    expect(projectTotals(status, [{}, {}] as never)).toEqual({ flows: 2, pending: 10, errors: 2, runnable: 5 });
+    expect(projectTotals(status, [{}, {}] as never)).toEqual({
+      flows: 2,
+      pending: 10,
+      errors: 2,
+      runnable: 5,
+    });
     expect(projectTotals(null, [])).toEqual({ flows: 0, pending: 0, errors: 0, runnable: 0 });
+  });
+
+  it("excludes app destinations from automatic totals", () => {
+    const status = {
+      flows: [flow({ flow_id: "auto", to_transfer: 3 }), flow({ flow_id: "app", to_transfer: 7 })],
+    } as ProjectStatus;
+    expect(
+      projectTotals(
+        status,
+        [
+          { id: "auto", destination_id: "folder" },
+          { id: "app", destination_id: "lightroom" },
+        ] as never,
+        [{ id: "lightroom", kind: "app" }] as never,
+      ),
+    ).toEqual({ flows: 2, pending: 3, errors: 0, runnable: 3 });
   });
 
   it("computes transfer totals and ETA, ignoring finished and paused jobs", () => {
