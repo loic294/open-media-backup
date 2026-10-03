@@ -3,6 +3,7 @@ use crate::domain::{Destination, DestinationKind, Flow, Source};
 use crate::plan::Category;
 use crate::testing::{Fixture, MapResolver};
 use serde_json::json;
+use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -157,14 +158,24 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
     let (core, _t) = core(&fx);
     let err = core.prepare_app_import("project", "flow").unwrap_err();
     assert_eq!(err, "Choose the application for Lightroom on this computer");
+    let app_path = fx.card_dir.path().join("Lightroom.app");
+    fs::create_dir_all(&app_path).unwrap();
     let mut settings = core.settings();
-    settings
-        .app_destinations
-        .insert(destination.id.clone(), "/Applications/Lightroom.app".into());
+    settings.app_destinations.insert(
+        destination.id.clone(),
+        app_path.to_string_lossy().into_owned(),
+    );
     core.save_settings(&settings).unwrap();
     let prepared = core.prepare_app_import("project", "flow").unwrap();
     assert_eq!(prepared.app_name, "Lightroom");
-    assert_eq!(prepared.app_path, "/Applications/Lightroom.app");
+    assert_eq!(
+        prepared.app_path,
+        app_path
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    );
     assert_eq!(prepared.paths.len(), 1);
     assert_eq!(prepared.files[0].rel_path, "A.JPG");
 

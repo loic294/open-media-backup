@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
+import { appPickerOptions } from "../utils/app-picker";
 
 const thumbnails = new Map<string, Promise<string | null>>();
 
@@ -51,15 +52,8 @@ export const tauriBackend: Backend = {
     return typeof picked === "string" ? picked : null;
   },
   pickPreviewApp: async (os) => {
-    const normalized = os.toLowerCase();
-    const picked = await open(
-      normalized.includes("mac")
-        ? { directory: true, defaultPath: "/Applications", canCreateDirectories: false }
-        : normalized.includes("windows")
-          ? { filters: [{ name: "Applications", extensions: ["exe"] }] }
-          : {},
-    );
-    return typeof picked === "string" ? picked : null;
+    const picked = await open(appPickerOptions(os));
+    return typeof picked === "string" ? invoke("validate_app_path", { appPath: picked }) : null;
   },
 
   planWipe: (projectId, sourceId) => invoke("plan_wipe", { projectId, sourceId }),

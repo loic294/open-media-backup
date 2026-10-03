@@ -1,4 +1,5 @@
 //! Application services shared by the Tauri commands. Free of Tauri types so it can be tested.
+pub(crate) mod app_paths;
 mod core;
 mod entities;
 mod files;

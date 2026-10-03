@@ -98,6 +98,9 @@ impl AppCore {
     }
 
     pub fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        let current = AppSettings::load(&self.store);
+        let mut settings = settings.clone();
+        super::app_paths::normalize_app_settings(&mut settings, &current)?;
         settings.save(&self.store).map_err(|e| e.to_string())
     }
 
@@ -226,7 +229,10 @@ impl AppCore {
             .map(String::as_str)
             .map(str::trim)
             .filter(|path| !path.is_empty())
-            .map(str::to_string)
+            .map(Path::new)
+            .map(super::app_paths::validate_app_path)
+            .transpose()?
+            .map(|path| super::app_paths::path_to_string(&path))
             .ok_or_else(|| format!("Choose the application for {app_name} on this computer"))?;
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
         let planned: Vec<_> = classify_flow(&ctx, &catalog, self.failures.lock().get(flow_id))

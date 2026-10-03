@@ -29,6 +29,20 @@ pub async fn save_settings(state: State<'_, Shared>, settings: AppSettings) -> C
 }
 
 #[tauri::command]
+pub async fn validate_app_path(app_path: String) -> CmdResult<String> {
+    blocking_app_path(PathBuf::from(app_path)).await
+}
+
+async fn blocking_app_path(path: PathBuf) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::app::app_paths::validate_app_path(&path)
+            .map(|path| crate::app::app_paths::path_to_string(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_project_status(
     state: State<'_, Shared>,
     project_id: String,
@@ -78,7 +92,12 @@ pub async fn open_media_file(state: State<'_, Shared>, abs_path: String) -> CmdR
         let app = match crate::media::media_kind(&path) {
             crate::media::MediaKind::Video => apps.videos,
             _ => apps.photos,
-        };
+        }
+        .as_deref()
+        .map(std::path::Path::new)
+        .map(crate::app::app_paths::validate_app_path)
+        .transpose()?
+        .map(|path| crate::app::app_paths::path_to_string(&path));
         Ok((path, app))
     })
     .await?;
