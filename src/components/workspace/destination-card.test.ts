@@ -41,6 +41,26 @@ describe("app destination card", () => {
     expect(card.querySelector("button.btn-primary")?.textContent).toContain("Open in Lightroom");
   });
 
+  it("estimates pending transfer time from the learned destination speed", async () => {
+    const snapshot = demoSnapshot();
+    const counts = structuredClone(demoCounts);
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", counts, new Set());
+    const status = store.status.destinations.find((d) => d.destination_id === "d2")!;
+    snapshot.settings.transfer_speeds = {
+      nas: status.bytes_to_transfer / 360,
+      _global: status.bytes_to_transfer / 120,
+    };
+    card = new OmbDestinationCard();
+    card.destination = snapshot.destinations.find((d) => d.id === "d2")!;
+    document.body.append(card);
+    await card.updateComplete;
+
+    expect(card.textContent).toContain("to transfer");
+    expect(card.textContent).toContain("~6 min");
+    expect(card.textContent).not.toContain("~2 min");
+  });
+
   it("asks to choose the local app when none is configured on this computer", async () => {
     const snapshot = demoSnapshot();
     delete snapshot.settings.app_destinations?.d4;

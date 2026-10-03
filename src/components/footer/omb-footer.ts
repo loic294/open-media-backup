@@ -17,7 +17,7 @@ export class OmbFooter extends OmbElement {
       snapshot?.destinations ?? [],
     );
     return html`
-      <footer class="flex items-center gap-5 px-5 py-3 border-t border-base-300 bg-base-200">
+      <footer class="relative z-50 flex items-center gap-5 px-5 py-3 border-t border-base-300 bg-base-200">
         <omb-transfer-progress></omb-transfer-progress>
         ${space ? this.#verificationStatus(space.hash_algo, space.verify_mode, totals.errors) : nothing}
         <span class="flex-1"></span>

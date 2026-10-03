@@ -7,7 +7,7 @@ import type {
   TransferJob,
 } from "../api/types";
 
-import { DEFAULT_TRANSFER_SPEED_BPS } from "../utils/eta";
+import { DEFAULT_TRANSFER_SPEED_BPS, liveTransferSpeed } from "../utils/eta";
 
 /** Used for ETA estimates before a transfer has measured its real speed. */
 export const ASSUMED_SPEED_BPS = DEFAULT_TRANSFER_SPEED_BPS;
@@ -74,6 +74,7 @@ export interface TransferTotals {
   paused: boolean;
   bytesDone: number;
   bytesTotal: number;
+  bytesPerSec: number | null;
   etaSeconds: number | null;
 }
 
@@ -81,13 +82,14 @@ export function transferTotals(jobs: TransferJob[]): TransferTotals {
   const active = jobs.filter(isActive);
   const bytesDone = active.reduce((n, j) => n + j.bytes_done, 0);
   const bytesTotal = active.reduce((n, j) => n + j.bytes_total, 0);
-  const speed = active.reduce((n, j) => n + (j.state === "paused" ? 0 : (j.bytes_per_sec ?? j.speed_bps)), 0);
+  const speed = active.reduce((n, j) => n + (j.state === "paused" ? 0 : (liveTransferSpeed(j) ?? 0)), 0);
   return {
     active,
     running: active.filter((j) => j.state !== "paused").length,
     paused: active.length > 0 && active.every((j) => j.state === "paused"),
     bytesDone,
     bytesTotal,
+    bytesPerSec: speed > 0 ? speed : null,
     etaSeconds: speed > 0 ? (bytesTotal - bytesDone) / speed : null,
   };
 }

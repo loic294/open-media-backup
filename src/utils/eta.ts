@@ -8,6 +8,20 @@ export function liveTransferSpeed(job: TransferSpeedSource): number | null {
   return positiveSpeed(job.bytes_per_sec) ?? positiveSpeed(job.speed_bps) ?? null;
 }
 
+export function formatSpeed(bytesPerSec: number | null | undefined): string {
+  const speed = positiveSpeed(bytesPerSec);
+  if (!speed) return "";
+  const units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
+  let value = speed;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  const digits = unit === 0 || value >= 100 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
 export function learnedTransferSpeed(
   speeds: TransferSpeeds,
   destinationDeviceId: string | null | undefined,

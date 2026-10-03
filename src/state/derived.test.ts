@@ -82,6 +82,7 @@ describe("derived", () => {
     expect(t.paused).toBe(false);
     expect(t.bytesDone).toBe(50);
     expect(t.bytesTotal).toBe(200);
+    expect(t.bytesPerSec).toBe(10);
     expect(t.etaSeconds).toBe(15);
     expect(transferTotals([job({ state: "paused" })]).paused).toBe(true);
     expect(transferTotals([]).etaSeconds).toBeNull();

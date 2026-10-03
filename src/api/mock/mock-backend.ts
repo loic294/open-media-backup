@@ -35,7 +35,7 @@ function projectVars(space: Space | undefined, project: Project | undefined): Re
 }
 
 /** In-memory backend used in a plain browser (and in UI tests). Simulates transfers. */
-export function createMockBackend(options: { tickMs?: number } = {}): Backend {
+export function createMockBackend(options: { tickMs?: number; seedRunningTransfer?: boolean } = {}): Backend {
   const snapshot = demoSnapshot();
   const counts: Counts = structuredClone(demoCounts);
   const offline = new Set(demoOffline);
@@ -119,6 +119,11 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
     });
     timer ??= setInterval(tick, options.tickMs ?? 400);
   };
+
+  if (options.seedRunningTransfer) {
+    startFlow("f4");
+    tick();
+  }
 
   return {
     getSnapshot: async () => structuredClone(snapshot),

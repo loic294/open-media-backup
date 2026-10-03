@@ -1,8 +1,9 @@
 import { html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { Destination, DestinationStatus, FileCategory } from "../../api/types";
-import { ASSUMED_SPEED_BPS, destinationStatus, isRunnable } from "../../state/derived";
+import { destinationStatus, isRunnable } from "../../state/derived";
 import { deviceById, deviceHosts } from "../../state/selectors";
+import { estimateTransferSeconds } from "../../utils/eta";
 import { formatBytes, formatCount, formatEta } from "../../utils/format";
 import { appDisplayName, configuredDestinationApp } from "../../utils/preview-apps";
 import { DEVICE_ICON, DEVICE_TONE } from "../ui/device-icon";
@@ -56,6 +57,13 @@ export class OmbDestinationCard extends OmbElement {
         <span class="text-sm text-base-content/50 truncate">${size} · ${when}</span>`;
     }
     if (st.to_transfer) {
+      const eta = formatEta(
+        estimateTransferSeconds(
+          st.bytes_to_transfer,
+          this.store.snapshot?.settings.transfer_speeds,
+          this.destination.device_id,
+        ),
+      );
       return html`<omb-icon name="clock" class="size-5 text-warning"></omb-icon>
         <button
           class="font-semibold text-warning hover:underline"
@@ -63,9 +71,7 @@ export class OmbDestinationCard extends OmbElement {
         >
           ${formatCount(st.to_transfer)} to transfer
         </button>
-        <span class="text-sm text-base-content/60 truncate"
-          >${size} · ${formatEta(st.bytes_to_transfer / ASSUMED_SPEED_BPS)}</span
-        >`;
+        <span class="text-sm text-base-content/60 truncate">${size}${eta ? ` · ${eta}` : ""}</span>`;
     }
     if (st.transferred) {
       return html`<omb-icon name="circle-check" class="size-5 text-success"></omb-icon
