@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
@@ -29,17 +29,7 @@ export const tauriBackend: Backend = {
   listFiles: (req) => invoke("list_files", { req }),
   thumbnail: (absPath) => thumbnailUrl(absPath),
   getMediaMetadata: (absPath) => invoke("get_media_metadata", { absPath }),
-  mediaPreview: async (absPath, mediaType) => {
-    if (mediaType === "video") {
-      await invoke("authorize_video_preview", { absPath });
-      return convertFileSrc(absPath);
-    }
-    const bytes = await invoke<ArrayBuffer>("media_preview", { absPath });
-    return bytes.byteLength
-      ? URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }))
-      : null;
-  },
-  openMedia: (absPath) => invoke("open_media", { absPath }),
+  openMedia: (absPath) => invoke("open_media_file", { absPath }),
 
   runFlow: (projectId, flowId) => invoke("run_flow", { projectId, flowId }),
   runAll: (projectId) => invoke("run_all", { projectId }),
@@ -53,6 +43,17 @@ export const tauriBackend: Backend = {
   relinkDevice: (deviceId, mountPath) => invoke("relink_device", { deviceId, mountPath }),
   pickFolder: async (defaultPath) => {
     const picked = await open({ directory: true, defaultPath });
+    return typeof picked === "string" ? picked : null;
+  },
+  pickPreviewApp: async (os) => {
+    const normalized = os.toLowerCase();
+    const picked = await open(
+      normalized.includes("mac")
+        ? { directory: true, defaultPath: "/Applications", canCreateDirectories: false }
+        : normalized.includes("windows")
+          ? { filters: [{ name: "Applications", extensions: ["exe"] }] }
+          : {},
+    );
     return typeof picked === "string" ? picked : null;
   },
 

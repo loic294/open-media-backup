@@ -40,17 +40,9 @@ pub fn init<R: Runtime>(
     let sync = SyncService::new(store.clone(), move |status| {
         let _ = emitter.emit("sync-status", status);
     });
-    let scope_handle = handle.clone();
-    let video_preview_scope = Arc::new(move |path| {
-        scope_handle
-            .asset_protocol_scope()
-            .allow_file(path)
-            .map_err(|e| e.to_string())
-    });
     handle.manage::<Shared>(Arc::new(AppState {
         core,
         sync: sync.clone(),
-        video_preview_scope,
     }));
 
     start_sync(sync, store.clone());

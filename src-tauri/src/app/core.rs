@@ -120,23 +120,6 @@ impl AppCore {
             .map_err(|e| e.to_string())
     }
 
-    pub fn media_preview(&self, path: &Path) -> Result<Option<PathBuf>, String> {
-        if crate::media::media_kind(path) == crate::media::MediaKind::Other {
-            return Ok(None);
-        }
-        self.thumbnails
-            .get_or_create_preview(path)
-            .map_err(|e| e.to_string())
-    }
-
-    pub fn authorize_video_preview(&self, path: &Path) -> Result<PathBuf, String> {
-        let path = self.authorize_media_open(path)?;
-        if crate::media::media_kind(&path) != crate::media::MediaKind::Video {
-            return Err("The requested file is not a supported video".into());
-        }
-        Ok(path)
-    }
-
     pub fn authorize_media_open(&self, path: &Path) -> Result<PathBuf, String> {
         let path = path
             .canonicalize()

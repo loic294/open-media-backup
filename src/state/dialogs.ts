@@ -1,5 +1,3 @@
-import type { FileEntry } from "../api/types";
-
 /** Every dialog the app can open, with its props. Rendered by <omb-dialog-host>. */
 export type DialogRequest =
   | { type: "device-sync" }
@@ -16,7 +14,6 @@ export type DialogRequest =
   | { type: "wipe-card"; sourceId: string }
   | { type: "preview"; flowId: string | null; category?: "to_transfer" | "transferred" | "ignored" | "error" }
   | { type: "media-browser"; sourceId: string }
-  | { type: "media-viewer"; file: FileEntry; files?: FileEntry[] }
   | {
       type: "confirm";
       title: string;

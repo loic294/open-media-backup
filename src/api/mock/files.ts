@@ -10,7 +10,15 @@ const EXT: [string, MediaKind][] = [
 ];
 
 /** Deterministic fake file listing for the browser demo. */
-export function mockFiles(total: number, category: FileCategory, offset: number, limit: number, filter = "", target = "", rules: FileRule[] = []): FilePage {
+export function mockFiles(
+  total: number,
+  category: FileCategory,
+  offset: number,
+  limit: number,
+  filter = "",
+  target = "",
+  rules: FileRule[] = [],
+): FilePage {
   const all = Array.from({ length: total }, (_, i) => {
     const [ext, media] = EXT[i % EXT.length];
     const prefix = media === "video" ? "C" : "IMG_";

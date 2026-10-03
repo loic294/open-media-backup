@@ -133,6 +133,7 @@ const snapshot = (
     sync_port: 0,
     active_space_id: "space",
     active_project_by_space: { space: "project" },
+    preview_apps: { photos: null, videos: null },
   },
 });
 

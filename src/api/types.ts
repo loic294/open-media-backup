@@ -109,6 +109,12 @@ export interface Flow {
 }
 
 export type ThemePreference = "system" | "light" | "dark";
+export type PreviewAppMediaType = "photos" | "videos";
+
+export interface PreviewAppSettings {
+  photos: string | null;
+  videos: string | null;
+}
 
 export interface AppSettings {
   theme: ThemePreference;
@@ -117,6 +123,8 @@ export interface AppSettings {
   sync_port: number;
   active_space_id: string | null;
   active_project_by_space: Record<string, string>;
+  /** Per-device custom apps. Missing on older snapshots means system defaults. */
+  preview_apps?: PreviewAppSettings;
 }
 
 export interface Snapshot {

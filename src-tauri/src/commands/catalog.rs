@@ -68,62 +68,56 @@ pub async fn thumbnail(state: State<'_, Shared>, abs_path: String) -> CmdResult<
     .await
 }
 
-/// JPEG still preview sized for the in-app viewer, sent as raw IPC bytes.
+/// Opens only a source-listed media path with the selected application or the OS default.
 #[tauri::command]
-pub async fn media_preview(state: State<'_, Shared>, abs_path: String) -> CmdResult<Response> {
-    blocking(&state, move |s| {
-        let bytes = match s.core.media_preview(&PathBuf::from(abs_path))? {
-            Some(path) => std::fs::read(path).map_err(|e| e.to_string())?,
-            None => Vec::new(),
+pub async fn open_media_file(state: State<'_, Shared>, abs_path: String) -> CmdResult<()> {
+    // The app comes from this device's stored settings, never from the webview.
+    let (path, app) = blocking(&state, move |s| {
+        let path = s.core.authorize_media_open(&PathBuf::from(abs_path))?;
+        let apps = s.core.settings().preview_apps;
+        let app = match crate::media::media_kind(&path) {
+            crate::media::MediaKind::Video => apps.videos,
+            _ => apps.photos,
         };
-        Ok(Response::new(bytes))
-    })
-    .await
-}
-
-/// Grants the webview access to a listed video file so its native video element can stream it.
-#[tauri::command]
-pub async fn authorize_video_preview(state: State<'_, Shared>, abs_path: String) -> CmdResult<()> {
-    blocking(&state, move |s| {
-        let path = s.core.authorize_video_preview(&PathBuf::from(abs_path))?;
-        (s.video_preview_scope)(path)
-    })
-    .await
-}
-
-/// Opens only a source-listed media path with the operating system's default application.
-#[tauri::command]
-pub async fn open_media(state: State<'_, Shared>, abs_path: String) -> CmdResult<()> {
-    let path = blocking(&state, move |s| {
-        s.core.authorize_media_open(&PathBuf::from(abs_path))
+        Ok((path, app))
     })
     .await?;
-    tauri::async_runtime::spawn_blocking(move || open_with_default_app(&path))
+    tauri::async_runtime::spawn_blocking(move || open_with_app(&path, app.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn open_with_default_app(path: &std::path::Path) -> CmdResult<()> {
+fn open_with_app(path: &std::path::Path, app: Option<&str>) -> CmdResult<()> {
+    let app = app.map(str::trim).filter(|app| !app.is_empty());
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = Command::new("open");
+        if let Some(app) = app {
+            command.arg("-a").arg(app);
+        }
         command.arg(path);
         command
     };
     #[cfg(target_os = "windows")]
     let mut command = {
-        let mut command = Command::new("explorer.exe");
+        let mut command = match app {
+            Some(app) => Command::new(app),
+            None => Command::new("explorer.exe"),
+        };
         command.arg(path);
         command
     };
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = {
-        let mut command = Command::new("xdg-open");
+        let mut command = match app {
+            Some(app) => Command::new(app),
+            None => Command::new("xdg-open"),
+        };
         command.arg(path);
         command
     };
     command
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Could not launch the default media app: {error}"))
+        .map_err(|error| format!("Could not launch the media app: {error}"))
 }

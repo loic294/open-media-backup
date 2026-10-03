@@ -15,6 +15,14 @@ pub struct AppSettings {
     pub sync_port: u16,
     pub active_space_id: Option<String>,
     pub active_project_by_space: HashMap<String, String>,
+    pub preview_apps: PreviewAppSettings,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PreviewAppSettings {
+    pub photos: Option<String>,
+    pub videos: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -26,6 +34,7 @@ impl Default for AppSettings {
             sync_port: crate::sync::DEFAULT_PORT,
             active_space_id: None,
             active_project_by_space: HashMap::new(),
+            preview_apps: PreviewAppSettings::default(),
         }
     }
 }

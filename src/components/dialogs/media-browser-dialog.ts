@@ -7,6 +7,7 @@ import { selectMedia, type MediaSelection } from "../../state/media-selection";
 import { matchingProjects } from "../../state/projects";
 import { deviceById } from "../../state/selectors";
 import { debounce } from "../../utils/debounce";
+import { openInAppLabel } from "../../utils/preview-apps";
 import { DialogBase } from "./dialog-base";
 import {
   captureLabel,
@@ -170,6 +171,17 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     }
   }
 
+  async #openInApp(file: BrowserMedia["file"]) {
+    if (!file.abs_path || !this.store.snapshot) return;
+    const label = openInAppLabel(this.store.snapshot.settings, this.store.snapshot.computer.os, file);
+    try {
+      await this.store.backend.openMedia(file.abs_path);
+      this.store.toast("success", `${label}: ${file.name}`);
+    } catch (error) {
+      this.store.toast("error", `Could not open ${file.name}: ${error}`);
+    }
+  }
+
   override render() {
     const snapshot = this.store.snapshot;
     const source = snapshot?.sources.find((item) => item.id === this.request.sourceId);
@@ -239,7 +251,16 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
                     class="rounded-box p-2 text-left border border-base-300 focus-visible:outline-2 focus-visible:outline-primary ${selected ? "ring-2 ring-primary bg-primary/10" : "hover:bg-base-200"}"
                     aria-label=${`Select ${item.file.rel_path}`}
                     aria-pressed=${selected}
+                    title=${
+                      item.file.abs_path
+                        ? `Double-click to ${openInAppLabel(snapshot.settings, snapshot.computer.os, item.file).replace(/^Open/, "open")}`
+                        : "Source file is not available to open"
+                    }
                     @click=${(event: MouseEvent) => this.#select(item.file.rel_path, event)}
+                    @dblclick=${() => {
+                      this.#select(item.file.rel_path, { shiftKey: false, ctrlKey: false, metaKey: false });
+                      void this.#openInApp(item.file);
+                    }}
                     @keydown=${(event: KeyboardEvent) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -285,14 +306,10 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
               ? html` <button
                     class="btn btn-sm mb-3 lg:shrink-0 lg:self-start"
                     ?disabled=${!file.abs_path}
-                    @click=${() =>
-                      this.store.open({
-                        type: "media-viewer",
-                        file,
-                        files: this.items.map((item) => item.file),
-                      })}
+                    @click=${() => void this.#openInApp(file)}
                   >
-                    <omb-icon name="maximize"></omb-icon>View larger in app
+                    <omb-icon name="external-link"></omb-icon
+                    >${openInAppLabel(snapshot.settings, snapshot.computer.os, file)}
                   </button>
                   <omb-media-inspector
                     class="lg:flex lg:flex-col lg:flex-1 lg:min-h-0"

@@ -175,10 +175,7 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
         orientation: 1,
         video: null,
       }) satisfies MediaMetadata,
-    mediaPreview: async () => null,
-    openMedia: async () => {
-      throw new Error("Opening files in the default app is only available in the desktop app.");
-    },
+    openMedia: async (absPath) => console.info(`Demo mode would open ${absPath}`),
     runFlow: async (_projectId, flowId) => startFlow(flowId),
     runAll: async (projectId) => {
       const status = mockStatus(snapshot, projectId, counts, offline);
@@ -264,6 +261,8 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       changed();
     },
     pickFolder: async () => window.prompt("Folder path (demo mode)", "/Volumes/Untitled") ?? null,
+    pickPreviewApp: async () =>
+      window.prompt("Preview app path (demo mode)", "/Applications/Preview.app") ?? null,
     planWipe: async (projectId, sourceId) => {
       const status = mockStatus(snapshot, projectId, counts, offline).sources.find(
         (s) => s.source_id === sourceId,

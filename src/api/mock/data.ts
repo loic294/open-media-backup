@@ -170,6 +170,7 @@ export function demoSnapshot(): Snapshot {
       sync_port: 47821,
       active_space_id: "travel",
       active_project_by_space: { travel: "trip" },
+      preview_apps: { photos: null, videos: null },
     },
   } satisfies Snapshot);
 }

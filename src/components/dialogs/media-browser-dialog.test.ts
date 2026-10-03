@@ -6,7 +6,6 @@ import { newFlow, newProject, newSource, newSpace } from "../../state/factories"
 import { captureLabel, captureTimeMs, mergeMedia, selectedCaptureRange } from "./media-browser-data";
 import { OmbMediaBrowserDialog } from "./media-browser-dialog";
 import { OmbMediaInspector } from "./media-inspector";
-import { OmbMediaViewerDialog } from "./media-viewer-dialog";
 import "../workspace/source-card";
 
 function file(path: string, time: number | null = null, projectId?: string): FileEntry {
@@ -116,7 +115,7 @@ describe("source media browser components", () => {
     store.dialogs = [];
     vi.spyOn(store.backend, "thumbnail").mockResolvedValue(null);
     vi.spyOn(store.backend, "getMediaMetadata").mockResolvedValue(metadata);
-    vi.spyOn(store.backend, "mediaPreview").mockResolvedValue("blob:preview");
+    vi.spyOn(store.backend, "openMedia").mockResolvedValue();
     vi.spyOn(store, "toast").mockImplementation(() => {});
   });
 
@@ -319,19 +318,6 @@ describe("source media browser components", () => {
     expect(element.textContent).toContain("Capture date unavailable");
   });
 
-  it("uses the in-app preview API and reports unavailable previews and metadata errors", async () => {
-    vi.mocked(store.backend.mediaPreview).mockResolvedValue(null);
-    vi.mocked(store.backend.getMediaMetadata).mockRejectedValue(new Error("Unsupported format"));
-    const element = new OmbMediaViewerDialog();
-    element.request = { type: "media-viewer", file: file("photo") };
-    document.body.append(element);
-    await until(() => element.textContent?.includes("No in-app preview") ?? false);
-    expect(store.backend.mediaPreview).toHaveBeenCalledWith("/source/photo", "image");
-    expect(element.textContent).toContain("Media is previewed in-app");
-    await until(() => element.textContent?.includes("Unsupported format") ?? false);
-    expect(element.querySelectorAll('[role="alert"]')).toHaveLength(2);
-  });
-
   it("shows a media thumbnail above embedded metadata in the inspector", async () => {
     vi.mocked(store.backend.thumbnail).mockResolvedValue("blob:thumbnail");
     const element = new OmbMediaInspector();
@@ -378,29 +364,37 @@ describe("source media browser components", () => {
     expect(metadataCard.className).toContain("lg:overflow-y-auto");
   });
 
-  it("navigates viewer thumbnails and opens the current file in the default app", async () => {
-    const openMedia = vi.spyOn(store.backend, "openMedia").mockResolvedValue();
-    const element = new OmbMediaViewerDialog();
-    element.request = {
-      type: "media-viewer",
-      file: file("first.jpg"),
-      files: [file("first.jpg"), file("next.jpg")],
-    };
-    document.body.append(element);
-    await until(() => vi.mocked(store.backend.mediaPreview).mock.calls.length > 0);
-    await until(() => !!element.querySelector('[aria-label="Preview next.jpg"]'));
-    element.querySelector<HTMLButtonElement>('[aria-label="Preview next.jpg"]')!.click();
-    await until(() =>
-      vi.mocked(store.backend.mediaPreview).mock.calls.some(([path]) => path === "/source/next.jpg"),
+  it("shows system-specific open labels and opens the inspected file in the configured app", async () => {
+    store.snapshot!.settings.preview_apps = { photos: "/Applications/Pixelmator Pro.app", videos: null };
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("photo", 0)]) : page([]),
     );
+    const openMedia = vi.mocked(store.backend.openMedia);
+    const element = await browser();
+    element.querySelector<HTMLButtonElement>('button[aria-label="Select photo"]')!.click();
     await element.updateComplete;
-    expect(element.querySelector('[aria-label="Preview next.jpg"]')?.getAttribute("aria-pressed")).toBe(
-      "true",
-    );
-    [...element.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Open in default app"))!
-      .click();
+
+    const openButton = [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Open in Pixelmator Pro"),
+    )!;
+    expect(openButton).toBeTruthy();
+    openButton.click();
     await until(() => openMedia.mock.calls.length === 1);
-    expect(openMedia).toHaveBeenCalledWith("/source/next.jpg");
+    expect(openMedia).toHaveBeenCalledWith("/source/photo");
+  });
+
+  it("double-clicks thumbnails to open files while leaving the tile selected", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("photo", 0)]) : page([]),
+    );
+    const openMedia = vi.mocked(store.backend.openMedia);
+    const element = await browser();
+    const tile = element.querySelector<HTMLButtonElement>('button[aria-label="Select photo"]')!;
+    expect(tile.title).toBe("Double-click to open in Preview");
+    tile.dispatchEvent(new MouseEvent("dblclick", { ctrlKey: true, bubbles: true }));
+    await until(() => openMedia.mock.calls.length === 1);
+    await element.updateComplete;
+    expect(openMedia).toHaveBeenCalledWith("/source/photo");
+    expect(tile.getAttribute("aria-pressed")).toBe("true");
   });
 });

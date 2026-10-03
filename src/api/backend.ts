@@ -7,7 +7,6 @@ import type {
   FileCategory,
   FilePage,
   Flow,
-  MediaKind,
   MediaMetadata,
   Project,
   ProjectStatus,
@@ -60,7 +59,6 @@ export interface Backend {
   }): Promise<FilePage>;
   thumbnail(absPath: string): Promise<string | null>;
   getMediaMetadata(absPath: string): Promise<MediaMetadata>;
-  mediaPreview(absPath: string, mediaType: MediaKind): Promise<string | null>;
   openMedia(absPath: string): Promise<void>;
 
   runFlow(projectId: string, flowId: string): Promise<void>;
@@ -74,6 +72,7 @@ export interface Backend {
   registerDevice(mountPath: string, device: Device): Promise<void>;
   relinkDevice(deviceId: string, mountPath: string): Promise<void>;
   pickFolder(defaultPath?: string): Promise<string | null>;
+  pickPreviewApp(os: string): Promise<string | null>;
 
   planWipe(projectId: string, sourceId: string): Promise<WipePlan>;
   wipe(projectId: string, sourceId: string, method: WipeMethod): Promise<void>;
@@ -83,5 +82,8 @@ export interface Backend {
   removePeer(peerId: string): Promise<void>;
   syncNow(): Promise<void>;
 
-  on<E extends keyof BackendEvents>(event: E, handler: (payload: BackendEvents[E]) => void): Promise<Unlisten>;
+  on<E extends keyof BackendEvents>(
+    event: E,
+    handler: (payload: BackendEvents[E]) => void,
+  ): Promise<Unlisten>;
 }
