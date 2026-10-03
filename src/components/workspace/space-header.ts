@@ -35,9 +35,15 @@ export class OmbSpaceHeader extends OmbElement {
     const open = (focus?: "name" | "variables") =>
       this.store.open({ type: "space-settings", spaceId: space.id, focus });
     return html`
-      <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-        <div class="flex items-center gap-1 min-w-0">
-          <h1 class="text-xl font-bold mr-1 truncate">${space.name}</h1>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="mr-auto flex min-w-0 items-center gap-2">
+          <span
+            class="grid size-10 shrink-0 place-items-center rounded-box bg-primary text-primary-content shadow-sm"
+            aria-hidden="true"
+          >
+            <omb-icon name=${space.icon} class="size-4"></omb-icon>
+          </span>
+          <h1 class="mr-1 truncate text-xl font-bold">${space.name}</h1>
           <details class="dropdown">
             <summary class="btn btn-ghost btn-sm btn-square" title="Space options" aria-label="Space options">
               <omb-icon name="ellipsis"></omb-icon>
@@ -68,11 +74,7 @@ export class OmbSpaceHeader extends OmbElement {
             </ul>
           </details>
         </div>
-        <omb-project-picker></omb-project-picker>
-        <div class="flex items-center justify-end gap-2 flex-wrap">
-          <span class="badge badge-outline gap-1.5 h-8 px-3"
-            ><omb-icon name="git-fork" class="size-3.5"></omb-icon>${plural(totals.flows, "flow")}</span
-          >
+        <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
           ${
             totals.pending
               ? html`<span class="badge badge-warning badge-soft gap-1.5 h-8 px-3"
@@ -89,6 +91,7 @@ export class OmbSpaceHeader extends OmbElement {
                 >`
               : nothing
           }
+          <omb-project-picker></omb-project-picker>
         </div>
       </div>
     `;

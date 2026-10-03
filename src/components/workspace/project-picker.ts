@@ -8,16 +8,16 @@ export class OmbProjectPicker extends OmbElement {
   override render() {
     const { space } = this.store;
     if (!space) return nothing;
-    return html`<div class="flex items-center justify-center gap-2">
+    return html`<div class="flex items-center justify-end gap-2">
       <button
-        class="btn btn-sm btn-primary btn-outline gap-2 px-5"
+        class="btn btn-sm btn-primary btn-outline gap-2 whitespace-nowrap px-5"
         aria-label="Open projects"
         @click=${() => this.store.openProjectsDialog()}
       >
         <omb-icon name="folder"></omb-icon>Projects
       </button>
       <button
-        class="btn btn-sm btn-primary gap-2 px-5"
+        class="btn btn-sm btn-primary gap-2 whitespace-nowrap px-5"
         aria-label="Create new project"
         @click=${() => this.store.open({ type: "project", projectId: null })}
       >
