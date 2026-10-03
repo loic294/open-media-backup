@@ -32,8 +32,10 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
   }
 
   override firstUpdated(): void {
+    const { focus } = this.request;
+    if (!focus) return;
     requestAnimationFrame(() => {
-      const target = this.request.focus === "variables" ? this.querySelector<HTMLElement>("#omb-space-vars") : this.querySelector<HTMLInputElement>("#omb-space-name");
+      const target = focus === "variables" ? this.querySelector<HTMLElement>("#omb-space-vars") : this.querySelector<HTMLInputElement>("#omb-space-name");
       target?.scrollIntoView({ block: "center" });
       if (target instanceof HTMLInputElement) target.select();
     });

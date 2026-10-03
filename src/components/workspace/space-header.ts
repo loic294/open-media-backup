@@ -32,7 +32,7 @@ export class OmbSpaceHeader extends OmbElement {
     const { space, snapshot, status } = this.store;
     if (!space || !snapshot) return nothing;
     const totals = projectTotals(status, spaceFlows(snapshot, space.id));
-    const open = (focus: "name" | "variables") =>
+    const open = (focus?: "name" | "variables") =>
       this.store.open({ type: "space-settings", spaceId: space.id, focus });
     return html`
       <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
@@ -53,6 +53,11 @@ export class OmbSpaceHeader extends OmbElement {
               <li>
                 <button @click=${(e: Event) => this.#run(e, () => open("variables"))}>
                   <omb-icon name="braces"></omb-icon>Variables
+                </button>
+              </li>
+              <li>
+                <button @click=${(e: Event) => this.#run(e, () => open())}>
+                  <omb-icon name="settings"></omb-icon>Space settings
                 </button>
               </li>
               <li class="mt-1 border-t border-base-300 pt-1">
