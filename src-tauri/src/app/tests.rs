@@ -158,8 +158,7 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
     let (core, _t) = core(&fx);
     let err = core.prepare_app_import("project", "flow").unwrap_err();
     assert_eq!(err, "Choose the application for Lightroom on this computer");
-    let app_path = fx.card_dir.path().join("Lightroom.app");
-    fs::create_dir_all(&app_path).unwrap();
+    let app_path = fake_app(fx.card_dir.path());
     let mut settings = core.settings();
     settings.app_destinations.insert(
         destination.id.clone(),
@@ -250,4 +249,25 @@ fn save_project_policy_rejects_overlap_and_none_scope_without_mutation() {
             .project_scope,
         crate::domain::ProjectScope::All
     );
+}
+
+fn fake_app(dir: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        let path = dir.join("Lightroom.app");
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let path = dir.join("Lightroom.exe");
+        fs::write(&path, b"").unwrap();
+        path
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let path = dir.join("lightroom.desktop");
+        fs::write(&path, b"").unwrap();
+        path
+    }
 }

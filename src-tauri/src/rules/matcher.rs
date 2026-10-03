@@ -49,6 +49,7 @@ impl Matcher {
                 GlobBuilder::new(text)
                     .case_insensitive(true)
                     .literal_separator(scope == Scope::FullPath)
+                    .backslash_escape(true)
                     .build()
                     .map_err(|e| err(e.to_string()))?
                     .compile_matcher(),
