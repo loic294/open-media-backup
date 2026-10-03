@@ -1,4 +1,5 @@
-import type { FileCategory, FileEntry, FilePage, MediaKind } from "../types";
+import type { FileCategory, FileEntry, FilePage, MediaKind, FileRule } from "../types";
+import { rulesAllowPath } from "../../utils/file-rules";
 
 const EXT: [string, MediaKind][] = [
   ["ARW", "raw"],
@@ -9,7 +10,7 @@ const EXT: [string, MediaKind][] = [
 ];
 
 /** Deterministic fake file listing for the browser demo. */
-export function mockFiles(total: number, category: FileCategory, offset: number, limit: number, filter = "", target = ""): FilePage {
+export function mockFiles(total: number, category: FileCategory, offset: number, limit: number, filter = "", target = "", rules: FileRule[] = []): FilePage {
   const all = Array.from({ length: total }, (_, i) => {
     const [ext, media] = EXT[i % EXT.length];
     const prefix = media === "video" ? "C" : "IMG_";
@@ -27,7 +28,11 @@ export function mockFiles(total: number, category: FileCategory, offset: number,
       capture_time: Date.UTC(2026, 0, 14, 9, (i * 7) % 60),
     };
     return entry;
-  }).filter((f) => !filter || f.rel_path.toLowerCase().includes(filter.toLowerCase()));
+  }).filter(
+    (f) =>
+      (!filter || f.rel_path.toLowerCase().includes(filter.toLowerCase())) &&
+      (category === "ignored" || rulesAllowPath(rules, f.rel_path)),
+  );
   return {
     total: all.length,
     total_bytes: all.reduce((sum, f) => sum + f.size, 0),

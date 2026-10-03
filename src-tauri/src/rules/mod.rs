@@ -115,6 +115,13 @@ mod tests {
     }
 
     #[test]
+    fn escaped_glob_metacharacters_match_literal_file_names() {
+        let set = RuleSet::compile(&[rule(Exclude, Glob, r"IMG_\[01\]\{raw\}\?.JPG")]).unwrap();
+        assert!(!set.allows("DCIM/IMG_[01]{raw}?.JPG"));
+        assert!(set.allows("DCIM/IMG_Araw1.JPG"));
+    }
+
+    #[test]
     fn invalid_regex_is_reported() {
         let err = RuleSet::compile(&[rule(Include, Regex, "(")])
             .err()

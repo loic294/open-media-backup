@@ -150,7 +150,7 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       const dest = snapshot.destinations.find(
         (d) => d.id === snapshot.flows.find((f) => f.id === flowId)?.destination_id,
       );
-      return mockFiles(total, category, offset, limit, filter, dest?.path_template ?? "");
+      return mockFiles(total, category, offset, limit, filter, dest?.path_template ?? "", dest?.rules ?? []);
     },
     thumbnail: async () => null,
     getMediaMetadata: async () =>
