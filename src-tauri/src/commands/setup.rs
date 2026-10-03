@@ -1,4 +1,4 @@
-use super::{AppState, Shared};
+use super::{updater::PendingUpdate, AppState, Shared};
 use crate::app::{AppCore, AppSettings, DeviceResolver};
 use crate::store::Store;
 use crate::sync::SyncService;
@@ -44,6 +44,7 @@ pub fn init<R: Runtime>(
         core,
         sync: sync.clone(),
     }));
+    handle.manage(PendingUpdate::default());
 
     start_sync(sync, store.clone());
     forward_store_changes(handle.clone(), store.clone());

@@ -238,6 +238,10 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       changed();
       return marked;
     },
+    checkForUpdate: async () => null,
+    installUpdate: async () => {
+      console.info("Demo mode has no updater to install");
+    },
     runFlow: async (_projectId, flowId) => startFlow(flowId),
     runAll: async (projectId) => {
       const status = mockStatus(snapshot, projectId, counts, offline);

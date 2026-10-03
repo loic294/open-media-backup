@@ -4,20 +4,20 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 
 ## Concepts
 
-| Term | Meaning |
-| --- | --- |
-| **Space** | A workspace such as *Travel*, *Home* or *Backup*. It holds sources, destinations, the flows between them, and its own variables. |
-| **Project** | One shoot or trip, such as *Trip 2026*. It supplies values for the space variables. |
-| **Device** | A card, SSD, HDD, NAS or computer. Each device has a role: `original`, `temporary` or `final`. Its name is shared by every peer. |
-| **Mapping** | Where a device lives on a particular computer, for example `/Volumes/NAS/photos` or `\\nas\photos`. |
-| **Source / Destination** | A device plus a folder. Destination folders are templates such as `{backup_folder}/{project_name}`. |
-| **Flow** | A connection from a source to a destination. Its line is green when transferred, orange when files are pending, red on an error, and grey when unavailable. |
+| Term                     | Meaning                                                                                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Space**                | A workspace such as _Travel_, _Home_ or _Backup_. It holds sources, destinations, the flows between them, and its own variables.                            |
+| **Project**              | One shoot or trip, such as _Trip 2026_. It supplies values for the space variables.                                                                         |
+| **Device**               | A card, SSD, HDD, NAS or computer. Each device has a role: `original`, `temporary` or `final`. Its name is shared by every peer.                            |
+| **Mapping**              | Where a device lives on a particular computer, for example `/Volumes/NAS/photos` or `\\nas\photos`.                                                         |
+| **Source / Destination** | A device plus a folder. Destination folders are templates such as `{backup_folder}/{project_name}`.                                                         |
+| **Flow**                 | A connection from a source to a destination. Its line is green when transferred, orange when files are pending, red on an error, and grey when unavailable. |
 
-* **Templates.** Built-in variables are `project`, `project_name`, `source_name`, `backup_folder`, `date`, `year`, `month` and `day`. Space variables come after these, and project values override space defaults.
-* **Rules.** An ordered list of include/exclude rules, written as glob (`*.ARW`, `DCIM/`) or regex. They apply to both folders and files, and the last match wins. A pattern ending in `/` matches folders only.
-* **Backup marker.** If a destination has *use backup marker* on, the backup folder name is read from `.openmediabackup/` on the card. When the card has no marker, the name is generated from the space's marker template and written to the card. Either way, every backup of the same card lands in the same folder.
-* **Wipe.** A card can be wiped once each of its files is verified on at least *N* final destinations (*N* is set per project). Wiping either deletes the files or does a quick format.
-* **Hashing.** Each space uses BLAKE3 by default (cryptographic and still very fast) or xxHash64 (fastest). The verify mode is also set per space. *Re-read* (the default) reads every copy back and compares hashes. *Inline* hashes the bytes while copying, which is faster.
+- **Templates.** Built-in variables are `project`, `project_name`, `source_name`, `backup_folder`, `date`, `year`, `month` and `day`. Space variables come after these, and project values override space defaults.
+- **Rules.** An ordered list of include/exclude rules, written as glob (`*.ARW`, `DCIM/`) or regex. They apply to both folders and files, and the last match wins. A pattern ending in `/` matches folders only.
+- **Backup marker.** If a destination has _use backup marker_ on, the backup folder name is read from `.openmediabackup/` on the card. When the card has no marker, the name is generated from the space's marker template and written to the card. Either way, every backup of the same card lands in the same folder.
+- **Wipe.** A card can be wiped once each of its files is verified on at least _N_ final destinations (_N_ is set per project). Wiping either deletes the files or does a quick format.
+- **Hashing.** Each space uses BLAKE3 by default (cryptographic and still very fast) or xxHash64 (fastest). The verify mode is also set per space. _Re-read_ (the default) reads every copy back and compares hashes. _Inline_ hashes the bytes while copying, which is faster.
 
 ## Peer-to-peer sync
 
@@ -33,8 +33,8 @@ A shared server (for example Supabase) is planned as an alternative backend.
 
 ## Thumbnails
 
-* Embedded previews are pulled from JPEG and RAW files.
-* Video thumbnails need `ffmpeg`. The app looks in `OMB_FFMPEG`, then `PATH`, then the Homebrew locations. Without ffmpeg, videos show a placeholder.
+- Embedded previews are pulled from JPEG and RAW files.
+- Video thumbnails need `ffmpeg`. The app looks in `OMB_FFMPEG`, then `PATH`, then the Homebrew locations. Without ffmpeg, videos show a placeholder.
 
 ## Development
 
@@ -83,6 +83,34 @@ src-tauri/src/           Rust core
   thumbnails/ wipe/      previews, safe card wipe
   app/ commands/         application core and Tauri command layer
 ```
+
+## Releases & auto-update
+
+Open Media Backup uses `tauri-plugin-updater` and a Cloudflare Worker proxy. The app checks `https://updates.openmediabackup.app/{{target}}/{{arch}}/{{current_version}}`, configured in `src-tauri/tauri.conf.json` under `plugins.updater.endpoints`; change that endpoint there if the update domain changes. The committed updater public key is a placeholder, and no private key should be committed.
+
+To publish signed releases:
+
+1. Generate an updater keypair:
+
+   ```sh
+   npx tauri signer generate -w ~/.tauri/omb-updater.key
+   ```
+
+2. Replace `REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY` in `src-tauri/tauri.conf.json` with the generated public key.
+3. Add GitHub repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key can be the contents of `~/.tauri/omb-updater.key`.
+4. Deploy `workers/update-proxy` with Cloudflare Wrangler:
+
+   ```sh
+   cd workers/update-proxy
+   npm install
+   npx wrangler secret put GITHUB_TOKEN # optional, raises GitHub API limits
+   npx wrangler deploy
+   ```
+
+5. Point `updates.openmediabackup.app` at the Worker.
+6. Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds macOS universal and Windows bundles with `tauri-apps/tauri-action@v0`, signs updater artifacts from the secrets, and uploads `latest.json`.
+
+`src-tauri/tauri.conf.json` keeps `bundle.createUpdaterArtifacts` enabled for releases. The regular CI bundle job intentionally passes a `--config` override that sets `createUpdaterArtifacts` to `false`, because CI does not have updater signing secrets and should still verify unsigned installers on pushes.
 
 ## License
 

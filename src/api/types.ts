@@ -288,6 +288,18 @@ export interface OpenAppImportResult {
   files: AppImportFile[];
 }
 
+export interface UpdateInfo {
+  version: string;
+  current_version: string;
+  notes: string | null;
+  date: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}
+
 export type TransferState = "queued" | "running" | "verifying" | "paused" | "done" | "failed" | "cancelled";
 
 export interface TransferJob {

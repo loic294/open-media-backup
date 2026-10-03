@@ -1,0 +1,3 @@
+name = "open-media-backup-update-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-10-03"

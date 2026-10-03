@@ -16,6 +16,8 @@ import type {
   Space,
   SyncStatus,
   TransferJob,
+  UpdateInfo,
+  UpdateProgress,
   Volume,
   WipeMethod,
   WipePlan,
@@ -38,6 +40,7 @@ export interface BackendEvents {
   transfers: TransferJob[];
   "sync-status": SyncStatus;
   "volumes-changed": Volume[];
+  "update://progress": UpdateProgress;
 }
 
 export type Unlisten = () => void;
@@ -63,6 +66,8 @@ export interface Backend {
   openMedia(absPath: string): Promise<void>;
   openFlowInApp(projectId: string, flowId: string): Promise<OpenAppImportResult>;
   confirmAppImport(projectId: string, flowId: string, token: string): Promise<number>;
+  checkForUpdate(): Promise<UpdateInfo | null>;
+  installUpdate(): Promise<void>;
 
   runFlow(projectId: string, flowId: string): Promise<void>;
   runAll(projectId: string): Promise<void>;

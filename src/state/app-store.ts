@@ -6,9 +6,11 @@ import type {
   Snapshot,
   SyncStatus,
   TransferJob,
+  UpdateInfo,
   Volume,
 } from "../api/types";
 import { connectDesktopMenu } from "../desktop/menu";
+import { checkForUpdateOnLaunch } from "./updater";
 import { debounce } from "../utils/debounce";
 import { applyTheme } from "../utils/theme";
 import type { DialogRequest } from "./dialogs";
@@ -41,6 +43,7 @@ export class AppStore extends EventTarget {
   volumes: Volume[] = [];
   dialogs: DialogRequest[] = [];
   toasts: Toast[] = [];
+  availableUpdate: UpdateInfo | null = null;
   error: string | null = null;
   projectsPageOpen = false;
   /** Source card highlighted in the workspace (its flows stand out). */
@@ -80,6 +83,7 @@ export class AppStore extends EventTarget {
       applyTheme(snapshot.settings.theme);
       this.#unlisten.push(await connectDesktopMenu(this));
       await this.#loadStatus();
+      void checkForUpdateOnLaunch(this);
     } catch (e) {
       console.error("init failed", e);
       this.#set({ error: String(e) });
@@ -237,6 +241,10 @@ export class AppStore extends EventTarget {
 
   close(dialog?: DialogRequest): void {
     this.#set({ dialogs: dialog ? this.dialogs.filter((d) => d !== dialog) : this.dialogs.slice(0, -1) });
+  }
+
+  setAvailableUpdate(update: UpdateInfo | null): void {
+    this.#set({ availableUpdate: update });
   }
 
   toast(kind: Toast["kind"], message: string, ms = 4000): void {

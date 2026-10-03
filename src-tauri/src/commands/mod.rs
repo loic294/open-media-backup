@@ -7,6 +7,7 @@ pub(crate) mod menu;
 mod setup;
 pub(crate) mod sync;
 pub(crate) mod transfers;
+pub(crate) mod updater;
 
 use crate::app::AppCore;
 use crate::sync::SyncService;
@@ -50,6 +51,8 @@ macro_rules! omb_handlers {
             $crate::commands::catalog::open_media_file,
             $crate::commands::catalog::open_flow_in_app,
             $crate::commands::catalog::confirm_app_import,
+            $crate::commands::updater::check_for_update,
+            $crate::commands::updater::install_update,
             $crate::commands::transfers::run_flow,
             $crate::commands::transfers::run_all,
             $crate::commands::transfers::set_transfer_paused,
