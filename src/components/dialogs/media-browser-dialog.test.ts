@@ -1,0 +1,371 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FileEntry, FilePage, MediaMetadata } from "../../api/types";
+import { createMockBackend } from "../../api/mock/mock-backend";
+import { store } from "../../state";
+import { newFlow, newProject, newSource, newSpace } from "../../state/factories";
+import { captureLabel, captureTimeMs, mergeMedia, selectedCaptureRange } from "./media-browser-data";
+import { OmbMediaBrowserDialog } from "./media-browser-dialog";
+import { OmbMediaInspector } from "./media-inspector";
+import { OmbMediaViewerDialog } from "./media-viewer-dialog";
+import "../workspace/source-card";
+
+function file(path: string, time: number | null = null, projectId?: string): FileEntry {
+  return {
+    rel_path: path,
+    abs_path: `/source/${path}`,
+    name: path,
+    size: 100,
+    media: "image",
+    capture_time: time,
+    project_id: projectId,
+    category: "to_transfer",
+    target_path: null,
+    error: null,
+  };
+}
+
+function page(items: FileEntry[], total = items.length): FilePage {
+  return { items, total, total_bytes: items.length * 100 };
+}
+
+const metadata: MediaMetadata = {
+  media_type: "image",
+  size_bytes: 100,
+  capture_time: { local_datetime: "2026-10-01T12:00:00", utc_offset_seconds: null, source: "exif_original" },
+  dimensions: { width: 6000, height: 4000 },
+  camera: { make: "Camera maker", model: "Camera model", lens_make: null, lens_model: "Lens" },
+  exposure: {
+    shutter_seconds: 0.01,
+    aperture_f_number: 4,
+    iso: 100,
+    focal_length_mm: 35,
+    focal_length_35mm: null,
+    compensation_ev: 0,
+  },
+  orientation: 1,
+  video: null,
+};
+
+async function until(condition: () => boolean) {
+  for (let count = 0; count < 100; count++) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Component did not settle");
+}
+
+describe("source browser data", () => {
+  it("deduplicates physical paths, retains overlapping route projects, and stably sorts captures with unknowns last", () => {
+    const items = mergeMedia(
+      [],
+      [
+        file("unknown", null),
+        file("b", 200, "p1"),
+        file("a", 200),
+        file("first", 0),
+        file("b", 200, "p2"),
+        file("invalid", NaN),
+      ],
+    );
+    expect(items.map((item) => item.file.rel_path)).toEqual(["first", "a", "b", "invalid", "unknown"]);
+    expect(items.find((item) => item.file.rel_path === "b")?.projectIds).toEqual(["p1", "p2"]);
+    expect(mergeMedia(items, [file("a", 200)]).map((item) => item.file.rel_path)).toEqual(
+      items.map((item) => item.file.rel_path),
+    );
+  });
+
+  it("uses exact inclusive Unix ms bounds, including epoch zero, and refuses absent or invalid capture dates", () => {
+    const items = mergeMedia([], [file("a", 0), file("b", 200), file("unknown"), file("invalid", Infinity)]);
+    expect(selectedCaptureRange(items, new Set(["a", "b"]))).toEqual([0, 200]);
+    expect(selectedCaptureRange(items, new Set(["b"]))).toEqual([200, 200]);
+    for (const keys of [[], ["unknown"], ["invalid"], ["a", "unknown"], ["missing"]]) {
+      expect(selectedCaptureRange(items, new Set(keys))).toBeNull();
+    }
+    expect(captureLabel(file("unknown"))).toBe("Capture date unavailable");
+    expect(captureLabel(file("epoch", 0))).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("converts embedded local capture times using only a known UTC offset", () => {
+    expect(
+      captureTimeMs({
+        local_datetime: "2026-10-01T12:00:00",
+        utc_offset_seconds: 7200,
+        source: "exif_original",
+      }),
+    ).toBe(Date.UTC(2026, 9, 1, 10));
+    expect(captureTimeMs({ ...metadata.capture_time!, utc_offset_seconds: null })).toBeNull();
+    expect(captureTimeMs(null)).toBeNull();
+  });
+});
+
+describe("source media browser components", () => {
+  beforeEach(async () => {
+    store.snapshot = await createMockBackend().getSnapshot();
+    const space = newSpace("Media", 0);
+    const project = { ...newProject(space, "Trip"), start_time: 0, end_time: 200, color: "#123456" };
+    const source = newSource(space.id, "device", 0);
+    source.id = "source";
+    const flow = newFlow(space.id, source.id, "destination");
+    flow.id = "flow";
+    store.snapshot.spaces = [space];
+    store.snapshot.projects = [project];
+    store.snapshot.sources = [source];
+    store.snapshot.flows = [flow];
+    store.snapshot.settings.active_space_id = space.id;
+    store.snapshot.settings.active_project_by_space = { [space.id]: project.id };
+    store.dialogs = [];
+    vi.spyOn(store.backend, "thumbnail").mockResolvedValue(null);
+    vi.spyOn(store.backend, "getMediaMetadata").mockResolvedValue(metadata);
+    vi.spyOn(store.backend, "mediaPreview").mockResolvedValue("blob:preview");
+    vi.spyOn(store, "toast").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    store.dialogs = [];
+    vi.restoreAllMocks();
+  });
+
+  async function browser() {
+    const element = new OmbMediaBrowserDialog();
+    element.request = { type: "media-browser", sourceId: "source" };
+    document.body.append(element);
+    await until(() => !!element.querySelector('button[aria-label^="Select"]'));
+    return element;
+  }
+
+  it("opens Browse media from the source card without changing card selection", async () => {
+    const element = document.createElement("omb-source-card");
+    Object.assign(element, { source: store.snapshot!.sources[0] });
+    document.body.append(element);
+    await until(() => !!element.querySelector("button"));
+    const select = vi.spyOn(store, "select");
+    const button = [...element.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Browse media"),
+    )!;
+    button.click();
+    expect(store.dialogs).toEqual([{ type: "media-browser", sourceId: "source" }]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it("bounds page requests, advances raw offsets despite duplicates, and never requests unrelated source flows", async () => {
+    store.snapshot!.flows.push({ ...store.snapshot!.flows[0], id: "unrelated", source_id: "other-source" });
+    const list = vi
+      .spyOn(store.backend, "listFiles")
+      .mockImplementation(async (req) =>
+        req.category === "to_transfer" ? page([file("a", 0), file("a", 0)], 3) : page([]),
+      );
+    const element = await browser();
+    await until(() => list.mock.calls.length === 4 && !element.querySelector(".loading"));
+    expect(element.querySelectorAll('button[aria-label^="Select"]')).toHaveLength(1);
+    expect(
+      list.mock.calls.every(([req]) => req.flowId === "flow" && req.limit === 60 && req.offset === 0),
+    ).toBe(true);
+    const load = [...element.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Load more"),
+    )!;
+    load.click();
+    await until(() => list.mock.calls.length === 5);
+    expect(list.mock.calls[4][0].offset).toBe(2);
+  });
+
+  it("does not eagerly walk every connected flow and surfaces page failures for retry", async () => {
+    for (let index = 0; index < 10; index++) {
+      store.snapshot!.flows.push({ ...store.snapshot!.flows[0], id: `flow-${index}` });
+    }
+    const list = vi.spyOn(store.backend, "listFiles").mockResolvedValue(page([file("a", 0)], 1000));
+    const element = await browser();
+    await until(() => !element.querySelector(".loading"));
+    expect(list).toHaveBeenCalledTimes(4);
+    list.mockRejectedValue(new Error("Source disconnected"));
+    [...element.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Load more"))!
+      .click();
+    await until(() => element.textContent?.includes("Source disconnected") ?? false);
+    expect(element.querySelector('[role="alert"]')).not.toBeNull();
+    expect(store.toast).toHaveBeenCalledWith("error", expect.stringContaining("Source disconnected"));
+    expect(
+      [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+        button.textContent?.includes("Load more"),
+      )!.disabled,
+    ).toBe(false);
+  });
+
+  it("discards outstanding route pages when the search changes", async () => {
+    let resolveOld!: (value: FilePage) => void;
+    const list = vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) => {
+      if (req.category !== "to_transfer") return page([]);
+      if (req.filter) return page([file("filtered", 100)]);
+      return new Promise((resolve) => (resolveOld = resolve));
+    });
+    const element = new OmbMediaBrowserDialog();
+    element.request = { type: "media-browser", sourceId: "source" };
+    document.body.append(element);
+    await until(() => list.mock.calls.length === 4 && !!element.querySelector('input[type="search"]'));
+    const input = element.querySelector<HTMLInputElement>('input[type="search"]')!;
+    input.value = "filtered";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await until(() => element.textContent?.includes("filtered") ?? false);
+    resolveOld(page([file("stale", 0)]));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(element.querySelector('button[aria-label="Select stale"]')).toBeNull();
+    expect(
+      list.mock.calls.filter(([req]) => req.filter === "filtered").every(([req]) => req.offset === 0),
+    ).toBe(true);
+  });
+
+  it("selects inclusive Shift-click ranges, shows project chips, and prefills project creation with capture bounds", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer"
+        ? page([file("c", 200), file("a", 0), file("b", 100), file("unknown")])
+        : page([]),
+    );
+    const element = await browser();
+    const tiles = [...element.querySelectorAll<HTMLButtonElement>('button[aria-label^="Select"]')];
+    tiles[0].click();
+    tiles[2].dispatchEvent(new MouseEvent("click", { shiftKey: true, bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelectorAll('[aria-pressed="true"]')).toHaveLength(3);
+    expect(element.querySelector(".badge")?.textContent).toContain("Trip");
+    const create = [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Create project from selection"),
+    )!;
+    expect(create.disabled).toBe(false);
+    create.click();
+    await until(() => store.dialogs.length > 0);
+    expect(store.dialogs.at(-1)).toEqual({
+      type: "project",
+      projectId: null,
+      start_time: 0,
+      end_time: 200,
+    });
+    tiles[3].dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await element.updateComplete;
+    expect(create.disabled).toBe(false);
+    expect(element.textContent).toContain("Unknown dates are not inferred");
+    await until(() =>
+      vi.mocked(store.backend.getMediaMetadata).mock.calls.some(([path]) => path === "/source/unknown"),
+    );
+    expect(store.backend.getMediaMetadata).toHaveBeenCalledWith("/source/unknown");
+  });
+
+  it("enables project creation for selected files and reads their embedded capture times on demand", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("a"), file("b")]) : page([]),
+    );
+    vi.mocked(store.backend.getMediaMetadata).mockImplementation(async (path) => ({
+      ...metadata,
+      capture_time: {
+        local_datetime: path.endsWith("/a") ? "2026-10-01T12:00:00" : "2026-10-02T12:00:00",
+        utc_offset_seconds: path.endsWith("/a") ? 7200 : 3600,
+        source: "exif_original",
+      },
+    }));
+    const element = await browser();
+    const [first, second] = [...element.querySelectorAll<HTMLButtonElement>('button[aria-label^="Select"]')];
+    first.click();
+    second.dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }));
+    await element.updateComplete;
+
+    const create = [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Create project from selection"),
+    )!;
+    expect(create.disabled).toBe(false);
+    create.click();
+
+    await until(() => store.dialogs.length > 0);
+    expect(vi.mocked(store.backend.getMediaMetadata)).toHaveBeenCalledWith("/source/a");
+    expect(vi.mocked(store.backend.getMediaMetadata)).toHaveBeenCalledWith("/source/b");
+    expect(store.dialogs.at(-1)).toEqual({
+      type: "project",
+      projectId: null,
+      start_time: Date.UTC(2026, 9, 1, 10),
+      end_time: Date.UTC(2026, 9, 2, 11),
+    });
+  });
+
+  it("keeps the action usable for missing metadata but explains when capture time or timezone is unavailable", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("unknown")]) : page([]),
+    );
+    const element = await browser();
+    element.querySelector<HTMLButtonElement>('button[aria-label="Select unknown"]')!.click();
+    await element.updateComplete;
+    const create = [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Create project from selection"),
+    )!;
+    expect(create.disabled).toBe(false);
+    create.click();
+
+    await until(() => element.textContent?.includes("Unknown dates are not inferred") ?? false);
+    expect(store.dialogs).toHaveLength(0);
+  });
+
+  it("ignores stale inspector metadata and explicitly displays unknown offsets", async () => {
+    let resolveFirst!: (value: MediaMetadata) => void;
+    vi.mocked(store.backend.getMediaMetadata).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveFirst = resolve)),
+    );
+    const element = new OmbMediaInspector();
+    element.file = file("first");
+    document.body.append(element);
+    await until(() => vi.mocked(store.backend.getMediaMetadata).mock.calls.length === 1);
+    element.file = file("second");
+    await until(() => element.textContent?.includes("Camera maker") ?? false);
+    resolveFirst({ ...metadata, camera: { ...metadata.camera, make: "Stale camera" } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(element.textContent).toContain("Unknown offset; not eligible");
+    expect(element.textContent).not.toContain("Stale camera");
+    expect(element.textContent).toContain("Capture date unavailable");
+  });
+
+  it("uses the in-app preview API and reports unavailable previews and metadata errors", async () => {
+    vi.mocked(store.backend.mediaPreview).mockResolvedValue(null);
+    vi.mocked(store.backend.getMediaMetadata).mockRejectedValue(new Error("Unsupported format"));
+    const element = new OmbMediaViewerDialog();
+    element.request = { type: "media-viewer", file: file("photo") };
+    document.body.append(element);
+    await until(() => element.textContent?.includes("No in-app preview") ?? false);
+    expect(store.backend.mediaPreview).toHaveBeenCalledWith("/source/photo", "image");
+    expect(element.textContent).toContain("Media is previewed in-app");
+    await until(() => element.textContent?.includes("Unsupported format") ?? false);
+    expect(element.querySelectorAll('[role="alert"]')).toHaveLength(2);
+  });
+
+  it("shows a media thumbnail above embedded metadata in the inspector", async () => {
+    vi.mocked(store.backend.thumbnail).mockResolvedValue("blob:thumbnail");
+    const element = new OmbMediaInspector();
+    element.file = file("photo");
+    document.body.append(element);
+    await until(() => !!element.querySelector('section[aria-label="Selected media preview"] img'));
+    const preview = element.querySelector('section[aria-label="Selected media preview"]')!;
+    const metadata = [...element.querySelectorAll("h4")].find((heading) =>
+      heading.textContent?.includes("Embedded metadata"),
+    )!;
+    expect(preview.compareDocumentPosition(metadata) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("navigates viewer thumbnails and opens the current file in the default app", async () => {
+    const openMedia = vi.spyOn(store.backend, "openMedia").mockResolvedValue();
+    const element = new OmbMediaViewerDialog();
+    element.request = {
+      type: "media-viewer",
+      file: file("first.jpg"),
+      files: [file("first.jpg"), file("next.jpg")],
+    };
+    document.body.append(element);
+    await until(() => vi.mocked(store.backend.mediaPreview).mock.calls.length > 0);
+    await until(() => !!element.querySelector('[aria-label="Preview next.jpg"]'));
+    element.querySelector<HTMLButtonElement>('[aria-label="Preview next.jpg"]')!.click();
+    await until(() =>
+      vi.mocked(store.backend.mediaPreview).mock.calls.some(([path]) => path === "/source/next.jpg"),
+    );
+    await element.updateComplete;
+    expect(element.querySelector('[aria-label="Preview next.jpg"]')?.getAttribute("aria-pressed")).toBe("true");
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Open in default app"))!
+      .click();
+    await until(() => openMedia.mock.calls.length === 1);
+    expect(openMedia).toHaveBeenCalledWith("/source/next.jpg");
+  });
+});

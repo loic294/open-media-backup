@@ -10,21 +10,31 @@ use crate::thumbnails::ThumbnailError;
 
 static FFMPEG: OnceLock<Option<PathBuf>> = OnceLock::new();
 const TIMEOUT: Duration = Duration::from_secs(10);
+const THUMBNAIL_EDGE: u32 = 360;
+const PREVIEW_EDGE: u32 = 2560;
 
 pub fn create_video_thumbnail(path: &Path, out: &Path) -> Result<bool, ThumbnailError> {
+    create_video_frame(path, out, THUMBNAIL_EDGE)
+}
+
+pub fn create_video_preview(path: &Path, out: &Path) -> Result<bool, ThumbnailError> {
+    create_video_frame(path, out, PREVIEW_EDGE)
+}
+
+fn create_video_frame(path: &Path, out: &Path, max_edge: u32) -> Result<bool, ThumbnailError> {
     let Some(ffmpeg) = ffmpeg_path() else {
         return Ok(false);
     };
-    run_ffmpeg(&ffmpeg, path, out, "1")?;
+    run_ffmpeg(&ffmpeg, path, out, "1", max_edge)?;
     if usable_output(out) {
         return Ok(true);
     }
     let _ = fs::remove_file(out);
-    run_ffmpeg(&ffmpeg, path, out, "0")?;
+    run_ffmpeg(&ffmpeg, path, out, "0", max_edge)?;
     Ok(usable_output(out))
 }
 
-fn ffmpeg_path() -> Option<PathBuf> {
+pub(super) fn ffmpeg_path() -> Option<PathBuf> {
     FFMPEG.get_or_init(find_ffmpeg).clone()
 }
 
@@ -75,7 +85,14 @@ fn is_executable_file(path: &Path) -> bool {
     path.is_file()
 }
 
-fn run_ffmpeg(ffmpeg: &Path, input: &Path, out: &Path, seek: &str) -> Result<(), ThumbnailError> {
+fn run_ffmpeg(
+    ffmpeg: &Path,
+    input: &Path,
+    out: &Path,
+    seek: &str,
+    max_edge: u32,
+) -> Result<(), ThumbnailError> {
+    let scale = format!("scale={max_edge}:-2");
     let mut command = Command::new(ffmpeg);
     command
         .arg("-hide_banner")
@@ -88,7 +105,7 @@ fn run_ffmpeg(ffmpeg: &Path, input: &Path, out: &Path, seek: &str) -> Result<(),
         .arg("-frames:v")
         .arg("1")
         .arg("-vf")
-        .arg("scale=360:-2")
+        .arg(scale)
         .arg("-y")
         .arg(out)
         .stdin(Stdio::null())

@@ -41,6 +41,21 @@ fn creates_and_reuses_cached_image_thumbnail() {
 }
 
 #[test]
+fn media_preview_keeps_large_image_resolution_and_uses_a_distinct_cache() {
+    let dir = tempdir();
+    let src = dir.path().join("photo.jpg");
+    let cache = ThumbnailCache::new(dir.path().join("cache"));
+    write_image(&src, 1200, 800);
+
+    let thumbnail = cache.get_or_create(&src).unwrap().unwrap();
+    let preview = cache.get_or_create_preview(&src).unwrap().unwrap();
+
+    assert_ne!(thumbnail, preview);
+    assert_eq!(image::open(thumbnail).unwrap().dimensions(), (360, 240));
+    assert_eq!(image::open(preview).unwrap().dimensions(), (1200, 800));
+}
+
+#[test]
 fn unsupported_media_returns_none() {
     let dir = tempdir();
     let src = dir.path().join("notes.txt");
@@ -91,4 +106,48 @@ fn video_thumbnail_is_skipped_when_ffmpeg_missing_or_input_invalid() {
     fs::write(&src, b"not a video").expect("write");
     let cache = ThumbnailCache::new(dir.path().join("cache"));
     assert!(cache.get_or_create(&src).expect("thumbnail").is_none());
+}
+
+#[test]
+fn video_media_preview_contains_a_large_frame_when_ffmpeg_is_available() {
+    let Some(ffmpeg) = super::video::ffmpeg_path() else {
+        return;
+    };
+    if !std::process::Command::new(&ffmpeg)
+        .arg("-version")
+        .output()
+        .is_ok_and(|result| result.status.success())
+    {
+        return;
+    }
+    let dir = tempdir();
+    let src = dir.path().join("clip.mp4");
+    let generated = std::process::Command::new(ffmpeg)
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=size=640x480:rate=1:duration=1",
+            "-c:v",
+            "mpeg4",
+            "-y",
+        ])
+        .arg(&src)
+        .output()
+        .expect("start ffmpeg");
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+
+    let cache = ThumbnailCache::new(dir.path().join("cache"));
+    let preview = cache
+        .get_or_create_preview(&src)
+        .expect("preview")
+        .expect("video frame");
+    let image = image::open(preview).expect("JPEG preview");
+    assert_eq!(image.dimensions(), (2560, 1920));
 }

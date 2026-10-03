@@ -6,6 +6,8 @@ import "./app-settings-dialog";
 import "./confirm-dialog";
 import "./destination-dialog";
 import "./preview-dialog";
+import "./media-browser-dialog";
+import "./media-viewer-dialog";
 import "./project-dialog";
 import "./source-dialog";
 import "./space-dialog";
@@ -24,6 +26,8 @@ const RENDERERS: { [T in DialogType]: Renderer<T> } = {
   "destination-settings": (r) => html`<omb-destination-dialog .request=${r}></omb-destination-dialog>`,
   "wipe-card": (r) => html`<omb-wipe-dialog .request=${r}></omb-wipe-dialog>`,
   preview: (r) => html`<omb-preview-dialog .request=${r}></omb-preview-dialog>`,
+  "media-browser": (r) => html`<omb-media-browser-dialog .request=${r}></omb-media-browser-dialog>`,
+  "media-viewer": (r) => html`<omb-media-viewer-dialog .request=${r}></omb-media-viewer-dialog>`,
 };
 
 /** Renders every open dialog (stacked) from store.dialogs. */

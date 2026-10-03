@@ -1,9 +1,18 @@
 import type { Backend, EntityByKind } from "../api/backend";
-import type { AppSettings, EntityKind, ProjectStatus, Snapshot, SyncStatus, TransferJob, Volume } from "../api/types";
+import type {
+  AppSettings,
+  EntityKind,
+  ProjectStatus,
+  Snapshot,
+  SyncStatus,
+  TransferJob,
+  Volume,
+} from "../api/types";
 import { debounce } from "../utils/debounce";
 import { applyTheme } from "../utils/theme";
 import type { DialogRequest } from "./dialogs";
 import { activeProject, activeSpace } from "./selectors";
+import { validateProjectConfiguration } from "./projects";
 
 export interface Toast {
   id: number;
@@ -32,6 +41,7 @@ export class AppStore extends EventTarget {
   dialogs: DialogRequest[] = [];
   toasts: Toast[] = [];
   error: string | null = null;
+  projectsPageOpen = false;
   /** Source card highlighted in the workspace (its flows stand out). */
   selectedSourceId: string | null = null;
   #toastId = 0;
@@ -59,7 +69,12 @@ export class AppStore extends EventTarget {
         b.on("sync-status", (sync) => this.#set({ sync })),
         b.on("volumes-changed", (volumes) => this.#set({ volumes })),
       ]);
-      const [snapshot, transfers, sync, volumes] = await Promise.all([b.getSnapshot(), b.listTransfers(), b.syncStatus(), b.listVolumes()]);
+      const [snapshot, transfers, sync, volumes] = await Promise.all([
+        b.getSnapshot(),
+        b.listTransfers(),
+        b.syncStatus(),
+        b.listVolumes(),
+      ]);
       this.#set({ snapshot, transfers, sync, volumes });
       applyTheme(snapshot.settings.theme);
       await this.#loadStatus();
@@ -109,23 +124,43 @@ export class AppStore extends EventTarget {
     const space = this.space;
     if (!space || !this.snapshot) return;
     this.status = null;
-    await this.saveSettings({ active_project_by_space: { ...this.snapshot.settings.active_project_by_space, [space.id]: projectId } });
+    await this.saveSettings({
+      active_project_by_space: { ...this.snapshot.settings.active_project_by_space, [space.id]: projectId },
+    });
     await this.#loadStatus();
   }
 
   // ---- entities (optimistic) ----
 
-  async save<K extends EntityKind>(kind: K, entity: EntityByKind[K]): Promise<void> {
+  async save<K extends EntityKind>(kind: K, entity: EntityByKind[K]): Promise<boolean> {
     if (this.snapshot) {
       const key = COLLECTION[kind];
       const items = [...(this.snapshot[key] as { id: string }[])];
       const i = items.findIndex((e) => e.id === entity.id);
       if (i >= 0) items[i] = entity;
       else items.push(entity);
-      this.#set({ snapshot: { ...this.snapshot, [key]: items } });
+      const candidate = { ...this.snapshot, [key]: items };
+      if (
+        kind === "space" ||
+        kind === "project" ||
+        kind === "source" ||
+        kind === "destination" ||
+        kind === "flow"
+      ) {
+        const spaceId = kind === "space" ? entity.id : "space_id" in entity ? entity.space_id : null;
+        try {
+          if (spaceId) validateProjectConfiguration(candidate, spaceId);
+        } catch (error) {
+          console.error(error);
+          this.toast("error", String(error));
+          return false;
+        }
+      }
+      this.#set({ snapshot: candidate });
     }
-    await this.#guard(() => this.backend.saveEntity(kind, entity));
+    const saved = await this.#guard(() => this.backend.saveEntity(kind, entity));
     this.refreshStatus();
+    return saved;
   }
 
   async remove(kind: EntityKind, id: string): Promise<void> {
@@ -152,7 +187,9 @@ export class AppStore extends EventTarget {
   }
 
   async setPaused(jobId: string | null, paused: boolean): Promise<void> {
-    await this.#guard(() => (jobId ? this.backend.setTransferPaused(jobId, paused) : this.backend.setAllPaused(paused)));
+    await this.#guard(() =>
+      jobId ? this.backend.setTransferPaused(jobId, paused) : this.backend.setAllPaused(paused),
+    );
   }
 
   select(sourceId: string | null): void {
@@ -163,6 +200,14 @@ export class AppStore extends EventTarget {
 
   open(dialog: DialogRequest): void {
     this.#set({ dialogs: [...this.dialogs, dialog] });
+  }
+
+  openProjectsPage(): void {
+    this.#set({ projectsPageOpen: true });
+  }
+
+  closeProjectsPage(): void {
+    this.#set({ projectsPageOpen: false });
   }
 
   close(dialog?: DialogRequest): void {

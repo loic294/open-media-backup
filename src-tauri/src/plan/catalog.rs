@@ -55,6 +55,38 @@ impl Catalog {
             .is_some_and(|d| d.contains(device_id))
     }
 
+    /// Includes collision-renamed copies (`name (n).ext`) created by copy_verified.
+    pub fn has_copy_for_target(&self, file_id: &str, device_id: &str, target: &str) -> bool {
+        let path = std::path::Path::new(target);
+        let folder = path.parent().and_then(|p| p.to_str()).unwrap_or("");
+        let stem = path.file_stem().and_then(|p| p.to_str()).unwrap_or("");
+        let extension = path
+            .extension()
+            .and_then(|p| p.to_str())
+            .map(|ext| format!(".{ext}"))
+            .unwrap_or_default();
+        let prefix = format!("{stem} (");
+        let suffix = format!("){extension}");
+        self.copies_under(device_id, folder).any(|copy| {
+            if copy.file_id != file_id {
+                return false;
+            }
+            if copy.path == target {
+                return true;
+            }
+            let candidate = std::path::Path::new(&copy.path);
+            if candidate.parent() != path.parent() {
+                return false;
+            }
+            candidate
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_prefix(&prefix))
+                .and_then(|name| name.strip_suffix(&suffix))
+                .is_some_and(|number| number.parse::<u64>().is_ok_and(|n| n > 0))
+        })
+    }
+
     /// Known copies on a device whose path is below `folder` (`""` = whole device).
     pub fn copies_under<'a>(
         &'a self,

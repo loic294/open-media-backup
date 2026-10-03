@@ -1,7 +1,16 @@
-const PLACEHOLDER = /\{([a-zA-Z0-9_]+)\}/g;
+const PLACEHOLDER = /\{\s*([a-zA-Z0-9_]+)\s*\}/g;
 
 /** Built-in variables provided by the engine (see src-tauri/src/plan/vars.rs). */
-export const BUILTIN_VARS = ["project", "project_name", "source_name", "backup_folder", "date", "year", "month", "day"];
+export const BUILTIN_VARS = [
+  "project",
+  "project_name",
+  "source_name",
+  "backup_folder",
+  "date",
+  "year",
+  "month",
+  "day",
+];
 
 export function templateVars(template: string): string[] {
   return [...template.matchAll(PLACEHOLDER)].map((m) => m[1]);
@@ -44,7 +53,7 @@ export function previewVars(
 ): Record<string, string> {
   const vars: Record<string, string> = { ...todayVars(now), source_name: sourceName };
   if (project) Object.assign(vars, { project: project.name, project_name: project.name });
-  for (const v of space.variables) if (v.default_value) vars[v.name] = v.default_value;
+  if (project) for (const v of space.variables) if (v.default_value) vars[v.name] = v.default_value;
   for (const [k, v] of Object.entries(project?.values ?? {})) if (v) vars[k] = v;
   return vars;
 }

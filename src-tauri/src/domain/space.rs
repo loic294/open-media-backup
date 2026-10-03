@@ -27,7 +27,7 @@ pub struct VariableDef {
     pub required: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Space {
     pub id: String,
@@ -39,5 +39,22 @@ pub struct Space {
     pub variables: Vec<VariableDef>,
     /// Template used to create a backup-folder marker on an original device when missing.
     pub backup_marker_template: String,
+    pub allow_project_overlap: bool,
 }
 impl_entity!(Space, Space);
+
+impl Default for Space {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            icon: String::new(),
+            position: 0,
+            hash_algo: HashAlgo::default(),
+            verify_mode: VerifyMode::default(),
+            variables: Vec::new(),
+            backup_marker_template: String::new(),
+            allow_project_overlap: true,
+        }
+    }
+}

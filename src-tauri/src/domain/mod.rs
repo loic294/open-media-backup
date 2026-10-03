@@ -5,14 +5,16 @@ mod file;
 mod flow;
 mod project;
 mod rule;
+mod source;
 mod space;
 
 pub use device::{Computer, Device, DeviceKind, DeviceMapping, DeviceRole};
 pub use entity::{Entity, EntityKind};
 pub use file::{FileCopy, FileRecord};
-pub use flow::{Destination, Flow, Source};
-pub use project::Project;
+pub use flow::{Destination, Flow};
+pub use project::{validate_project_ranges, Project, ProjectGranularity};
 pub use rule::{FileRule, RuleAction, RuleSyntax};
+pub use source::{ProjectScope, Source};
 pub use space::{HashAlgo, Space, VariableDef, VerifyMode};
 
 pub fn new_id() -> String {

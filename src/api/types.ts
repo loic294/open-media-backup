@@ -7,14 +7,7 @@ export type DeviceKind = "sd_card" | "ssd" | "hdd" | "nas" | "computer" | "camer
 export type RuleAction = "include" | "exclude";
 export type RuleSyntax = "glob" | "regex";
 export type EntityKind =
-  | "space"
-  | "project"
-  | "device"
-  | "device_mapping"
-  | "computer"
-  | "source"
-  | "destination"
-  | "flow";
+  "space" | "project" | "device" | "device_mapping" | "computer" | "source" | "destination" | "flow";
 
 export interface VariableDef {
   name: string;
@@ -31,7 +24,12 @@ export interface Space {
   verify_mode: VerifyMode;
   variables: VariableDef[];
   backup_marker_template: string;
+  /** Missing in older snapshots means true. */
+  allow_project_overlap?: boolean;
 }
+
+export type ProjectGranularity = "minute" | "day" | "year";
+export type ProjectScope = { mode: "all" } | { mode: "selected"; project_ids: string[] } | { mode: "none" };
 
 export interface Project {
   id: string;
@@ -40,6 +38,12 @@ export interface Project {
   values: Record<string, string>;
   final_copies_required: number;
   archived: boolean;
+  /** Inclusive embedded capture bounds in Unix milliseconds; absent on legacy projects. */
+  start_time?: number | null;
+  end_time?: number | null;
+  /** UTC calendar buckets; the entire final bucket is included. */
+  granularity?: ProjectGranularity;
+  color?: string;
 }
 
 export interface Device {
@@ -79,6 +83,8 @@ export interface Source {
   path_template: string;
   offer_wipe: boolean;
   position: number;
+  /** Missing in older snapshots means all projects. */
+  project_scope?: ProjectScope;
 }
 
 export interface Destination {
@@ -172,6 +178,47 @@ export interface ProjectStatus {
 export type FileCategory = "to_transfer" | "transferred" | "ignored" | "error";
 export type MediaKind = "image" | "video" | "raw" | "other";
 
+export type CaptureTimeSource = "exif_original" | "exif_digitized" | "video_creation_time" | "video_original_date";
+
+export interface CaptureTime {
+  /** Embedded local wall time. Do not infer a timezone if utc_offset_seconds is null. */
+  local_datetime: string;
+  utc_offset_seconds: number | null;
+  source: CaptureTimeSource;
+}
+
+export interface MediaMetadata {
+  media_type: MediaKind;
+  size_bytes: number;
+  capture_time: CaptureTime | null;
+  dimensions: { width: number; height: number } | null;
+  camera: {
+    make: string | null;
+    model: string | null;
+    lens_make: string | null;
+    lens_model: string | null;
+  };
+  exposure: {
+    shutter_seconds: number | null;
+    aperture_f_number: number | null;
+    iso: number | null;
+    focal_length_mm: number | null;
+    focal_length_35mm: number | null;
+    compensation_ev: number | null;
+  };
+  orientation: number | null;
+  video: {
+    container: string | null;
+    codec: string | null;
+    pixel_format: string | null;
+    duration_seconds: number | null;
+    frame_rate: number | null;
+    bit_rate_bps: number | null;
+    rotation_degrees: number | null;
+    audio: { codec: string | null; channels: number | null; sample_rate_hz: number | null }[];
+  } | null;
+}
+
 export interface FileEntry {
   rel_path: string;
   name: string;
@@ -181,6 +228,12 @@ export interface FileEntry {
   target_path: string | null;
   category: FileCategory;
   error: string | null;
+  /** Embedded capture timestamp only (Unix milliseconds), never filesystem mtime. */
+  capture_time?: number | null;
+  /** Matching project for this route; overlapping projects produce separate route entries. */
+  project_id?: string | null;
+  /** Populated only when metadata extraction succeeded for the file. */
+  metadata?: MediaMetadata | null;
 }
 
 export interface FilePage {

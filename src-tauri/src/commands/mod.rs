@@ -18,6 +18,7 @@ pub use setup::setup;
 pub struct AppState {
     pub core: AppCore,
     pub sync: SyncService,
+    pub video_preview_scope: Arc<dyn Fn(std::path::PathBuf) -> CmdResult<()> + Send + Sync>,
 }
 
 pub type Shared = Arc<AppState>;
@@ -44,7 +45,11 @@ macro_rules! omb_handlers {
             $crate::commands::catalog::save_settings,
             $crate::commands::catalog::get_project_status,
             $crate::commands::catalog::list_files,
+            $crate::commands::catalog::get_media_metadata,
             $crate::commands::catalog::thumbnail,
+            $crate::commands::catalog::media_preview,
+            $crate::commands::catalog::authorize_video_preview,
+            $crate::commands::catalog::open_media,
             $crate::commands::transfers::run_flow,
             $crate::commands::transfers::run_all,
             $crate::commands::transfers::set_transfer_paused,

@@ -64,12 +64,13 @@ impl Fixture {
             path_template: "DCIM".into(),
             offer_wipe: true,
             position: 0,
+            ..Default::default()
         };
         let destination = Destination {
             id: "dst".into(),
             space_id: space.id.clone(),
             device_id: nas.id.clone(),
-            path_template: "photo/{project_name}".into(),
+            path_template: "photo/Trip".into(),
             ..Default::default()
         };
         let flow = Flow {

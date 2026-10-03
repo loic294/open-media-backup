@@ -13,9 +13,17 @@ const space = (id: string, name: string, icon: string, position: number): Space 
     { name: "client", default_value: "Personal", required: false },
   ],
   backup_marker_template: "{date}_{project_name}",
+  allow_project_overlap: true,
 });
 
-const device = (id: string, name: string, description: string, role: Device["role"], kind: Device["kind"], capacity: number): Device => ({
+const device = (
+  id: string,
+  name: string,
+  description: string,
+  role: Device["role"],
+  kind: Device["kind"],
+  capacity: number,
+): Device => ({
   id,
   name,
   description,
@@ -33,9 +41,15 @@ const source = (id: string, device_id: string, path_template: string, position: 
   path_template,
   offer_wipe: true,
   position,
+  project_scope: { mode: "all" },
 });
 
-const destination = (id: string, device_id: string, path_template: string, position: number): Destination => ({
+const destination = (
+  id: string,
+  device_id: string,
+  path_template: string,
+  position: number,
+): Destination => ({
   id,
   space_id: "travel",
   device_id,
@@ -51,13 +65,54 @@ const destination = (id: string, device_id: string, path_template: string, posit
   position,
 });
 
-const flow = (id: string, source_id: string, destination_id: string): Flow => ({ id, space_id: "travel", source_id, destination_id });
+const flow = (id: string, source_id: string, destination_id: string): Flow => ({
+  id,
+  space_id: "travel",
+  source_id,
+  destination_id,
+});
 
-const projects: Project[] = [
-  { id: "trip", space_id: "travel", name: "Trip 2026", values: { project_name: "Trip_2026", backup_folder: "2026/Travel" }, final_copies_required: 2, archived: false },
-  { id: "trip-2025", space_id: "travel", name: "Trip 2025", values: { project_name: "Trip_2025" }, final_copies_required: 2, archived: true },
-  { id: "event", space_id: "travel", name: "Client event", values: { project_name: "Client_event", client: "Client" }, final_copies_required: 2, archived: false },
+const legacyProjects: Project[] = [
+  {
+    id: "trip",
+    space_id: "travel",
+    name: "Trip 2026",
+    values: { project_name: "Trip_2026", backup_folder: "2026/Travel" },
+    final_copies_required: 2,
+    archived: false,
+  },
+  {
+    id: "trip-2025",
+    space_id: "travel",
+    name: "Trip 2025",
+    values: { project_name: "Trip_2025" },
+    final_copies_required: 2,
+    archived: true,
+  },
+  {
+    id: "event",
+    space_id: "travel",
+    name: "Client event",
+    values: { project_name: "Client_event", client: "Client" },
+    final_copies_required: 2,
+    archived: false,
+  },
 ];
+const projects: Project[] = legacyProjects.map((project) => {
+  const ranges = {
+    trip: ["2026-01-12T08:00:00Z", "2026-01-16T23:59:00Z", "#A78BFA"],
+    "trip-2025": ["2025-12-02T00:00:00Z", "2025-12-12T23:59:00Z", "#FB923C"],
+    event: ["2026-01-14T09:00:00Z", "2026-01-14T23:30:00Z", "#38BDF8"],
+  } as const;
+  const [start, end, color] = ranges[project.id as keyof typeof ranges];
+  return {
+    ...project,
+    start_time: Date.parse(start),
+    end_time: Date.parse(end),
+    granularity: "day",
+    color,
+  };
+});
 
 export function demoSnapshot(): Snapshot {
   return structuredClone({
@@ -67,7 +122,11 @@ export function demoSnapshot(): Snapshot {
       { id: "studio", name: "Desktop PC", os: "windows" },
       { id: "nas-agent", name: "Home NAS agent", os: "linux" },
     ],
-    spaces: [space("travel", "Travel", "plane", 0), space("home", "Home", "house", 1), space("backup", "Backup", "archive", 2)],
+    spaces: [
+      space("travel", "Travel", "plane", 0),
+      space("home", "Home", "house", 1),
+      space("backup", "Backup", "archive", 2),
+    ],
     projects,
     devices: [
       device("card1", "Camera A · Card 1", "SD card", "original", "sd_card", 128e9),
@@ -85,13 +144,24 @@ export function demoSnapshot(): Snapshot {
       { id: "nas@laptop", device_id: "nas", computer_id: "laptop", root_path: "/Volumes/photo" },
       { id: "hdd@studio", device_id: "hdd", computer_id: "studio", root_path: "E:\\" },
     ],
-    sources: [source("s1", "card1", "DCIM", 0), source("s2", "card2", "DCIM", 1), source("s3", "dji", "DCIM", 2)],
+    sources: [
+      source("s1", "card1", "DCIM", 0),
+      source("s2", "card2", "DCIM", 1),
+      source("s3", "dji", "DCIM", 2),
+    ],
     destinations: [
       destination("d1", "ssd", "Projects/{project_name}/RAW", 0),
       destination("d2", "nas", "photo/{backup_folder}/{project_name}", 1),
       destination("d3", "hdd", "Archive/{project_name}", 2),
     ],
-    flows: [flow("f1", "s1", "d1"), flow("f2", "s1", "d2"), flow("f3", "s2", "d1"), flow("f4", "s2", "d2"), flow("f5", "s3", "d1"), flow("f6", "s3", "d3")],
+    flows: [
+      flow("f1", "s1", "d1"),
+      flow("f2", "s1", "d2"),
+      flow("f3", "s2", "d1"),
+      flow("f4", "s2", "d2"),
+      flow("f5", "s3", "d1"),
+      flow("f6", "s3", "d3"),
+    ],
     settings: {
       theme: "system",
       auto_sync: true,

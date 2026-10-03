@@ -25,6 +25,8 @@ pub struct FileEntry {
     pub target_path: Option<String>,
     pub category: Category,
     pub error: Option<String>,
+    pub capture_time: Option<i64>,
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -73,11 +75,13 @@ pub fn list_files(
                     .to_string(),
                 media: media_kind(Path::new(&f.rel_path)),
                 abs_path: f.abs_path.as_ref().map(|p| p.display().to_string()),
-                target_path: (f.category != Category::Ignored).then(|| ctx.target_rel(&f.rel_path)),
+                target_path: f.target_path,
                 rel_path: f.rel_path,
                 size: f.size,
                 category: f.category,
                 error: f.error,
+                capture_time: f.capture_time,
+                project_id: f.project_id,
             })
             .collect(),
     })

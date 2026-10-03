@@ -1,19 +1,6 @@
 use super::{entity::impl_entity, FileRule};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Source {
-    pub id: String,
-    pub space_id: String,
-    pub device_id: String,
-    /// Folder relative to the device root; may contain `{variables}`.
-    pub path_template: String,
-    pub offer_wipe: bool,
-    pub position: i64,
-}
-impl_entity!(Source, Source);
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Destination {

@@ -85,6 +85,53 @@ fn write(root: &std::path::Path, rel: &str, bytes: &[u8]) {
     std::fs::write(path, bytes).unwrap();
 }
 
+#[test]
+fn metadata_command_reports_missing_media_path() {
+    let ui = Ui::start();
+    let missing = ui._data.path().join("missing.jpg");
+    let error = ui
+        .call(
+            "get_media_metadata",
+            json!({ "absPath": missing.display().to_string() }),
+        )
+        .expect_err("missing media should return an explicit error");
+    assert!(error.to_string().contains("I/O error"));
+}
+
+#[test]
+fn video_preview_rejects_paths_not_listed_by_a_source() {
+    let ui = Ui::start();
+    let dir = tempfile::tempdir().unwrap();
+    let video = dir.path().join("clip.mp4");
+    std::fs::write(&video, b"video").unwrap();
+    let error = ui
+        .call(
+            "authorize_video_preview",
+            json!({ "absPath": video.display().to_string() }),
+        )
+        .expect_err("unlisted local files must not be granted to the webview");
+    assert!(error
+        .to_string()
+        .contains("only available for files listed by a source"));
+}
+
+#[test]
+fn opening_media_rejects_paths_not_listed_by_a_source() {
+    let ui = Ui::start();
+    let dir = tempfile::tempdir().unwrap();
+    let image = dir.path().join("photo.jpg");
+    std::fs::write(&image, b"image").unwrap();
+    let error = ui
+        .call(
+            "open_media",
+            json!({ "absPath": image.display().to_string() }),
+        )
+        .expect_err("unlisted local files must not be opened by the app");
+    assert!(error
+        .to_string()
+        .contains("only available for files listed by a source"));
+}
+
 /// A new user sets everything up from scratch with the UI's default factories.
 #[test]
 fn fresh_setup_backs_up_card_and_wipes_it() {
@@ -94,6 +141,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     write(card.path(), "DCIM/100MSDCF/IMG_0001.ARW", b"raw-one");
     write(card.path(), "DCIM/100MSDCF/IMG_0002.JPG", b"jpeg-two");
     write(card.path(), "DCIM/100MSDCF/IMG_0002.THM", b"thumb");
+    write(card.path(), "DCIM/100MSDCF/C0001.MP4", b"video");
     write(card.path(), "PRIVATE/M4ROOT/C0001.XML", b"xml");
 
     let snapshot = ui.ok("get_snapshot", json!({}));
@@ -131,16 +179,17 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     );
     assert!(card.path().join(".openmediabackup/device.json").exists());
 
-    // newSource / newDestination / newFlow
-    ui.save("source", json!({ "id": "src", "space_id": "sp", "device_id": "card", "path_template": "", "offer_wipe": true, "position": 0 }));
+    // Timestamp-free fixtures use a project-independent destination.
+    ui.save("source", json!({ "id": "src", "space_id": "sp", "device_id": "card", "path_template": "", "offer_wipe": true, "position": 0, "project_scope": { "mode": "none" } }));
     ui.save(
         "destination",
         json!({
-            "id": "dst", "space_id": "sp", "device_id": "nas", "path_template": "{project_name}",
+            "id": "dst", "space_id": "sp", "device_id": "nas", "path_template": "Trip 2026",
             "subfolder_per_source": true, "counts_as_safe_copy": true, "use_backup_marker": false,
             "rules": [
                 { "action": "exclude", "syntax": "glob", "pattern": "PRIVATE/" },
                 { "action": "exclude", "syntax": "glob", "pattern": "*.THM" },
+                { "action": "exclude", "syntax": "glob", "pattern": "*.MP4" },
                 { "action": "exclude", "syntax": "glob", "pattern": ".*" },
             ],
             "position": 0,
@@ -154,11 +203,26 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     let flow = ui.flow_status("pr");
     assert_eq!(flow["state"], "pending", "{flow}");
     assert_eq!(flow["to_transfer"], 2, "{flow}");
-    assert_eq!(flow["ignored"], 2, "{flow}");
+    assert_eq!(flow["ignored"], 3, "{flow}");
 
     let page = ui.ok("list_files", json!({ "req": {
         "projectId": "pr", "flowId": "fl", "category": "to_transfer", "offset": 0, "limit": 50, "filter": null } }));
     assert_eq!(page["total"], 2);
+    let ignored = ui.ok("list_files", json!({ "req": {
+        "projectId": "pr", "flowId": "fl", "category": "ignored", "offset": 0, "limit": 50, "filter": null } }));
+    let video = ignored
+        .get("items")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| item["rel_path"] == "DCIM/100MSDCF/C0001.MP4")
+        })
+        .expect("listed video");
+    ui.ok(
+        "authorize_video_preview",
+        json!({ "absPath": video["abs_path"] }),
+    );
 
     ui.ok("run_flow", json!({ "projectId": "pr", "flowId": "fl" }));
     ui.wait_idle();
@@ -198,7 +262,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
             plan["ignored"].as_u64(),
             plan["eligible"].as_bool()
         ),
-        (Some(4), Some(2), Some(true)),
+        (Some(5), Some(3), Some(true)),
         "{plan}"
     );
     ui.ok(
@@ -210,6 +274,10 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     assert!(
         card.path().join("PRIVATE/M4ROOT/C0001.XML").exists(),
         "ignored files are kept"
+    );
+    assert!(
+        card.path().join("DCIM/100MSDCF/C0001.MP4").exists(),
+        "ignored videos are kept"
     );
 }
 
@@ -281,4 +349,26 @@ fn thumbnail_returns_jpeg_bytes_over_ipc() {
     let decoded = image::load_from_memory(&thumb).unwrap();
     assert_eq!((decoded.width(), decoded.height()), (360, 240));
     assert!(bytes(&notes).is_empty());
+}
+
+#[test]
+fn media_preview_returns_large_jpeg_bytes_over_ipc() {
+    let ui = Ui::start();
+    let dir = tempfile::tempdir().unwrap();
+    let photo = dir.path().join("IMG_0002.JPG");
+    image::RgbImage::from_pixel(1200, 800, image::Rgb([40, 120, 200]))
+        .save_with_format(&photo, image::ImageFormat::Jpeg)
+        .unwrap();
+
+    let body = get_ipc_response(
+        &ui.webview,
+        ui.request("media_preview", json!({ "absPath": photo })),
+    )
+    .unwrap_or_else(|e| panic!("media preview failed: {e}"));
+    let bytes = match body {
+        InvokeResponseBody::Raw(b) => b.to_vec(),
+        other => panic!("expected raw bytes, got {other:?}"),
+    };
+    let decoded = image::load_from_memory(&bytes).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (1200, 800));
 }

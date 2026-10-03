@@ -1,10 +1,16 @@
 import type { DestinationStatus, FlowStatus, ProjectStatus, Snapshot, SourceStatus } from "../types";
+import { validateProjectRanges, validateSourceDestination } from "../../state/projects";
 
 export type Counts = Record<string, [number, number, number, number]>;
 const AVG_FILE = 39_000_000;
 
 /** Computes a believable project status from simulated flow counts. */
-export function mockStatus(snapshot: Snapshot, projectId: string, counts: Counts, offline: Set<string>): ProjectStatus {
+export function mockStatus(
+  snapshot: Snapshot,
+  projectId: string,
+  counts: Counts,
+  offline: Set<string>,
+): ProjectStatus {
   const project = snapshot.projects.find((p) => p.id === projectId);
   const spaceId = project?.space_id;
   const deviceOf = (id: string) => snapshot.devices.find((d) => d.id === id);
@@ -13,8 +19,28 @@ export function mockStatus(snapshot: Snapshot, projectId: string, counts: Counts
     const [transferred, toTransfer, ignored, failed] = counts[f.id] ?? [0, 25, 0, 0];
     const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
     const src = snapshot.sources.find((s) => s.id === f.source_id);
+    let configError: string | null = null;
+    const space = snapshot.spaces.find((s) => s.id === spaceId);
+    if (space && src && dest) {
+      try {
+        const projects = snapshot.projects.filter((p) => p.space_id === spaceId);
+        validateProjectRanges(projects, space.allow_project_overlap ?? true);
+        validateSourceDestination(src, dest, space, projects);
+      } catch (error) {
+        configError = String(error);
+      }
+    }
     const unavailable = offline.has(dest?.device_id ?? "") || offline.has(src?.device_id ?? "");
-    const state = failed ? "error" : toTransfer ? (unavailable ? "unavailable" : "pending") : transferred ? "done" : "empty";
+    const state =
+      configError || failed
+        ? "error"
+        : toTransfer
+          ? unavailable
+            ? "unavailable"
+            : "pending"
+          : transferred
+            ? "done"
+            : "empty";
     return {
       flow_id: f.id,
       state,
@@ -23,7 +49,7 @@ export function mockStatus(snapshot: Snapshot, projectId: string, counts: Counts
       ignored,
       failed,
       bytes_to_transfer: toTransfer * AVG_FILE,
-      error: failed ? `hash mismatch · ${deviceOf(src?.device_id ?? "")?.name ?? ""}` : null,
+      error: configError ?? (failed ? `hash mismatch · ${deviceOf(src?.device_id ?? "")?.name ?? ""}` : null),
     };
   });
   const finals = snapshot.devices.filter((d) => d.role === "final").map((d) => d.id);
@@ -31,15 +57,24 @@ export function mockStatus(snapshot: Snapshot, projectId: string, counts: Counts
     .filter((s) => s.space_id === spaceId)
     .map((s) => {
       const outgoing = flows.filter((f) => f.source_id === s.id);
-      const total = Math.max(0, ...outgoing.map((f) => (counts[f.id] ?? [0, 25, 0, 0]).reduce((a, b) => a + b, 0)));
-      const finalFlows = outgoing.filter((f) => finals.includes(snapshot.destinations.find((d) => d.id === f.destination_id)?.device_id ?? ""));
-      const safe = finalFlows.filter((f) => (counts[f.id]?.[1] ?? 1) === 0 && (counts[f.id]?.[3] ?? 0) === 0).length;
+      const total = Math.max(
+        0,
+        ...outgoing.map((f) => (counts[f.id] ?? [0, 25, 0, 0]).reduce((a, b) => a + b, 0)),
+      );
+      const finalFlows = outgoing.filter((f) =>
+        finals.includes(snapshot.destinations.find((d) => d.id === f.destination_id)?.device_id ?? ""),
+      );
+      const safe = finalFlows.filter(
+        (f) => (counts[f.id]?.[1] ?? 1) === 0 && (counts[f.id]?.[3] ?? 0) === 0,
+      ).length;
       const required = project?.final_copies_required ?? 2;
-      const missing = finalFlows.filter((f) => (counts[f.id]?.[1] ?? 1) > 0).map((f) => {
-        const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
-        const dev = deviceOf(dest?.device_id ?? "");
-        return offline.has(dev?.id ?? "") ? `${dev?.name} offline` : `Needs ${dev?.name}`;
-      });
+      const missing = finalFlows
+        .filter((f) => (counts[f.id]?.[1] ?? 1) > 0)
+        .map((f) => {
+          const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
+          const dev = deviceOf(dest?.device_id ?? "");
+          return offline.has(dev?.id ?? "") ? `${dev?.name} offline` : `Needs ${dev?.name}`;
+        });
       const reason = safe >= required ? null : (missing[0] ?? "No final destination");
       return {
         source_id: s.id,
@@ -57,12 +92,15 @@ export function mockStatus(snapshot: Snapshot, projectId: string, counts: Counts
     .filter((d) => d.space_id === spaceId)
     .map((d) => {
       const own = flowStatuses.filter((f) => flows.find((x) => x.id === f.flow_id)?.destination_id === d.id);
-      const sum = (key: "transferred" | "to_transfer" | "ignored" | "failed" | "bytes_to_transfer") => own.reduce((a, f) => a + f[key], 0);
+      const sum = (key: "transferred" | "to_transfer" | "ignored" | "failed" | "bytes_to_transfer") =>
+        own.reduce((a, f) => a + f[key], 0);
       const available = !offline.has(d.device_id);
       return {
         destination_id: d.id,
         available,
-        root_path: available ? (snapshot.mappings.find((m) => m.device_id === d.device_id)?.root_path ?? null) : null,
+        root_path: available
+          ? (snapshot.mappings.find((m) => m.device_id === d.device_id)?.root_path ?? null)
+          : null,
         free_bytes: available ? 1.2e12 : null,
         transferred: sum("transferred"),
         to_transfer: sum("to_transfer"),

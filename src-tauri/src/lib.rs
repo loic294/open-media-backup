@@ -4,6 +4,7 @@ pub mod devices;
 pub mod domain;
 pub mod hashing;
 pub mod media;
+pub mod metadata;
 pub mod paths;
 pub mod plan;
 pub mod rules;

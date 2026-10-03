@@ -22,12 +22,29 @@ impl ThumbnailCache {
     }
 
     pub fn get_or_create(&self, path: &Path) -> Result<Option<PathBuf>, ThumbnailError> {
+        self.get_or_create_at_size(path, false)
+    }
+
+    pub fn get_or_create_preview(&self, path: &Path) -> Result<Option<PathBuf>, ThumbnailError> {
+        self.get_or_create_at_size(path, true)
+    }
+
+    fn get_or_create_at_size(
+        &self,
+        path: &Path,
+        preview: bool,
+    ) -> Result<Option<PathBuf>, ThumbnailError> {
         let metadata = fs::metadata(path).map_err(|source| ThumbnailError::Io {
             path: path.to_path_buf(),
             source,
         })?;
         let key = key::cache_key(path, &metadata)?;
-        let cached = self.dir.join(format!("{key}.jpg"));
+        let cached_name = if preview {
+            format!("{key}-preview.jpg")
+        } else {
+            format!("{key}.jpg")
+        };
+        let cached = self.dir.join(cached_name);
         if cached.exists() {
             return Ok(Some(cached));
         }
@@ -45,11 +62,17 @@ impl ThumbnailCache {
             return Ok(Some(cached));
         }
 
-        let temp = self.temp_path(&key);
-        let created = match kind {
-            MediaKind::Image | MediaKind::Raw => image_thumb::create_image_thumbnail(path, &temp)?,
-            MediaKind::Video => video::create_video_thumbnail(path, &temp)?,
-            MediaKind::Other => false,
+        let temp = self.temp_path(&key, preview);
+        let created = match (kind, preview) {
+            (MediaKind::Image | MediaKind::Raw, true) => {
+                image_thumb::create_image_preview(path, &temp)?
+            }
+            (MediaKind::Image | MediaKind::Raw, false) => {
+                image_thumb::create_image_thumbnail(path, &temp)?
+            }
+            (MediaKind::Video, true) => video::create_video_preview(path, &temp)?,
+            (MediaKind::Video, false) => video::create_video_thumbnail(path, &temp)?,
+            (MediaKind::Other, _) => false,
         };
 
         if !created {
@@ -71,14 +94,15 @@ impl ThumbnailCache {
         }
     }
 
-    fn temp_path(&self, key: &str) -> PathBuf {
+    fn temp_path(&self, key: &str, preview: bool) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
         let thread = format!("{:?}", std::thread::current().id());
         self.dir.join(format!(
-            ".{key}.{}.{}.{}.tmp",
+            ".{key}{}.{}.{}.{}.tmp",
+            if preview { "-preview" } else { "" },
             std::process::id(),
             thread.replace(['(', ')', ' '], ""),
             nanos

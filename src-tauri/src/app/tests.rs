@@ -104,3 +104,49 @@ fn run_all_then_list_files() {
     wait_idle(&core);
     assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
 }
+
+#[test]
+fn save_project_policy_rejects_overlap_and_none_scope_without_mutation() {
+    let fx = Fixture::new();
+    let (core, _t) = core(&fx);
+    let mut project = fx.project.clone();
+    project.start_time = Some(0);
+    project.end_time = Some(60_000);
+    core.save_entity("project", serde_json::to_value(&project).unwrap())
+        .unwrap();
+    project.id = "second".into();
+    core.save_entity("project", serde_json::to_value(&project).unwrap())
+        .unwrap();
+    let mut space = fx.space.clone();
+    space.allow_project_overlap = false;
+    assert!(core
+        .save_entity("space", serde_json::to_value(&space).unwrap())
+        .unwrap_err()
+        .contains("overlap"));
+    assert!(
+        fx.store
+            .get::<crate::domain::Space>("space")
+            .unwrap()
+            .unwrap()
+            .allow_project_overlap
+    );
+
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    core.save_entity("destination", serde_json::to_value(&destination).unwrap())
+        .unwrap();
+    let mut source = fx.source.clone();
+    source.project_scope = crate::domain::ProjectScope::None;
+    assert!(core
+        .save_entity("source", serde_json::to_value(&source).unwrap())
+        .unwrap_err()
+        .contains("cannot use project variables"));
+    assert_eq!(
+        fx.store
+            .get::<Source>("src")
+            .unwrap()
+            .unwrap()
+            .project_scope,
+        crate::domain::ProjectScope::All
+    );
+}

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
@@ -28,6 +28,18 @@ export const tauriBackend: Backend = {
   getProjectStatus: (projectId) => invoke("get_project_status", { projectId }),
   listFiles: (req) => invoke("list_files", { req }),
   thumbnail: (absPath) => thumbnailUrl(absPath),
+  getMediaMetadata: (absPath) => invoke("get_media_metadata", { absPath }),
+  mediaPreview: async (absPath, mediaType) => {
+    if (mediaType === "video") {
+      await invoke("authorize_video_preview", { absPath });
+      return convertFileSrc(absPath);
+    }
+    const bytes = await invoke<ArrayBuffer>("media_preview", { absPath });
+    return bytes.byteLength
+      ? URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }))
+      : null;
+  },
+  openMedia: (absPath) => invoke("open_media", { absPath }),
 
   runFlow: (projectId, flowId) => invoke("run_flow", { projectId, flowId }),
   runAll: (projectId) => invoke("run_all", { projectId }),

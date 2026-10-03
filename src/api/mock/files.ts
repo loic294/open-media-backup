@@ -24,6 +24,7 @@ export function mockFiles(total: number, category: FileCategory, offset: number,
       target_path: category === "ignored" ? null : `${target}/${name}`,
       category,
       error: category === "error" ? "hash mismatch after copy" : null,
+      capture_time: Date.UTC(2026, 0, 14, 9, (i * 7) % 60),
     };
     return entry;
   }).filter((f) => !filter || f.rel_path.toLowerCase().includes(filter.toLowerCase()));

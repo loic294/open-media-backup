@@ -5,6 +5,7 @@ import { installDropdownDismiss } from "../ui/dropdown";
 import { OmbElement } from "../ui/omb-element";
 import "../top-bar/omb-top-bar";
 import "../workspace/omb-workspace";
+import "../workspace/projects-page";
 import "../footer/omb-footer";
 import "../dialogs/omb-dialog-host";
 import "./omb-toasts";
@@ -35,6 +36,13 @@ export class OmbApp extends OmbElement {
       return html`<div class="m-auto max-w-md alert alert-error"><omb-icon name="circle-alert"></omb-icon><span>Could not start: ${error}</span></div>`;
     }
     if (!snapshot) return html`<span class="m-auto loading loading-spinner loading-lg text-primary"></span>`;
+    if (this.store.projectsPageOpen) {
+      return html`
+        <omb-projects-page></omb-projects-page>
+        <omb-dialog-host></omb-dialog-host>
+        <omb-toasts></omb-toasts>
+      `;
+    }
     return html`
       <omb-top-bar></omb-top-bar>
       <omb-workspace class="flex-1 min-h-0"></omb-workspace>

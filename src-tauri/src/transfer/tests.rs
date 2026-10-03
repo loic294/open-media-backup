@@ -84,6 +84,141 @@ fn second_run_is_a_no_op() {
     assert_eq!(h.snapshot().files_total, 0);
 }
 
+/// Synthetic TIFF containing only DateTimeOriginal and OffsetTimeOriginal.
+fn capture_fixture(offset: bool) -> Vec<u8> {
+    let mut bytes = vec![0; 83];
+    bytes[..8].copy_from_slice(&[b'I', b'I', 42, 0, 8, 0, 0, 0]);
+    bytes[8..10].copy_from_slice(&1u16.to_le_bytes());
+    let mut entry = |position: usize, tag: u16, kind: u16, count: u32, value: u32| {
+        bytes[position..position + 2].copy_from_slice(&tag.to_le_bytes());
+        bytes[position + 2..position + 4].copy_from_slice(&kind.to_le_bytes());
+        bytes[position + 4..position + 8].copy_from_slice(&count.to_le_bytes());
+        bytes[position + 8..position + 12].copy_from_slice(&value.to_le_bytes());
+    };
+    entry(10, 0x8769, 4, 1, 26);
+    entry(28, 0x9003, 2, 20, 56);
+    if offset {
+        entry(40, 0x9011, 2, 7, 76);
+    }
+    bytes[26..28].copy_from_slice(&(if offset { 2u16 } else { 1u16 }).to_le_bytes());
+    bytes[56..76].copy_from_slice(b"2026:01:01 12:00:00\0");
+    bytes[76..83].copy_from_slice(b"+00:00\0");
+    bytes
+}
+
+#[test]
+fn overlapping_projects_transfer_each_route_preserving_physical_source_path() {
+    let fx = Fixture::new();
+    let bytes = capture_fixture(true);
+    fx.write_card_file("DCIM/A.DNG", &bytes);
+    let instant = chrono::DateTime::parse_from_rfc3339("2026-01-01T12:00:00Z")
+        .unwrap()
+        .timestamp_millis();
+    for (id, name) in [("a", "Alice"), ("b", "Bob")] {
+        fx.store
+            .put(&crate::domain::Project {
+                id: id.into(),
+                name: name.into(),
+                space_id: fx.space.id.clone(),
+                start_time: Some(instant),
+                end_time: Some(instant),
+                values: std::collections::BTreeMap::from([("client".into(), name.into())]),
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{client}/{project_name}".into();
+    destination.subfolder_per_source = false;
+    fx.store.put(&destination).unwrap();
+    write(
+        fx.nas_dir.path(),
+        "Bob/Bob/A.DNG",
+        b"existing unrelated file",
+    );
+    let thumbnails = tempfile::tempdir().unwrap();
+    let app = crate::app::AppCore::new(
+        fx.store.clone(),
+        Arc::new(crate::testing::MapResolver(Mutex::new(
+            fx.resolver.0.lock().clone(),
+        ))),
+        thumbnails.path().into(),
+        |_| {},
+    );
+    let page = app
+        .list_files(&crate::app::ListFilesRequest {
+            project_id: fx.project.id.clone(),
+            flow_id: fx.flow.id.clone(),
+            category: Category::ToTransfer,
+            offset: 0,
+            limit: 50,
+            filter: None,
+        })
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(page
+        .items
+        .iter()
+        .all(|file| file.rel_path == "A.DNG" && file.capture_time == Some(instant)));
+    assert!(page
+        .items
+        .iter()
+        .any(|file| file.project_id.as_deref() == Some("a")
+            && file.target_path.as_deref() == Some("Alice/Alice/A.DNG")));
+    assert!(page
+        .items
+        .iter()
+        .any(|file| file.project_id.as_deref() == Some("b")
+            && file.target_path.as_deref() == Some("Bob/Bob/A.DNG")));
+    let (handle, _) = run(&fx);
+    assert_eq!(handle.snapshot().files_total, 2);
+    for target in ["Alice/Alice/A.DNG", "Bob/Bob/A (1).DNG"] {
+        assert_eq!(
+            std::fs::read(fx.nas_dir.path().join(target)).unwrap(),
+            bytes
+        );
+    }
+    assert_eq!(
+        std::fs::read(fx.nas_dir.path().join("Bob/Bob/A.DNG")).unwrap(),
+        b"existing unrelated file"
+    );
+    let copies = fx.store.list::<FileCopy>().unwrap();
+    assert_eq!(copies.len(), 3);
+    assert_eq!(
+        copies
+            .iter()
+            .filter(|copy| copy.device_id == "card")
+            .count(),
+        1
+    );
+    assert!(copies
+        .iter()
+        .any(|copy| copy.device_id == "card" && copy.path == "DCIM/A.DNG"));
+    let records = fx.store.list::<crate::domain::FileRecord>().unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].origin_path, "DCIM/A.DNG");
+    assert_eq!(run(&fx).0.snapshot().files_total, 0);
+    assert!(categories(&fx)
+        .iter()
+        .all(|(_, category)| *category == Category::Transferred));
+}
+
+#[test]
+fn unknown_timezone_capture_is_not_transferred_through_project_variables() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.DNG", &capture_fixture(false));
+    let mut project = fx.project.clone();
+    project.start_time = Some(0);
+    project.end_time = Some(2_000_000_000_000);
+    fx.store.put(&project).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    fx.store.put(&destination).unwrap();
+    assert_eq!(run(&fx).0.snapshot().files_total, 0);
+    assert_eq!(categories(&fx)[0].1, Category::Ignored);
+    assert!(fx.store.list::<FileCopy>().unwrap().is_empty());
+}
+
 #[test]
 fn adopts_identical_and_renames_conflicting_targets() {
     let fx = Fixture::new();

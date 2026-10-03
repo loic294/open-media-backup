@@ -1,7 +1,7 @@
 use super::copy::{copy_verified, CopyError};
 use super::handle::{JobHandle, JobState};
 use crate::domain::{FileCopy, FileRecord};
-use crate::paths::{ensure_backup_folder, to_relative};
+use crate::paths::{ensure_backup_folder, join_relative, to_relative};
 use crate::plan::{
     classify_flow, resolve_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile,
     RootResolver,
@@ -23,7 +23,19 @@ pub fn run_transfer(
 ) -> Result<(), String> {
     let ctx = prepare(store, resolver, project_id, flow_id)?;
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
-    let pending: Vec<PlannedFile> = classify_flow(&ctx, &catalog, None)
+    let planned = classify_flow(&ctx, &catalog, None);
+    let planning_errors: Vec<_> = planned
+        .iter()
+        .filter_map(|file| {
+            file.error
+                .as_ref()
+                .map(|error| format!("{}: {error}", file.rel_path))
+        })
+        .collect();
+    if !planning_errors.is_empty() {
+        return Err(planning_errors.join("; "));
+    }
+    let pending: Vec<PlannedFile> = planned
         .into_iter()
         .filter(|f| f.category == Category::ToTransfer)
         .collect();
@@ -38,7 +50,11 @@ pub fn run_transfer(
 
     let mut writer = RecordWriter::new(store, &catalog);
     let mut flow_failures = failures.lock().remove(flow_id).unwrap_or_default();
-    flow_failures.retain(|rel, _| pending.iter().any(|f| &f.rel_path == rel));
+    flow_failures.retain(|key, _| {
+        pending
+            .iter()
+            .any(|f| f.failure_key() == *key || f.rel_path == *key)
+    });
     for file in &pending {
         if handle.checkpoint().is_err() {
             break;
@@ -47,13 +63,14 @@ pub fn run_transfer(
         match transfer_one(&ctx, &catalog, file, handle) {
             Ok((hash, dest_rel)) => {
                 flow_failures.remove(&file.rel_path);
+                flow_failures.remove(&file.failure_key());
                 writer.add(&ctx, file, hash, dest_rel);
             }
             Err(CopyError::Cancelled) => break,
             Err(e) => {
                 let message = e.to_string();
                 handle.update(|j| j.errors.push(format!("{}: {message}", file.rel_path)));
-                flow_failures.insert(file.rel_path.clone(), message);
+                flow_failures.insert(file.failure_key(), message);
             }
         }
         handle.update(|j| j.files_done += 1);
@@ -101,9 +118,12 @@ fn transfer_one(
     handle: &JobHandle,
 ) -> Result<(String, String), CopyError> {
     let src = file.abs_path.as_ref().ok_or(CopyError::SourceChanged)?;
-    let dst = ctx
-        .target_abs(&file.rel_path)
+    let root = ctx.dest_root.as_ref().ok_or(CopyError::SourceChanged)?;
+    let target = file
+        .target_path
+        .as_deref()
         .ok_or(CopyError::SourceChanged)?;
+    let dst = join_relative(root, target);
     let known = file
         .file_id
         .as_deref()
@@ -122,9 +142,12 @@ fn transfer_one(
     // Keep the byte counter aligned with the file size, whatever was re-read or skipped.
     handle.update(|j| j.bytes_done = before + file.size);
     let outcome = outcome?;
-    let root = ctx.dest_root.as_ref().expect("checked in prepare");
-    let dest_rel =
-        to_relative(root, &outcome.final_path).unwrap_or_else(|| ctx.target_rel(&file.rel_path));
+    let dest_rel = to_relative(root, &outcome.final_path).ok_or_else(|| {
+        CopyError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Transferred target is outside destination root",
+        ))
+    })?;
     Ok((outcome.hash, dest_rel))
 }
 

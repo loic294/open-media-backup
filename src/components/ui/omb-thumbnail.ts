@@ -1,4 +1,4 @@
-import { html, nothing } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { FileEntry } from "../../api/types";
 import { store } from "../../state";
@@ -28,41 +28,86 @@ function schedule(task: () => Promise<void>) {
 export class OmbThumbnail extends OmbPureElement {
   @property({ attribute: false }) file!: FileEntry;
   @state() private src: string | null = null;
+  @state() private loadError: string | null = null;
   #observer?: IntersectionObserver;
+  #visible = false;
+  #seq = 0;
+  #loadedPath: string | null = null;
 
   override connectedCallback(): void {
     super.connectedCallback();
     this.#observer = new IntersectionObserver((entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       this.#observer?.disconnect();
-      const path = this.file.abs_path;
-      if (path && this.file.media !== "other") {
-        schedule(async () => {
-          this.src = await store.backend.thumbnail(path).catch(() => null);
-        });
-      }
+      this.#visible = true;
+      this.#load();
     });
     this.#observer.observe(this);
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.#seq++;
+    this.#loadedPath = null;
+    this.#visible = false;
     this.#observer?.disconnect();
+  }
+
+  protected override willUpdate(changes: PropertyValues): void {
+    if (!changes.has("file")) return;
+    this.#seq++;
+    this.#loadedPath = null;
+    this.src = null;
+    this.loadError = null;
+    if (this.#visible) this.#load();
+  }
+
+  #load() {
+    const path = this.file?.abs_path;
+    if (!path || this.file.media === "other" || this.#loadedPath === path) return;
+    this.#loadedPath = path;
+    const seq = ++this.#seq;
+    schedule(async () => {
+      if (!this.isConnected || seq !== this.#seq) return;
+      try {
+        const src = await store.backend.thumbnail(path);
+        if (this.isConnected && seq === this.#seq) this.src = src;
+      } catch (error) {
+        if (this.isConnected && seq === this.#seq) {
+          this.loadError = `Thumbnail unavailable: ${error}`;
+          console.error(this.loadError);
+        }
+      }
+    });
   }
 
   override render() {
     const f = this.file;
     const tone = f.category === "error" ? "ring-2 ring-error" : f.category === "ignored" ? "opacity-50" : "";
     return html`
-      <figure class="flex flex-col gap-1" title=${f.error ?? f.target_path ?? f.rel_path}>
-        <div class="relative aspect-[3/2] rounded-field overflow-hidden bg-base-300 grid place-items-center ${tone}">
-          ${this.src
-            ? html`<img src=${this.src} alt=${f.name} class="absolute inset-0 size-full object-cover" @error=${() => (this.src = null)} />`
-            : html`<omb-icon name=${MEDIA_ICON[f.media]} class="size-6 text-base-content/40"></omb-icon>`}
+      <figure class="flex flex-col gap-1" title=${this.loadError ?? f.error ?? f.target_path ?? f.rel_path}>
+        <div
+          class="relative aspect-[3/2] rounded-field overflow-hidden bg-base-300 grid place-items-center ${tone}"
+        >
+          ${
+            this.src
+              ? html`<img
+                  src=${this.src}
+                  alt=${f.name}
+                  class="absolute inset-0 size-full object-cover"
+                  @error=${() => {
+                    this.src = null;
+                    this.loadError = "Thumbnail could not be displayed.";
+                  }}
+                />`
+              : html`<omb-icon name=${MEDIA_ICON[f.media]} class="size-6 text-base-content/40"></omb-icon>`
+          }
           ${f.media === "video" ? html`<span class="absolute bottom-1 right-1 badge badge-xs badge-neutral">VIDEO</span>` : nothing}
           ${f.media === "raw" ? html`<span class="absolute bottom-1 right-1 badge badge-xs badge-neutral">RAW</span>` : nothing}
         </div>
-        <figcaption class="text-xs truncate">${f.name}<span class="text-base-content/50"> · ${formatBytes(f.size)}</span></figcaption>
+        <figcaption class="text-xs truncate">
+          ${f.name}<span class="text-base-content/50"> · ${formatBytes(f.size)}</span>
+        </figcaption>
       </figure>
     `;
   }

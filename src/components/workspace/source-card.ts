@@ -68,6 +68,12 @@ export class OmbSourceCard extends OmbElement {
               <omb-icon name="sliders"></omb-icon>
             </button>
           </div>
+          <button
+            class="btn btn-sm self-start"
+            @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "media-browser", sourceId: this.source.id }))}
+          >
+            <omb-icon name="images"></omb-icon>Browse media
+          </button>
           <div class="flex items-center justify-between gap-3 min-h-8">${this.#footer()}</div>
         </div>
         <span

@@ -5,6 +5,7 @@ use crate::thumbnails::ThumbnailCache;
 use crate::transfer::{TransferJob, TransferManager};
 use parking_lot::Mutex;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ pub struct AppCore {
     pub transfers: TransferManager,
     pub failures: Arc<Mutex<FailureMap>>,
     pub thumbnails: ThumbnailCache,
+    preview_paths: Mutex<HashSet<PathBuf>>,
 }
 
 impl AppCore {
@@ -32,6 +34,7 @@ impl AppCore {
             transfers: TransferManager::new(on_transfers),
             failures: Arc::default(),
             thumbnails: ThumbnailCache::new(thumbnail_dir),
+            preview_paths: Mutex::default(),
         }
     }
 
@@ -89,12 +92,23 @@ impl AppCore {
     }
 
     pub fn list_files(&self, req: &ListFilesRequest) -> Result<FilePage, String> {
-        files::list_files(
+        let page = files::list_files(
             &self.store,
             self.resolver.as_ref(),
             &self.failures.lock(),
             req,
-        )
+        )?;
+        let mut preview_paths = self.preview_paths.lock();
+        for path in page
+            .items
+            .iter()
+            .filter_map(|file| file.abs_path.as_deref())
+        {
+            if let Ok(path) = Path::new(path).canonicalize() {
+                preview_paths.insert(path);
+            }
+        }
+        Ok(page)
     }
 
     pub fn thumbnail(&self, path: &Path) -> Result<Option<PathBuf>, String> {
@@ -104,6 +118,36 @@ impl AppCore {
         self.thumbnails
             .get_or_create(path)
             .map_err(|e| e.to_string())
+    }
+
+    pub fn media_preview(&self, path: &Path) -> Result<Option<PathBuf>, String> {
+        if crate::media::media_kind(path) == crate::media::MediaKind::Other {
+            return Ok(None);
+        }
+        self.thumbnails
+            .get_or_create_preview(path)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn authorize_video_preview(&self, path: &Path) -> Result<PathBuf, String> {
+        let path = self.authorize_media_open(path)?;
+        if crate::media::media_kind(&path) != crate::media::MediaKind::Video {
+            return Err("The requested file is not a supported video".into());
+        }
+        Ok(path)
+    }
+
+    pub fn authorize_media_open(&self, path: &Path) -> Result<PathBuf, String> {
+        let path = path
+            .canonicalize()
+            .map_err(|e| format!("Could not resolve media path: {e}"))?;
+        if !self.preview_paths.lock().contains(&path) {
+            return Err("Opening media is only available for files listed by a source".into());
+        }
+        if !path.is_file() {
+            return Err("The requested media path is not a file".into());
+        }
+        Ok(path)
     }
 }
 

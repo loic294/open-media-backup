@@ -1,4 +1,14 @@
-import type { Device, DeviceMapping, Destination, Flow, Project, Snapshot, Source, Space } from "../api/types";
+import type {
+  Device,
+  DeviceMapping,
+  Destination,
+  Flow,
+  Project,
+  Snapshot,
+  Source,
+  Space,
+} from "../api/types";
+export { matchingProjects } from "./projects";
 
 export function sortedSpaces(s: Snapshot): Space[] {
   return [...s.spaces].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
@@ -42,7 +52,11 @@ export function deviceById(s: Snapshot, id: string): Device | undefined {
 }
 
 /** Where a device lives on a given computer (this one by default). */
-export function mappingFor(s: Snapshot, deviceId: string, computerId = s.computer.id): DeviceMapping | undefined {
+export function mappingFor(
+  s: Snapshot,
+  deviceId: string,
+  computerId = s.computer.id,
+): DeviceMapping | undefined {
   return s.mappings.find((m) => m.device_id === deviceId && m.computer_id === computerId);
 }
 

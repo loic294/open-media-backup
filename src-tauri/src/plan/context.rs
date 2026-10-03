@@ -1,5 +1,5 @@
 use super::{backup_folder_name, sanitize_segment, template_vars, RootResolver};
-use crate::domain::{Destination, Device, Flow, Project, Source, Space};
+use crate::domain::{validate_project_ranges, Destination, Device, Flow, Project, Source, Space};
 use crate::paths::{expand, join_relative, TemplateVars};
 use crate::rules::RuleSet;
 use crate::store::{Store, StoreError};
@@ -19,6 +19,7 @@ pub struct FlowContext {
     pub flow: Flow,
     pub space: Space,
     pub project: Project,
+    pub projects: Vec<Project>,
     pub source: Source,
     pub destination: Destination,
     pub source_device: Device,
@@ -62,7 +63,28 @@ pub fn resolve_flow(
         .filter(|p| p.exists());
 
     let mut errors = Vec::new();
-    let mut vars = template_vars(&space, &project, &source_device);
+    let projects: Vec<Project> = store.list_by("space_id", &space.id)?;
+    if project.space_id != space.id
+        || source.space_id != space.id
+        || destination.space_id != space.id
+    {
+        errors.push("Flow entities must belong to the same space".into());
+    }
+    if let Err(error) = validate_project_ranges(&projects, space.allow_project_overlap) {
+        errors.push(error);
+    }
+    if let Err(error) = super::validate_source_destination(&source, &destination, &space, &projects)
+    {
+        errors.push(error);
+    }
+    if let Err(error) = source.validate_projects(&projects) {
+        errors.push(error);
+    }
+    let mut vars = if matches!(source.project_scope, crate::domain::ProjectScope::None) {
+        super::project_template_vars(&space, None, &source_device)
+    } else {
+        template_vars(&space, &project, &source_device)
+    };
     if destination.use_backup_marker {
         match backup_folder_name(&space, &vars, source_root.as_deref()) {
             Ok(folder) => drop(vars.insert("backup_folder".into(), folder)),
@@ -76,10 +98,25 @@ pub fn resolve_flow(
         })
     };
     let source_folder_rel = normalize(&expand_or_note(&source.path_template, "source path"));
-    let mut dest_folder_rel = normalize(&expand_or_note(
-        &destination.path_template,
-        "destination path",
-    ));
+    // The selected project's preview is retained for old callers. Actual routing below
+    // expands the destination separately for each file's matching projects.
+    let mut dest_folder_rel =
+        normalize(&expand(&destination.path_template, &vars).unwrap_or_default());
+    let mut validation_vars = vars.clone();
+    for name in ["project", "project_name"] {
+        validation_vars.insert(name.into(), "validation".into());
+    }
+    for name in space
+        .variables
+        .iter()
+        .map(|v| &v.name)
+        .chain(projects.iter().flat_map(|p| p.values.keys()))
+    {
+        validation_vars.insert(name.clone(), "validation".into());
+    }
+    if let Err(error) = expand(&destination.path_template, &validation_vars) {
+        errors.push(format!("destination path: {error}"));
+    }
     if destination.subfolder_per_source {
         let segment = sanitize_segment(&source_device.name);
         dest_folder_rel = if dest_folder_rel.is_empty() {
@@ -96,6 +133,7 @@ pub fn resolve_flow(
         flow,
         space,
         project,
+        projects,
         source,
         destination,
         source_device,
@@ -118,6 +156,48 @@ fn normalize(path: &str) -> String {
 }
 
 impl FlowContext {
+    /// Every eligible project is included; a missing embedded timestamp never assigns one.
+    pub fn matching_projects(&self, capture_time: Option<i64>) -> Vec<&Project> {
+        self.projects
+            .iter()
+            .filter(|project| {
+                self.source.project_scope.allows(&project.id)
+                    && project.matches_capture_time(capture_time)
+            })
+            .collect()
+    }
+
+    pub fn target_for_project(
+        &self,
+        rel: &str,
+        project: Option<&Project>,
+    ) -> Result<Option<String>, String> {
+        if project.is_none()
+            && super::uses_project_variables(
+                &self.destination.path_template,
+                &self.space,
+                &self.projects,
+                self.destination.use_backup_marker,
+            )
+        {
+            return Ok(None);
+        }
+        let mut vars = super::project_template_vars(&self.space, project, &self.source_device);
+        if self.destination.use_backup_marker {
+            let folder = backup_folder_name(&self.space, &vars, self.source_root.as_deref())
+                .map_err(|e| format!("backup folder: {e}"))?;
+            vars.insert("backup_folder".into(), folder);
+        }
+        let mut folder = normalize(
+            &expand(&self.destination.path_template, &vars)
+                .map_err(|e| format!("destination path: {e}"))?,
+        );
+        if self.destination.subfolder_per_source {
+            folder = join_rel(&folder, &sanitize_segment(&self.source_device.name));
+        }
+        Ok(Some(join_rel(&folder, rel)))
+    }
+
     pub fn source_folder(&self) -> Option<PathBuf> {
         self.source_root
             .as_ref()
