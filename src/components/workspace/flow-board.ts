@@ -1,7 +1,6 @@
 import { html, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
 import { spaceDestinations, spaceSources } from "../../state/selectors";
-import { FLOW_COLOR, FLOW_LABEL } from "../ui/flow-colors";
 import { OmbElement } from "../ui/omb-element";
 import "./destination-card";
 import "./flow-canvas";
@@ -27,9 +26,6 @@ export class OmbFlowBoard extends OmbElement {
     if (!snapshot || !space) return nothing;
     const sources = spaceSources(snapshot, space.id);
     const destinations = spaceDestinations(snapshot, space.id);
-    const legend = (["done", "pending", "error", "unavailable"] as const).map(
-      (s) => html`<span class="flex items-center gap-1.5"><span class="inline-block w-4 h-1 rounded-full" style="background:${FLOW_COLOR[s]}"></span>${FLOW_LABEL[s]}</span>`,
-    );
     return html`
       <div class="relative grid grid-cols-[minmax(300px,30rem)_minmax(8rem,1fr)_minmax(26rem,48rem)] gap-y-5 h-full content-start" data-flow-board>
         <div class="col-start-1">${this.#heading("log-in", "Sources", sources.length, () => this.store.open({ type: "source-settings", sourceId: null }), "Add source")}</div>
@@ -49,10 +45,7 @@ export class OmbFlowBoard extends OmbElement {
             : nothing}
         </div>
         <omb-flow-canvas class="absolute inset-0 pointer-events-none"></omb-flow-canvas>
-        <div class="col-span-3 mt-auto pt-10 flex flex-col items-center gap-2 text-sm text-base-content/60">
-          <div class="flex gap-6">${legend}</div>
-          <div class="text-base-content/40">Drag from a source port onto a destination to connect</div>
-        </div>
+        <div class="col-span-3 mt-auto pt-10 flex justify-center text-sm text-base-content/40">Drag from a source port onto a destination to connect</div>
       </div>
     `;
   }
