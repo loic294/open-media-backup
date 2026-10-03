@@ -89,7 +89,7 @@ src-tauri/src/           Rust core
 
 ## Releases & auto-update
 
-Open Media Backup uses `tauri-plugin-updater` and a Cloudflare Worker proxy. The app checks `https://updates.openmediabackup.app/{{target}}/{{arch}}/{{current_version}}`, configured in `src-tauri/tauri.conf.json` under `plugins.updater.endpoints`; change that endpoint there if the update domain changes. The committed updater public key is a placeholder, and no private key should be committed.
+Open Media Backup uses `tauri-plugin-updater` and a Cloudflare Worker proxy. The app checks `https://update-open-media-backup.loicba.me/{{target}}/{{arch}}/{{current_version}}`, configured in `src-tauri/tauri.conf.json` under `plugins.updater.endpoints`; change that endpoint there if the update domain changes. HTTPS is required for secure updates. The committed updater public key is a placeholder, and no private key should be committed.
 
 To publish signed releases:
 
@@ -110,7 +110,7 @@ To publish signed releases:
    npx wrangler deploy
    ```
 
-5. Point `updates.openmediabackup.app` at the Worker.
+5. Configure `update-open-media-backup.loicba.me` as the Worker's custom domain in Cloudflare, with HTTPS enabled. It must serve both `/:target/:arch/:current_version` update checks and `/download/:assetName` downloads. Changing the app's endpoint does not provision DNS, TLS, or Worker routing.
 6. Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds macOS universal and Windows bundles with `tauri-apps/tauri-action@v0`, signs updater artifacts from the secrets, and uploads `latest.json`.
 
 `src-tauri/tauri.conf.json` keeps `bundle.createUpdaterArtifacts` enabled for releases. The regular CI bundle job intentionally passes a `--config` override that sets `createUpdaterArtifacts` to `false`, because CI does not have updater signing secrets and should still verify unsigned installers on pushes.

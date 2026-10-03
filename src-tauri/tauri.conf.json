@@ -60,9 +60,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": [
-        "https://updates.openmediabackup.app/{{target}}/{{arch}}/{{current_version}}"
-      ],
+      "endpoints": ["https://update-open-media-backup.loicba.me/{{target}}/{{arch}}/{{current_version}}"],
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY"
     }
   }
