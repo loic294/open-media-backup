@@ -34,6 +34,8 @@ const COLLECTION = {
   flow: "flows",
 } as const satisfies Record<EntityKind, keyof Snapshot>;
 
+let autoUpdatePrompted = false;
+
 /** Single source of UI state. Emits "change" whenever anything changes. */
 export class AppStore extends EventTarget {
   snapshot: Snapshot | null = null;
@@ -242,8 +244,17 @@ export class AppStore extends EventTarget {
     this.#set({ dialogs: dialog ? this.dialogs.filter((d) => d !== dialog) : this.dialogs.slice(0, -1) });
   }
 
+  openUpdateDialog(update = this.availableUpdate): void {
+    if (!update || this.dialogs.some((d) => d.type === "update")) return;
+    this.open({ type: "update", update });
+  }
+
   setAvailableUpdate(update: UpdateInfo | null): void {
     this.#set({ availableUpdate: update });
+    if (update && !autoUpdatePrompted) {
+      autoUpdatePrompted = true;
+      this.openUpdateDialog(update);
+    }
   }
 
   toast(kind: Toast["kind"], message: string, ms = 4000): void {

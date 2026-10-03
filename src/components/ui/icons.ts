@@ -1,7 +1,9 @@
 import {
   Aperture,
+  ArrowDown,
   Archive,
   ArrowLeftRight,
+  ArrowUp,
   Braces,
   Briefcase,
   Camera,
@@ -84,8 +86,10 @@ import {
 /** Only icons registered here are bundled. Keys are kebab-case Lucide names. */
 export const ICONS = {
   aperture: Aperture,
+  "arrow-down": ArrowDown,
   archive: Archive,
   "arrow-left-right": ArrowLeftRight,
+  "arrow-up": ArrowUp,
   braces: Braces,
   briefcase: Briefcase,
   camera: Camera,

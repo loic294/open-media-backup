@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import { customElement } from "lit/decorators.js";
+import { customElement, state } from "lit/decorators.js";
 import type { PreviewAppMediaType, ThemePreference } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { previewAppChoiceLabel, previewApps } from "../../utils/preview-apps";
@@ -13,6 +13,8 @@ const THEMES: [ThemePreference, string, string][] = [
 
 @customElement("omb-app-settings-dialog")
 export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { type: "app-settings" }>> {
+  @state() private checkingForUpdate = false;
+
   async #choosePreviewApp(type: PreviewAppMediaType) {
     const s = this.store.snapshot?.settings;
     const os = this.store.snapshot?.computer.os ?? "";
@@ -26,6 +28,24 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
     const s = this.store.snapshot?.settings;
     if (!s) return;
     await this.store.saveSettings({ preview_apps: { ...previewApps(s), [type]: null } });
+  }
+
+  async #checkForUpdate() {
+    if (this.store.availableUpdate) {
+      this.store.openUpdateDialog(this.store.availableUpdate);
+      return;
+    }
+    this.checkingForUpdate = true;
+    try {
+      const update = await this.store.backend.checkForUpdate();
+      this.store.setAvailableUpdate(update);
+      if (update) this.store.openUpdateDialog(update);
+      else this.store.toast("success", "You're up to date");
+    } catch (error) {
+      this.store.toast("error", `Update check failed: ${error}`);
+    } finally {
+      this.checkingForUpdate = false;
+    }
   }
 
   override render() {
@@ -114,6 +134,37 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
               </section>`
             : nothing
         }
+        <section class="flex flex-col gap-3">
+          <h4 class="font-medium">About</h4>
+          <div
+            class="flex items-center justify-between gap-3 rounded-box border border-base-300 bg-base-200/30 p-3"
+          >
+            <div class="min-w-0">
+              <div class="text-sm font-medium">Open Media Backup</div>
+              <div class="text-xs text-base-content/60">
+                ${
+                  this.store.availableUpdate
+                    ? html`Update ${this.store.availableUpdate.version} is available`
+                    : "Check for app updates manually."
+                }
+              </div>
+            </div>
+            <button
+              class="btn btn-sm"
+              type="button"
+              ?disabled=${this.checkingForUpdate}
+              @click=${() => this.#checkForUpdate()}
+            >
+              ${
+                this.checkingForUpdate
+                  ? html`<span class="loading loading-spinner loading-xs"></span>Checking…`
+                  : this.store.availableUpdate
+                    ? "View update"
+                    : "Check for updates"
+              }
+            </button>
+          </div>
+        </section>
       </div>
     `;
     return html`<omb-modal

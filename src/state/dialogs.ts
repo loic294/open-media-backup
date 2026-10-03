@@ -2,6 +2,10 @@
 export type DialogRequest =
   | { type: "device-sync" }
   | { type: "app-settings" }
+  | {
+      type: "update";
+      update: import("../api/types").UpdateInfo;
+    }
   | { type: "projects" }
   | {
       type: "project";

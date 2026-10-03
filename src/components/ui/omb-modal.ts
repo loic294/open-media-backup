@@ -13,6 +13,7 @@ export class OmbModal extends OmbPureElement {
   @property() subheading = "";
   @property() icon = "";
   @property() size: "sm" | "md" | "lg" | "xl" | "screen" = "md";
+  @property({ type: Boolean }) closeable = true;
   @property() bodyClass = "px-6 py-5 overflow-y-auto flex-1 min-h-0";
   @property({ attribute: false }) body: TemplateResult | typeof nothing = nothing;
   @property({ attribute: false }) actions: TemplateResult | typeof nothing = nothing;
@@ -53,16 +54,20 @@ export class OmbModal extends OmbPureElement {
               <h3 class="font-semibold text-lg leading-tight">${this.heading}</h3>
               ${this.subheading ? html`<p class="text-sm text-base-content/60 mt-0.5">${this.subheading}</p>` : nothing}
             </div>
-            <form method="dialog">
-              <button class="btn btn-ghost btn-sm btn-square" aria-label="Close">
-                <omb-icon name="x"></omb-icon>
-              </button>
-            </form>
+            ${
+              this.closeable
+                ? html`<form method="dialog">
+                    <button class="btn btn-ghost btn-sm btn-square" aria-label="Close">
+                      <omb-icon name="x"></omb-icon>
+                    </button>
+                  </form>`
+                : nothing
+            }
           </header>
           <div class=${this.bodyClass}>${this.body}</div>
           ${this.actions !== nothing ? html`<footer class="flex items-center justify-end gap-2 px-6 py-4 border-t border-base-300">${this.actions}</footer>` : nothing}
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        ${this.closeable ? html`<form method="dialog" class="modal-backdrop"><button>close</button></form>` : nothing}
       </dialog>
     `;
   }

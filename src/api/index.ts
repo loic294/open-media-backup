@@ -11,8 +11,11 @@ export const DEMO = import.meta.env.VITE_OMB_DEMO === "1";
 /** True when running inside the Tauri desktop shell. */
 export const inDesktopShell = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+const demoUpdate =
+  typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ombUpdate") === "1";
+
 export const backend: Backend = DEMO
-  ? createMockBackend({ seedRunningTransfer: true, tickMs: 2500 })
+  ? createMockBackend({ seedRunningTransfer: true, tickMs: 2500, demoUpdate })
   : tauriBackend;
 
 export type { Backend } from "./backend";

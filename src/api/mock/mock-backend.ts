@@ -1,5 +1,14 @@
 import type { Backend } from "../backend";
-import type { EntityKind, MediaMetadata, Project, Snapshot, Space, TransferJob, Volume } from "../types";
+import type {
+  EntityKind,
+  MediaMetadata,
+  Project,
+  Snapshot,
+  Space,
+  TransferJob,
+  UpdateInfo,
+  Volume,
+} from "../types";
 import { demoCounts, demoOffline, demoSnapshot } from "./data";
 import { Emitter } from "./emitter";
 import { mockFiles } from "./files";
@@ -35,7 +44,9 @@ function projectVars(space: Space | undefined, project: Project | undefined): Re
 }
 
 /** In-memory backend used in a plain browser (and in UI tests). Simulates transfers. */
-export function createMockBackend(options: { tickMs?: number; seedRunningTransfer?: boolean } = {}): Backend {
+export function createMockBackend(
+  options: { tickMs?: number; seedRunningTransfer?: boolean; demoUpdate?: boolean } = {},
+): Backend {
   const snapshot = demoSnapshot();
   const counts: Counts = structuredClone(demoCounts);
   const offline = new Set(demoOffline);
@@ -43,6 +54,15 @@ export function createMockBackend(options: { tickMs?: number; seedRunningTransfe
   const jobs: TransferJob[] = [];
   const paused = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
+  let pendingUpdate: UpdateInfo | null = options.demoUpdate
+    ? {
+        version: "0.2.0",
+        current_version: "0.1.0",
+        notes:
+          "- Faster BLAKE3 verification\n- Transfer speed estimates for pending jobs\n- Improved project variables and file rules",
+        date: "2026-10-03",
+      }
+    : null;
 
   const list = (kind: EntityKind) => snapshot[COLLECTION[kind]] as unknown as { id: string }[];
   const changed = () => {
@@ -246,9 +266,19 @@ export function createMockBackend(options: { tickMs?: number; seedRunningTransfe
       changed();
       return marked;
     },
-    checkForUpdate: async () => null,
+    checkForUpdate: async () => structuredClone(pendingUpdate),
     installUpdate: async () => {
-      console.info("Demo mode has no updater to install");
+      if (!pendingUpdate) throw new Error("No pending update. Check for updates before installing.");
+      const total = 48_000_000;
+      let downloaded = 0;
+      while (downloaded < total) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        downloaded = Math.min(total, downloaded + 4_800_000);
+        events.emit("update://progress", { downloaded, total });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      pendingUpdate = null;
+      console.info("Demo mode would restart to finish installing the update");
     },
     runFlow: async (_projectId, flowId) => startFlow(flowId),
     runAll: async (projectId) => {
