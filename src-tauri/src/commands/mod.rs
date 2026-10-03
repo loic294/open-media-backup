@@ -2,6 +2,8 @@
 pub(crate) mod catalog;
 pub(crate) mod devices;
 mod setup;
+#[cfg(test)]
+mod ipc_tests;
 pub(crate) mod sync;
 pub(crate) mod transfers;
 
@@ -10,6 +12,8 @@ use crate::sync::SyncService;
 use std::sync::Arc;
 
 pub use setup::setup;
+#[cfg(test)]
+use setup::init;
 
 pub struct AppState {
     pub core: AppCore,

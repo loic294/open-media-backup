@@ -4,7 +4,7 @@ import type { Destination } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { newDestination } from "../../state/factories";
 import { deviceById, mappingFor, nextPosition, spaceDestinations } from "../../state/selectors";
-import { previewVars } from "../../utils/template";
+import { previewVars, templateVars } from "../../utils/template";
 import { ruleError } from "../form/rules-editor";
 import { DialogBase } from "./dialog-base";
 import "../form/device-field";
@@ -61,7 +61,8 @@ export class OmbDestinationDialog extends DialogBase<Extract<DialogRequest, { ty
     const set = (patch: Partial<Destination>) => (this.draft = { ...d, ...patch });
     const vars = previewVars(space, project);
     if (d.use_backup_marker) vars.backup_folder = `${vars.date}_${vars.project_name ?? "project"} (from card marker)`;
-    const invalid = d.rules.some((r) => ruleError(r));
+    const unknownVars = templateVars(d.path_template).filter((v) => !(v in vars));
+    const invalid = d.rules.some((r) => ruleError(r)) || unknownVars.length > 0;
     const body = html`
       <div class="flex flex-col gap-5">
         <section>
@@ -78,6 +79,9 @@ export class OmbDestinationDialog extends DialogBase<Extract<DialogRequest, { ty
                 hint="Use {variables} from the space; values come from the selected project."
                 @value-change=${(e: CustomEvent<string>) => set({ path_template: e.detail })}
               ></omb-template-input>
+              ${unknownVars.includes("backup_folder")
+                ? html`<p class="text-sm text-warning -mt-2">{backup_folder} comes from the card marker: turn on “Full-card backup folder” below.</p>`
+                : nothing}
               <div class="flex flex-col gap-3">
                 ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source device, e.g. …/A7IV · Card 1/.")}
                 ${this.#toggle(

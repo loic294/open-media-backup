@@ -42,10 +42,10 @@ Requirements: Node 24+, Rust stable, and the [Tauri 2 prerequisites](https://tau
 
 ```sh
 npm install
-npm run dev          # UI only, in the browser, with a simulated backend (add ?mock inside Tauri)
+npm run dev          # UI only, in a browser, on sample data ("Demo data" badge); add ?mock to force it in Tauri
 npx tauri dev        # full desktop app
 npm test             # frontend unit tests (vitest)
-npm run test:rust    # backend tests
+npm run test:rust    # backend tests, incl. IPC end-to-end tests on real folders
 npm run lint && npm run typecheck
 npx tauri build      # installers (.dmg / .msi / .exe)
 ```

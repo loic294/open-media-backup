@@ -22,6 +22,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(commands::setup)
         .invoke_handler(omb_handlers!())
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running Open Media Backup");
+}
+
+/// Embedded config, assets and capabilities (shared with IPC tests).
+pub(crate) fn context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
 }

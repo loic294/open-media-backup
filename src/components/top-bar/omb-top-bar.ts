@@ -1,5 +1,6 @@
-import { html } from "lit";
+import { html, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
+import { isTauri } from "../../api";
 import { OmbElement } from "../ui/omb-element";
 import "./space-pills";
 import "./sync-pill";
@@ -21,6 +22,9 @@ export class OmbTopBar extends OmbElement {
         </div>
         <omb-space-pills></omb-space-pills>
         <div class="flex items-center justify-end gap-2">
+          ${isTauri()
+            ? nothing
+            : html`<span class="badge badge-warning badge-soft whitespace-nowrap" title="Running in a browser: sample data from a simulated backend. Run the desktop app (npx tauri dev) to use real devices.">Demo data</span>`}
           <omb-sync-pill></omb-sync-pill>
           <button class="btn btn-ghost btn-square btn-sm" title="Settings" @click=${() => this.store.open({ type: "app-settings" })}>
             <omb-icon name="settings" class="size-5"></omb-icon>
