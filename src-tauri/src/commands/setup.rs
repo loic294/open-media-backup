@@ -12,6 +12,7 @@ const CATALOG_KINDS: [&str; 2] = ["file_record", "file_copy"];
 /// Opens the database, starts background services and wires their events to the UI.
 pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
+    crate::commands::menu::setup(app.handle())?;
     init(app.handle(), &data_dir)
 }
 

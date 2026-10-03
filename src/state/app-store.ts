@@ -8,6 +8,7 @@ import type {
   TransferJob,
   Volume,
 } from "../api/types";
+import { connectDesktopMenu } from "../desktop/menu";
 import { debounce } from "../utils/debounce";
 import { applyTheme } from "../utils/theme";
 import type { DialogRequest } from "./dialogs";
@@ -77,6 +78,7 @@ export class AppStore extends EventTarget {
       ]);
       this.#set({ snapshot, transfers, sync, volumes });
       applyTheme(snapshot.settings.theme);
+      this.#unlisten.push(await connectDesktopMenu(this));
       await this.#loadStatus();
     } catch (e) {
       console.error("init failed", e);

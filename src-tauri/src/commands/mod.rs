@@ -3,6 +3,7 @@ pub(crate) mod catalog;
 pub(crate) mod devices;
 #[cfg(test)]
 mod ipc_tests;
+pub(crate) mod menu;
 mod setup;
 pub(crate) mod sync;
 pub(crate) mod transfers;
@@ -65,6 +66,7 @@ macro_rules! omb_handlers {
             $crate::commands::sync::add_peer,
             $crate::commands::sync::remove_peer,
             $crate::commands::sync::sync_now,
+            $crate::commands::menu::set_spaces_menu,
         ]
     };
 }
