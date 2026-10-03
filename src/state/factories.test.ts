@@ -3,6 +3,8 @@ import { newSpace } from "./factories";
 
 describe("factories", () => {
   it("new spaces re-read every copy by default", () => {
-    expect(newSpace("Travel", 0).verify_mode).toBe("reread");
+    const space = newSpace("Travel", 0);
+    expect(space.hash_algo).toBe("blake3");
+    expect(space.verify_mode).toBe("reread");
   });
 });

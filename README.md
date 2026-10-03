@@ -17,7 +17,7 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 * **Rules.** An ordered list of include/exclude rules, written as glob (`*.ARW`, `DCIM/`) or regex. They apply to both folders and files, and the last match wins. A pattern ending in `/` matches folders only.
 * **Backup marker.** If a destination has *use backup marker* on, the backup folder name is read from `.openmediabackup/` on the card. When the card has no marker, the name is generated from the space's marker template and written to the card. Either way, every backup of the same card lands in the same folder.
 * **Wipe.** A card can be wiped once each of its files is verified on at least *N* final destinations (*N* is set per project). Wiping either deletes the files or does a quick format.
-* **Hashing.** Each space uses xxHash64 (fastest) or BLAKE3 (cryptographic). The verify mode is also set per space. *Re-read* (the default) reads every copy back and compares hashes. *Inline* hashes the bytes while copying, which is faster.
+* **Hashing.** Each space uses BLAKE3 by default (cryptographic and still very fast) or xxHash64 (fastest). The verify mode is also set per space. *Re-read* (the default) reads every copy back and compares hashes. *Inline* hashes the bytes while copying, which is faster.
 
 ## Peer-to-peer sync
 

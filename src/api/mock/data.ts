@@ -5,7 +5,7 @@ const space = (id: string, name: string, icon: string, position: number): Space 
   name,
   icon,
   position,
-  hash_algo: "xxh64",
+  hash_algo: "blake3",
   verify_mode: "reread",
   variables: [
     { name: "project_name", default_value: "", required: true },

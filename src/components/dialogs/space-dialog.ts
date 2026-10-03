@@ -139,7 +139,7 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
           .checked=${checked}
           @change=${() => (this.draft = { ...this.draft, hash_algo: algo })}
         />
-        ${HASH_LABEL[algo]}${algo === "xxh64" ? html`<span class="badge badge-sm badge-soft badge-primary">default</span>` : nothing}
+        ${HASH_LABEL[algo]}${algo === "blake3" ? html`<span class="badge badge-sm badge-soft badge-primary">default</span>` : nothing}
       </div>
       <ul class="text-xs space-y-1">
         ${info.pros.map((p) => html`<li class="flex gap-1.5"><omb-icon name="check" class="size-3.5 text-success mt-0.5"></omb-icon>${p}</li>`)}

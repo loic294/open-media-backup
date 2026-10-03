@@ -149,7 +149,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
 
     // newSpace / newProject
     ui.save("space", json!({
-        "id": "sp", "name": "Travel", "icon": "folder", "position": 9, "hash_algo": "xxh64", "verify_mode": "inline",
+        "id": "sp", "name": "Travel", "icon": "folder", "position": 9, "hash_algo": "blake3", "verify_mode": "inline",
         "variables": [{ "name": "project_name", "default_value": "", "required": true }],
         "backup_marker_template": "{date}_{project_name}",
     }));

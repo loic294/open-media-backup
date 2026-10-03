@@ -1,6 +1,6 @@
 use super::*;
 use crate::domain::{
-    validate_project_ranges, Project, ProjectGranularity, ProjectScope, Source, Space,
+    validate_project_ranges, HashAlgo, Project, ProjectGranularity, ProjectScope, Source, Space,
 };
 use crate::testing::Fixture;
 use chrono::{DateTime, Utc};
@@ -30,7 +30,11 @@ fn legacy_serialization_defaults_and_new_fields_round_trip() {
     assert_eq!(legacy.final_copies_required, 2);
     assert_eq!(legacy.granularity, ProjectGranularity::Minute);
     let space: Space = serde_json::from_str(r#"{"id":"space"}"#).unwrap();
+    assert_eq!(space.hash_algo, HashAlgo::Blake3);
     assert!(space.allow_project_overlap);
+    let explicit_xxh64: Space =
+        serde_json::from_str(r#"{"id":"space","hash_algo":"xxh64"}"#).unwrap();
+    assert_eq!(explicit_xxh64.hash_algo, HashAlgo::Xxh64);
     let mut source: Source = serde_json::from_str(r#"{"id":"source"}"#).unwrap();
     assert_eq!(source.project_scope, ProjectScope::All);
     source.project_scope = ProjectScope::Selected {

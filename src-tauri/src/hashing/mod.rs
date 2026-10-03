@@ -1,5 +1,5 @@
-//! Streaming content hashes. xxHash64 is fastest (corruption detection only);
-//! BLAKE3 is cryptographic (also detects deliberate tampering) and still very fast.
+//! Streaming content hashes. BLAKE3 is the default cryptographic hash;
+//! xxHash64 remains available for fastest accidental-corruption detection only.
 use crate::domain::HashAlgo;
 use std::{fs::File, io::Read, path::Path};
 
