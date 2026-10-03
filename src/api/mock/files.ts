@@ -8,6 +8,7 @@ const EXT: [string, MediaKind][] = [
   ["ARW", "raw"],
   ["JPG", "image"],
 ];
+const DEMO_FOLDERS = ["DCIM/100MSDCF", "DCIM/101MSDCF", "PRIVATE/CLIPS", "DCIM/102MSDCF"];
 
 /** Deterministic fake file listing for the browser demo. */
 export function mockFiles(
@@ -25,8 +26,9 @@ export function mockFiles(
     const prefix = media === "video" ? "C" : "IMG_";
     const name = `${prefix}${String(7412 + i).padStart(5, "0")}.${ext}`;
     const size = media === "video" ? 1_200_000_000 + (i % 7) * 90_000_000 : 46_000_000 + (i % 5) * 1_000_000;
+    const folder = i % 17 === 0 ? "" : DEMO_FOLDERS[Math.floor(i / 12) % DEMO_FOLDERS.length];
     const entry: FileEntry = {
-      rel_path: `100MSDCF/${name}`,
+      rel_path: folder ? `${folder}/${name}` : name,
       name,
       size,
       media,

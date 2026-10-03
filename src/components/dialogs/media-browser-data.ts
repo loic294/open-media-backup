@@ -5,6 +5,57 @@ export interface BrowserMedia {
   projectIds: string[];
 }
 
+export interface BrowserFolder {
+  name: string;
+  path: string;
+  itemCount: number;
+}
+
+export interface BrowserDirectory {
+  currentDir: string;
+  breadcrumbs: { label: string; path: string }[];
+  folders: BrowserFolder[];
+  files: string[];
+}
+
+function cleanDir(path: string): string {
+  return path
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .join("/");
+}
+
+/** Summarizes one virtual directory from a recursive relative-path listing. */
+export function browserDirectory(relativePaths: readonly string[], currentDir: string): BrowserDirectory {
+  const dir = cleanDir(currentDir);
+  const prefix = dir ? `${dir}/` : "";
+  const folderCounts = new Map<string, number>();
+  const files: string[] = [];
+
+  for (const path of relativePaths) {
+    const normalized = cleanDir(path);
+    if (!normalized || (prefix && !normalized.startsWith(prefix))) continue;
+    const rest = prefix ? normalized.slice(prefix.length) : normalized;
+    if (!rest || (rest === normalized && prefix && normalized === dir)) continue;
+    const [first, ...remaining] = rest.split("/");
+    if (remaining.length) folderCounts.set(first, (folderCounts.get(first) ?? 0) + 1);
+    else files.push(normalized);
+  }
+
+  const parts = dir ? dir.split("/") : [];
+  return {
+    currentDir: dir,
+    breadcrumbs: [
+      { label: "Card root", path: "" },
+      ...parts.map((label, index) => ({ label, path: parts.slice(0, index + 1).join("/") })),
+    ],
+    folders: [...folderCounts.entries()]
+      .map(([name, itemCount]) => ({ name, path: prefix + name, itemCount }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    files,
+  };
+}
+
 export function captureTime(file: FileEntry): number | null {
   const time = file.capture_time;
   return time != null && Number.isFinite(time) && Number.isFinite(new Date(time).getTime()) ? time : null;

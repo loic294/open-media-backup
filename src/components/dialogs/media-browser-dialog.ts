@@ -14,6 +14,7 @@ import {
   captureLabel,
   captureTime,
   captureTimeMs,
+  browserDirectory,
   mergeMedia,
   selectedCaptureRange,
   type BrowserMedia,
@@ -58,6 +59,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
   @state() private selectionError: string | null = null;
   @state() private creatingProject = false;
   @state() private hasMore = false;
+  @state() private currentDir = "";
   #cursors: Cursor[] = [];
   #next = 0;
   #seq = 0;
@@ -118,6 +120,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     this.items = [];
     this.selection = { selected: new Set(), anchor: null };
     this.inspected = null;
+    this.currentDir = "";
     this.#next = 0;
     const flows = this.store.snapshot?.flows.filter((flow) => flow.source_id === this.request.sourceId) ?? [];
     this.#cursors = CATEGORIES.flatMap((category) =>
@@ -167,19 +170,24 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     this.loading = false;
   }
 
-  #select(key: string, event: Pick<MouseEvent, "shiftKey" | "ctrlKey" | "metaKey">) {
+  #select(key: string, event: Pick<MouseEvent, "shiftKey" | "ctrlKey" | "metaKey">, visibleKeys: string[]) {
     if (this.creatingProject) return;
     this.selectionError = null;
-    this.selection = selectMedia(
-      this.items.map((item) => item.file.rel_path),
-      this.selection,
-      key,
-      {
-        extend: event.shiftKey,
-        toggle: event.ctrlKey || event.metaKey,
-      },
-    );
+    this.selection = selectMedia(visibleKeys, this.selection, key, {
+      extend: event.shiftKey,
+      toggle: event.ctrlKey || event.metaKey,
+    });
     this.inspected = key;
+  }
+
+  #openFolder(path: string) {
+    this.currentDir = path;
+    this.inspected = null;
+  }
+
+  #openParent() {
+    const parts = this.currentDir.split("/").filter(Boolean);
+    this.#openFolder(parts.slice(0, -1).join("/"));
   }
 
   async #createProjectFromSelection() {
@@ -241,6 +249,14 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     const snapshot = this.store.snapshot;
     const source = snapshot?.sources.find((item) => item.id === this.request.sourceId);
     if (!snapshot || !source) return nothing;
+    const directory = browserDirectory(
+      this.items.map((item) => item.file.rel_path),
+      this.currentDir,
+    );
+    const visibleKeys = directory.files;
+    const visible = directory.files
+      .map((path) => this.items.find((item) => item.file.rel_path === path))
+      .filter((item): item is BrowserMedia => item !== undefined);
     const file = this.items.find((item) => item.file.rel_path === this.inspected)?.file;
     const range = selectedCaptureRange(this.items, this.selection.selected);
     const body = html` <div class="flex flex-col gap-4 lg:flex-1 lg:min-h-0">
@@ -255,6 +271,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
             @input=${(event: Event) => {
               this.filter = (event.target as HTMLInputElement).value;
               this.#seq++;
+              this.currentDir = "";
               this.#reload();
             }}
           />
@@ -281,6 +298,33 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
       ${!this.#projectId ? html`<p role="status">Select a project before browsing source media.</p>` : nothing}
       ${!this.#cursors.length ? html`<p role="status">Connect this source to a destination to browse its files.</p>` : nothing}
       ${this.error ? html`<p role="alert" class="text-error">${this.error} Use Load more to retry.</p>` : nothing}
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div class="breadcrumbs max-w-full rounded-box border border-base-300 px-3 py-1 text-sm">
+          <ul>
+            ${directory.breadcrumbs.map(
+              (crumb) =>
+                html`<li>
+                  <button
+                    type="button"
+                    class="link-hover ${crumb.path === directory.currentDir ? "font-semibold text-primary" : ""}"
+                    @click=${() => this.#openFolder(crumb.path)}
+                    aria-current=${crumb.path === directory.currentDir ? "page" : nothing}
+                  >
+                    ${crumb.label}
+                  </button>
+                </li>`,
+            )}
+          </ul>
+        </div>
+        <button
+          type="button"
+          class="btn btn-sm sm:shrink-0"
+          ?disabled=${!directory.currentDir}
+          @click=${() => this.#openParent()}
+        >
+          ↑ Up
+        </button>
+      </div>
       <div class="flex flex-col lg:flex-row gap-5 lg:flex-1 lg:min-h-0">
         <section
           class="flex-1 min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2"
@@ -289,7 +333,27 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
         >
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             ${repeat(
-              this.items,
+              directory.folders,
+              (folder) => folder.path,
+              (folder) =>
+                html`<button
+                  type="button"
+                  class="card card-border bg-base-100 text-left transition hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-primary"
+                  aria-label=${`Open folder ${folder.path}`}
+                  title="Open folder"
+                  @click=${() => this.#openFolder(folder.path)}
+                >
+                  <div class="card-body gap-3 p-4">
+                    <omb-icon name="folder" class="size-7 text-primary"></omb-icon>
+                    <div>
+                      <h3 class="card-title text-base">${folder.name}</h3>
+                      <p class="text-sm text-base-content/60">${folder.itemCount} items</p>
+                    </div>
+                  </div>
+                </button>`,
+            )}
+            ${repeat(
+              visible,
               (item) => item.file.rel_path,
               (item) => {
                 const selected = this.selection.selected.has(item.file.rel_path);
@@ -307,15 +371,19 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
                         ? `Double-click to ${openInAppLabel(snapshot.settings, snapshot.computer.os, item.file).replace(/^Open/, "open")}`
                         : "Source file is not available to open"
                     }
-                    @click=${(event: MouseEvent) => this.#select(item.file.rel_path, event)}
+                    @click=${(event: MouseEvent) => this.#select(item.file.rel_path, event, visibleKeys)}
                     @dblclick=${() => {
-                      this.#select(item.file.rel_path, { shiftKey: false, ctrlKey: false, metaKey: false });
+                      this.#select(
+                        item.file.rel_path,
+                        { shiftKey: false, ctrlKey: false, metaKey: false },
+                        visibleKeys,
+                      );
                       void this.#openInApp(item.file);
                     }}
                     @keydown=${(event: KeyboardEvent) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        this.#select(item.file.rel_path, event);
+                        this.#select(item.file.rel_path, event, visibleKeys);
                       }
                     }}
                   >
@@ -339,7 +407,12 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
             )}
           </div>
           ${
-            !this.items.length && !this.loading && !this.error && this.#cursors.length && this.#projectId
+            !directory.folders.length &&
+            !visible.length &&
+            !this.loading &&
+            !this.error &&
+            this.#cursors.length &&
+            this.#projectId
               ? html`<p role="status" class="py-6 text-base-content/60">
                   ${this.hasMore ? "No files in these pages. Load more to check remaining routes." : "No files found."}
                 </p>`

@@ -3,7 +3,13 @@ import type { FileEntry, FilePage, MediaMetadata } from "../../api/types";
 import { createMockBackend } from "../../api/mock/mock-backend";
 import { store } from "../../state";
 import { newFlow, newProject, newSource, newSpace } from "../../state/factories";
-import { captureLabel, captureTimeMs, mergeMedia, selectedCaptureRange } from "./media-browser-data";
+import {
+  browserDirectory,
+  captureLabel,
+  captureTimeMs,
+  mergeMedia,
+  selectedCaptureRange,
+} from "./media-browser-data";
 import { OmbMediaBrowserDialog } from "./media-browser-dialog";
 import { OmbMediaInspector } from "./media-inspector";
 import "../workspace/source-card";
@@ -54,6 +60,46 @@ async function until(condition: () => boolean) {
 }
 
 describe("source browser data", () => {
+  it("derives folders and direct files from recursive relative paths", () => {
+    expect(
+      browserDirectory(
+        [
+          "DCIM/100MSDCF/DSC07412.ARW",
+          "DCIM/100MSDCF/DSC07413.ARW",
+          "DCIM/101MSDCF/C0081.MP4",
+          "PRIVATE/CLIP/C0001.MP4",
+          "README.TXT",
+        ],
+        "",
+      ),
+    ).toEqual({
+      currentDir: "",
+      breadcrumbs: [{ label: "Card root", path: "" }],
+      folders: [
+        { name: "DCIM", path: "DCIM", itemCount: 3 },
+        { name: "PRIVATE", path: "PRIVATE", itemCount: 1 },
+      ],
+      files: ["README.TXT"],
+    });
+    expect(
+      browserDirectory(
+        ["DCIM/100MSDCF/DSC07412.ARW", "DCIM/100MSDCF/DSC07413.ARW", "DCIM/101MSDCF/C0081.MP4", "README.TXT"],
+        "DCIM",
+      ),
+    ).toEqual({
+      currentDir: "DCIM",
+      breadcrumbs: [
+        { label: "Card root", path: "" },
+        { label: "DCIM", path: "DCIM" },
+      ],
+      folders: [
+        { name: "100MSDCF", path: "DCIM/100MSDCF", itemCount: 2 },
+        { name: "101MSDCF", path: "DCIM/101MSDCF", itemCount: 1 },
+      ],
+      files: [],
+    });
+  });
+
   it("deduplicates physical paths, retains overlapping route projects, and stably sorts captures with unknowns last", () => {
     const items = mergeMedia(
       [],
@@ -447,5 +493,45 @@ describe("source media browser components", () => {
     await element.updateComplete;
     expect(openMedia).toHaveBeenCalledWith("/source/photo");
     expect(tile.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows folders before thumbnails and navigates with breadcrumbs and Up", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer"
+        ? page([
+            file("DCIM/100MSDCF/DSC07412.ARW", 0),
+            file("DCIM/101MSDCF/C0081.MP4", 100),
+            file("ROOT.JPG", 200),
+          ])
+        : page([]),
+    );
+    const element = await browser();
+    const rootFolder = element.querySelector<HTMLButtonElement>('button[aria-label="Open folder DCIM"]')!;
+    const rootFile = element.querySelector<HTMLButtonElement>('button[aria-label="Select ROOT.JPG"]')!;
+    expect(rootFolder).toBeTruthy();
+    expect(rootFolder.compareDocumentPosition(rootFile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    rootFolder.click();
+    await element.updateComplete;
+    expect(element.querySelector('button[aria-label="Select ROOT.JPG"]')).toBeNull();
+    expect(element.querySelector('button[aria-label="Open folder DCIM/100MSDCF"]')).toBeTruthy();
+    expect(element.textContent).toContain("Card root");
+    expect(element.textContent).toContain("DCIM");
+
+    element.querySelector<HTMLButtonElement>('button[aria-label="Open folder DCIM/100MSDCF"]')!.click();
+    await element.updateComplete;
+    expect(element.querySelector('button[aria-label="Select DCIM/100MSDCF/DSC07412.ARW"]')).toBeTruthy();
+
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Up"))!
+      .click();
+    await element.updateComplete;
+    expect(element.querySelector('button[aria-label="Open folder DCIM/101MSDCF"]')).toBeTruthy();
+
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Card root")!
+      .click();
+    await element.updateComplete;
+    expect(element.querySelector('button[aria-label="Select ROOT.JPG"]')).toBeTruthy();
   });
 });
