@@ -1,0 +1,253 @@
+// Mirrors src-tauri/src/domain and src-tauri/src/commands/dto.rs. Keep in sync.
+
+export type HashAlgo = "xxh64" | "blake3";
+export type VerifyMode = "inline" | "reread";
+export type DeviceRole = "original" | "temporary" | "final";
+export type DeviceKind = "sd_card" | "ssd" | "hdd" | "nas" | "computer" | "camera" | "drone" | "other";
+export type RuleAction = "include" | "exclude";
+export type RuleSyntax = "glob" | "regex";
+export type EntityKind =
+  | "space"
+  | "project"
+  | "device"
+  | "device_mapping"
+  | "computer"
+  | "source"
+  | "destination"
+  | "flow";
+
+export interface VariableDef {
+  name: string;
+  default_value: string;
+  required: boolean;
+}
+
+export interface Space {
+  id: string;
+  name: string;
+  icon: string;
+  position: number;
+  hash_algo: HashAlgo;
+  verify_mode: VerifyMode;
+  variables: VariableDef[];
+  backup_marker_template: string;
+}
+
+export interface Project {
+  id: string;
+  space_id: string;
+  name: string;
+  values: Record<string, string>;
+  final_copies_required: number;
+  archived: boolean;
+}
+
+export interface Device {
+  id: string;
+  name: string;
+  description: string;
+  role: DeviceRole;
+  kind: DeviceKind;
+  hw_serial: string | null;
+  volume_uuid: string | null;
+  capacity_bytes: number | null;
+}
+
+export interface DeviceMapping {
+  id: string;
+  device_id: string;
+  computer_id: string;
+  root_path: string;
+}
+
+export interface Computer {
+  id: string;
+  name: string;
+  os: string;
+}
+
+export interface FileRule {
+  action: RuleAction;
+  syntax: RuleSyntax;
+  pattern: string;
+}
+
+export interface Source {
+  id: string;
+  space_id: string;
+  device_id: string;
+  path_template: string;
+  offer_wipe: boolean;
+  position: number;
+}
+
+export interface Destination {
+  id: string;
+  space_id: string;
+  device_id: string;
+  path_template: string;
+  subfolder_per_source: boolean;
+  counts_as_safe_copy: boolean;
+  use_backup_marker: boolean;
+  rules: FileRule[];
+  position: number;
+}
+
+export interface Flow {
+  id: string;
+  space_id: string;
+  source_id: string;
+  destination_id: string;
+}
+
+export type ThemePreference = "system" | "light" | "dark";
+
+export interface AppSettings {
+  theme: ThemePreference;
+  auto_sync: boolean;
+  auto_sync_minutes: number;
+  sync_port: number;
+  active_space_id: string | null;
+  active_project_by_space: Record<string, string>;
+}
+
+export interface Snapshot {
+  computer: Computer;
+  computers: Computer[];
+  spaces: Space[];
+  projects: Project[];
+  devices: Device[];
+  mappings: DeviceMapping[];
+  sources: Source[];
+  destinations: Destination[];
+  flows: Flow[];
+  settings: AppSettings;
+}
+
+export type FlowState = "done" | "pending" | "error" | "unavailable" | "empty";
+
+export interface FlowStatus {
+  flow_id: string;
+  state: FlowState;
+  transferred: number;
+  to_transfer: number;
+  ignored: number;
+  failed: number;
+  bytes_to_transfer: number;
+  error: string | null;
+}
+
+export interface SourceStatus {
+  source_id: string;
+  available: boolean;
+  root_path: string | null;
+  file_count: number;
+  total_bytes: number;
+  safe_copies: number;
+  required_copies: number;
+  wipe_eligible: boolean;
+  blocking_reason: string | null;
+}
+
+export interface DestinationStatus {
+  destination_id: string;
+  available: boolean;
+  root_path: string | null;
+  free_bytes: number | null;
+  transferred: number;
+  to_transfer: number;
+  ignored: number;
+  failed: number;
+  bytes_to_transfer: number;
+  last_error: string | null;
+}
+
+export interface ProjectStatus {
+  project_id: string;
+  flows: FlowStatus[];
+  sources: SourceStatus[];
+  destinations: DestinationStatus[];
+}
+
+export type FileCategory = "to_transfer" | "transferred" | "ignored" | "error";
+export type MediaKind = "image" | "video" | "raw" | "other";
+
+export interface FileEntry {
+  rel_path: string;
+  name: string;
+  size: number;
+  media: MediaKind;
+  abs_path: string | null;
+  target_path: string | null;
+  category: FileCategory;
+  error: string | null;
+}
+
+export interface FilePage {
+  total: number;
+  total_bytes: number;
+  items: FileEntry[];
+}
+
+export type TransferState = "queued" | "running" | "verifying" | "paused" | "done" | "failed" | "cancelled";
+
+export interface TransferJob {
+  id: string;
+  flow_id: string;
+  label: string;
+  state: TransferState;
+  files_done: number;
+  files_total: number;
+  bytes_done: number;
+  bytes_total: number;
+  current_file: string | null;
+  speed_bps: number;
+  errors: string[];
+}
+
+export type VolumeMatch = "hw_serial" | "marker" | "volume_uuid" | "mapping";
+
+export interface Volume {
+  mount_path: string;
+  name: string;
+  volume_uuid: string | null;
+  hw_serial: string | null;
+  total_bytes: number | null;
+  free_bytes: number | null;
+  removable: boolean;
+  device_id: string | null;
+  matched_by: VolumeMatch | null;
+}
+
+export type WipeMethod = "delete_files" | "quick_format";
+
+export interface WipePlan {
+  source_id: string;
+  files_total: number;
+  ignored: number;
+  copies: { device_id: string; device_name: string; verified: number; total: number }[];
+  eligible: boolean;
+  reason: string | null;
+}
+
+export type PeerState = "idle" | "syncing" | "up_to_date" | "offline" | "error";
+
+export interface PeerStatus {
+  id: string;
+  name: string;
+  address: string;
+  os: string;
+  state: PeerState;
+  progress: number;
+  last_synced: number | null;
+  latency_ms: number | null;
+  message: string | null;
+}
+
+export interface SyncStatus {
+  listen_address: string;
+  token: string;
+  syncing: boolean;
+  progress: number;
+  peers: PeerStatus[];
+}

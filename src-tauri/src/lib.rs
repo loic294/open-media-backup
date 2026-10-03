@@ -1,0 +1,27 @@
+pub mod app;
+mod commands;
+pub mod devices;
+pub mod domain;
+pub mod hashing;
+pub mod media;
+pub mod paths;
+pub mod plan;
+pub mod rules;
+pub mod scan;
+pub mod store;
+#[cfg(test)]
+pub mod testing;
+pub mod sync;
+pub mod thumbnails;
+pub mod transfer;
+pub mod wipe;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .setup(commands::setup)
+        .invoke_handler(omb_handlers!())
+        .run(tauri::generate_context!())
+        .expect("error while running Open Media Backup");
+}

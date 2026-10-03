@@ -1,0 +1,82 @@
+import type {
+  AppSettings,
+  Destination,
+  Device,
+  DeviceMapping,
+  EntityKind,
+  FileCategory,
+  FilePage,
+  Flow,
+  Project,
+  ProjectStatus,
+  Snapshot,
+  Source,
+  Space,
+  SyncStatus,
+  TransferJob,
+  Volume,
+  WipeMethod,
+  WipePlan,
+} from "./types";
+
+export type EntityByKind = {
+  space: Space;
+  project: Project;
+  device: Device;
+  device_mapping: DeviceMapping;
+  computer: Snapshot["computer"];
+  source: Source;
+  destination: Destination;
+  flow: Flow;
+};
+
+export interface BackendEvents {
+  "snapshot-changed": void;
+  "status-changed": void;
+  transfers: TransferJob[];
+  "sync-status": SyncStatus;
+  "volumes-changed": Volume[];
+}
+
+export type Unlisten = () => void;
+
+/** Everything the UI can ask the Rust core. Implemented by Tauri and by an in-memory mock. */
+export interface Backend {
+  getSnapshot(): Promise<Snapshot>;
+  saveEntity<K extends EntityKind>(kind: K, entity: EntityByKind[K]): Promise<void>;
+  deleteEntity(kind: EntityKind, id: string): Promise<void>;
+  saveSettings(settings: AppSettings): Promise<void>;
+
+  getProjectStatus(projectId: string): Promise<ProjectStatus>;
+  listFiles(req: {
+    projectId: string;
+    flowId: string;
+    category: FileCategory;
+    offset: number;
+    limit: number;
+    filter?: string;
+  }): Promise<FilePage>;
+  thumbnail(absPath: string): Promise<string | null>;
+
+  runFlow(projectId: string, flowId: string): Promise<void>;
+  runAll(projectId: string): Promise<void>;
+  setTransferPaused(jobId: string, paused: boolean): Promise<void>;
+  setAllPaused(paused: boolean): Promise<void>;
+  cancelTransfer(jobId: string): Promise<void>;
+  listTransfers(): Promise<TransferJob[]>;
+
+  listVolumes(): Promise<Volume[]>;
+  registerDevice(mountPath: string, device: Device): Promise<void>;
+  relinkDevice(deviceId: string, mountPath: string): Promise<void>;
+  pickFolder(defaultPath?: string): Promise<string | null>;
+
+  planWipe(projectId: string, sourceId: string): Promise<WipePlan>;
+  wipe(projectId: string, sourceId: string, method: WipeMethod): Promise<void>;
+
+  syncStatus(): Promise<SyncStatus>;
+  addPeer(address: string, token: string): Promise<void>;
+  removePeer(peerId: string): Promise<void>;
+  syncNow(): Promise<void>;
+
+  on<E extends keyof BackendEvents>(event: E, handler: (payload: BackendEvents[E]) => void): Promise<Unlisten>;
+}
