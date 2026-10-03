@@ -40,6 +40,9 @@ pub struct Space {
     /// Template used to create a backup-folder marker on an original device when missing.
     pub backup_marker_template: String,
     pub allow_project_overlap: bool,
+    /// Number of verified temporary destination copies that equal one final copy.
+    /// Zero preserves the default behavior: temporary destinations never count.
+    pub temporary_copies_per_final: u32,
 }
 impl_entity!(Space, Space);
 
@@ -55,6 +58,7 @@ impl Default for Space {
             variables: Vec::new(),
             backup_marker_template: String::new(),
             allow_project_overlap: true,
+            temporary_copies_per_final: 0,
         }
     }
 }

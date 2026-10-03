@@ -26,6 +26,8 @@ export interface Space {
   backup_marker_template: string;
   /** Missing in older snapshots means true. */
   allow_project_overlap?: boolean;
+  /** 0 or missing means temporary destinations never count as safe copies. */
+  temporary_copies_per_final?: number;
 }
 
 export type ProjectGranularity = "minute" | "day" | "year";
@@ -178,7 +180,8 @@ export interface ProjectStatus {
 export type FileCategory = "to_transfer" | "transferred" | "ignored" | "error";
 export type MediaKind = "image" | "video" | "raw" | "other";
 
-export type CaptureTimeSource = "exif_original" | "exif_digitized" | "video_creation_time" | "video_original_date";
+export type CaptureTimeSource =
+  "exif_original" | "exif_digitized" | "video_creation_time" | "video_original_date";
 
 export interface CaptureTime {
   /** Embedded local wall time. Do not infer a timezone if utc_offset_seconds is null. */

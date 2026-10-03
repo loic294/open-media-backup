@@ -12,6 +12,7 @@ export function newSpace(name: string, position: number): Space {
     variables: [{ name: "project_name", default_value: "", required: true }],
     backup_marker_template: "{date}_{project_name}",
     allow_project_overlap: true,
+    temporary_copies_per_final: 0,
   };
 }
 

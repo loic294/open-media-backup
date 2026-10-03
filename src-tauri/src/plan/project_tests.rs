@@ -32,6 +32,7 @@ fn legacy_serialization_defaults_and_new_fields_round_trip() {
     let space: Space = serde_json::from_str(r#"{"id":"space"}"#).unwrap();
     assert_eq!(space.hash_algo, HashAlgo::Blake3);
     assert!(space.allow_project_overlap);
+    assert_eq!(space.temporary_copies_per_final, 0);
     let explicit_xxh64: Space =
         serde_json::from_str(r#"{"id":"space","hash_algo":"xxh64"}"#).unwrap();
     assert_eq!(explicit_xxh64.hash_algo, HashAlgo::Xxh64);

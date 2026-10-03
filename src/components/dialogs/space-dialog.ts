@@ -222,6 +222,30 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
             )}
           </div>
         </section>
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Temporary copies equal one final copy</legend>
+          <select
+            class="select w-full"
+            .value=${String(d.temporary_copies_per_final ?? 0)}
+            @change=${(e: Event) =>
+              (this.draft = {
+                ...d,
+                temporary_copies_per_final: Math.max(0, Number((e.target as HTMLSelectElement).value) || 0),
+              })}
+          >
+            <option value="0">Disabled</option>
+            ${[1, 2, 3, 4, 5].map(
+              (count) =>
+                html`<option value=${count}>
+                  ${count} temporary ${count === 1 ? "copy counts" : "copies count"} as 1 final copy
+                </option>`,
+            )}
+          </select>
+          <p class="label">
+            Final destinations always count one-for-one. Temporary destinations only contribute in complete
+            groups, and temporary source devices still need at least one final destination copy before wiping.
+          </p>
+        </fieldset>
         <section>
           <h4 class="font-medium">Project capture ranges</h4>
           <label class="flex items-start gap-3 cursor-pointer mt-2">

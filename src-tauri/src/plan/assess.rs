@@ -9,7 +9,7 @@ use crate::scan::ScannedFile;
 use crate::store::{Store, StoreResult};
 use std::path::PathBuf;
 
-/// Final-role devices with the rule sets of the destinations that count as safe copies.
+/// Final and temporary-role devices with rule sets from destinations that count as safe copies.
 pub struct FinalSet {
     devices: Vec<Device>,
     rules: Vec<(String, RuleSet)>,
@@ -17,16 +17,20 @@ pub struct FinalSet {
 
 impl FinalSet {
     pub fn load(store: &Store) -> StoreResult<Self> {
-        let devices = store
-            .list::<Device>()?
-            .into_iter()
-            .filter(|d| d.role == DeviceRole::Final)
-            .collect();
-        let rules = store
+        let rules: Vec<(String, RuleSet)> = store
             .list::<Destination>()?
             .into_iter()
             .filter(|d| d.counts_as_safe_copy)
             .filter_map(|d| Some((d.device_id.clone(), RuleSet::compile(&d.rules).ok()?)))
+            .collect();
+        let devices = store
+            .list::<Device>()?
+            .into_iter()
+            .filter(|d| {
+                d.role == DeviceRole::Final
+                    || (d.role == DeviceRole::Temporary
+                        && rules.iter().any(|(device_id, _)| device_id == &d.id))
+            })
             .collect();
         Ok(Self { devices, rules })
     }
@@ -101,7 +105,7 @@ pub fn assess_source(
         folder,
         known: vec![],
         files: vec![],
-        report: safe_copy_report(&[], &[], catalog),
+        report: safe_copy_report(&[], &[], catalog, space.temporary_copies_per_final),
     };
     assessment.known = files
         .iter()
@@ -116,7 +120,23 @@ pub fn assess_source(
         })
         .collect();
     assessment.files = files;
-    let report = safe_copy_report(&assessment.known, finals, catalog);
+    // Never count the source device as a copy of itself, and ignore temporary
+    // destinations entirely unless the space lets them stand in for final copies.
+    let targets: Vec<FinalTarget> = finals
+        .iter()
+        .filter(|t| t.device.id != device.id)
+        .filter(|t| t.device.role == DeviceRole::Final || space.temporary_copies_per_final > 0)
+        .map(|t| FinalTarget {
+            device: t.device,
+            rules: t.rules.clone(),
+        })
+        .collect();
+    let report = safe_copy_report(
+        &assessment.known,
+        &targets,
+        catalog,
+        space.temporary_copies_per_final,
+    );
     let missing: Vec<&str> = report
         .copies
         .iter()
@@ -130,9 +150,11 @@ pub fn assess_source(
         Some("No files".into())
     } else if device.role == DeviceRole::Final {
         Some("Final devices are never wiped".into())
+    } else if device.role == DeviceRole::Temporary && report.final_safe_copies == 0 {
+        Some("Needs a final destination".into())
     } else if !enough {
         Some(match missing.as_slice() {
-            [] => "No final destination".to_string(),
+            [] => "No safe destination".to_string(),
             many => format!("Needs {}", many.join(", ")),
         })
     } else {
