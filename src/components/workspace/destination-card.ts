@@ -1,17 +1,22 @@
 import { html, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import type { Destination, DestinationStatus, FileCategory } from "../../api/types";
-import { destinationStatus, isRunnable } from "../../state/derived";
-import { deviceById, deviceHosts } from "../../state/selectors";
+import { destinationStatus, flowStatus, isRunnable } from "../../state/derived";
+import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { estimateTransferSeconds } from "../../utils/eta";
+import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, formatCount, formatEta } from "../../utils/format";
 import { appDisplayName, configuredDestinationApp } from "../../utils/preview-apps";
 import { DEVICE_ICON, DEVICE_TONE } from "../ui/device-icon";
 import { OmbElement } from "../ui/omb-element";
+import type { CardContextMenuItem } from "./card-context-menu";
+import "./card-context-menu";
+import { buildCardContextMenuItems } from "./card-context-menu-model";
 
 @customElement("omb-destination-card")
 export class OmbDestinationCard extends OmbElement {
   @property({ attribute: false }) destination!: Destination;
+  @state() private menuAt: { x: number; y: number } | null = null;
 
   get #incoming() {
     return (this.store.snapshot?.flows ?? []).filter((f) => f.destination_id === this.destination.id);
@@ -21,22 +26,62 @@ export class OmbDestinationCard extends OmbElement {
     this.store.open({ type: "preview", flowId: this.#incoming[0]?.id ?? null, category });
   }
 
-  async #run() {
-    const status = this.store.status;
-    const runnable = this.#incoming.filter((f) => {
-      const fs = status?.flows.find((s) => s.flow_id === f.id);
+  #runnableIncoming() {
+    return this.#incoming.filter((flow) => {
+      const fs = flowStatus(this.store.status, flow.id);
       return fs && isRunnable(fs);
     });
-    for (const f of runnable) await this.store.runFlow(f.id);
+  }
+
+  async #run() {
+    for (const f of this.#runnableIncoming()) await this.store.runFlow(f.id);
   }
 
   async #openInApp() {
-    const status = this.store.status;
-    const runnable = this.#incoming.filter((f) => {
-      const fs = status?.flows.find((s) => s.flow_id === f.id);
-      return fs && isRunnable(fs);
+    for (const f of this.#runnableIncoming()) await this.store.openFlowInApp(f.id);
+  }
+
+  #openMenu(event: MouseEvent) {
+    event.preventDefault();
+    this.menuAt = { x: event.clientX, y: event.clientY };
+  }
+
+  #contextMenu(isApp: boolean, online: boolean): unknown {
+    if (!this.menuAt) return nothing;
+    const snapshot = this.store.snapshot;
+    const specs = buildCardContextMenuItems({
+      fileManagerName: fileManagerName(),
+      runnableCount: this.#runnableIncoming().length,
+      offline: !online,
+      hasFilesystemPath: !!(snapshot && mappingFor(snapshot, this.destination.device_id)),
+      isAppDestination: isApp,
+      browseDisabled: !this.#incoming.length,
     });
-    for (const f of runnable) await this.store.openFlowInApp(f.id);
+    const items: CardContextMenuItem[] = specs.map((item) => ({
+      ...item,
+      run: () => {
+        switch (item.action) {
+          case "browse":
+            this.#preview();
+            break;
+          case "run":
+            void (isApp ? this.#openInApp() : this.#run());
+            break;
+          case "edit":
+            this.store.open({ type: "destination-settings", destinationId: this.destination.id });
+            break;
+          case "reveal":
+            void this.store.revealInFileManager("destination", this.destination.id);
+            break;
+        }
+      },
+    }));
+    return html`<omb-card-context-menu
+      .x=${this.menuAt.x}
+      .y=${this.menuAt.y}
+      .items=${items}
+      @menu-close=${() => (this.menuAt = null)}
+    ></omb-card-context-menu>`;
   }
 
   #statusLine(st: DestinationStatus, hosts: string[]) {
@@ -114,6 +159,7 @@ export class OmbDestinationCard extends OmbElement {
         <article
           data-dest-id=${this.destination.id}
           class="card bg-base-100 border border-base-300 transition-colors"
+          @contextmenu=${(event: MouseEvent) => this.#openMenu(event)}
         >
           <div class="card-body p-4 gap-3">
             <div class="flex items-center gap-3">
@@ -199,6 +245,7 @@ export class OmbDestinationCard extends OmbElement {
               </button>
             </div>
           </div>
+          ${this.#contextMenu(isApp, !!localAppPath)}
         </article>
       `;
     }
@@ -206,6 +253,7 @@ export class OmbDestinationCard extends OmbElement {
       <article
         data-dest-id=${this.destination.id}
         class="card bg-base-100 border border-base-300 transition-colors"
+        @contextmenu=${(event: MouseEvent) => this.#openMenu(event)}
       >
         <div class="card-body p-4 gap-3 ${online ? "" : "opacity-70"}">
           <div class="flex items-center gap-3">
@@ -283,6 +331,7 @@ export class OmbDestinationCard extends OmbElement {
             }
           </div>
         </div>
+        ${this.#contextMenu(isApp, online)}
       </article>
     `;
   }

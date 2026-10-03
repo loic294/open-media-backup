@@ -214,6 +214,10 @@ export class AppStore extends EventTarget {
     });
   }
 
+  async revealInFileManager(kind: "source" | "destination", id: string): Promise<void> {
+    await this.#guard(() => this.backend.revealInFileManager(kind, id));
+  }
+
   async setPaused(jobId: string | null, paused: boolean): Promise<void> {
     await this.#guard(() =>
       jobId ? this.backend.setTransferPaused(jobId, paused) : this.backend.setAllPaused(paused),
