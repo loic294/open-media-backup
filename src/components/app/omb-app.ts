@@ -1,6 +1,7 @@
 import { html } from "lit";
 import { customElement } from "lit/decorators.js";
 import { DEMO, inDesktopShell } from "../../api";
+import { installDropdownDismiss } from "../ui/dropdown";
 import { OmbElement } from "../ui/omb-element";
 import "../top-bar/omb-top-bar";
 import "../workspace/omb-workspace";
@@ -13,6 +14,7 @@ export class OmbApp extends OmbElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.classList.add("flex", "flex-col", "h-screen", "bg-base-200", "text-base-content");
+    installDropdownDismiss();
     if (DEMO || inDesktopShell()) void this.store.init();
   }
 

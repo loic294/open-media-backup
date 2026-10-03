@@ -1,6 +1,6 @@
 import {
   Aperture, Archive, ArrowLeftRight, Braces, Briefcase, Camera, CardSim, Check, ChevronDown, ChevronsUpDown, CircleAlert,
-  CircleCheck, CircleX, Clock, Cloud, Copy, Cpu, Drone, Eraser, Eye, File, Film, FingerprintPattern, Folder, FolderOpen,
+  CircleCheck, CircleX, Clock, Cloud, Copy, Cpu, Drone, Ellipsis, Eraser, Eye, File, Film, FingerprintPattern, Folder, FolderOpen,
   FolderPlus, Funnel, GitFork, Globe, HardDrive, Heart, House, Image, Images, Info, Laptop, LayoutGrid, Link, List,
   LoaderCircle, LogIn, LogOut, MapPin, MemoryStick, Monitor, Moon, Mountain, Network, Pause, Pencil, Plane, Play, Plug,
   Plus, RefreshCw, RotateCcw, Search, Server, Settings, Shield, ShieldAlert, ShieldCheck, ShieldX, SlidersHorizontal,
@@ -13,7 +13,7 @@ export const ICONS = {
   aperture: Aperture, archive: Archive, "arrow-left-right": ArrowLeftRight, braces: Braces, briefcase: Briefcase,
   camera: Camera, "card-sim": CardSim, check: Check, "chevron-down": ChevronDown, "chevrons-up-down": ChevronsUpDown,
   "circle-alert": CircleAlert, "circle-check": CircleCheck, "circle-x": CircleX, clock: Clock, cloud: Cloud, copy: Copy,
-  cpu: Cpu, drone: Drone, eraser: Eraser, eye: Eye, file: File, film: Film, fingerprint: FingerprintPattern,
+  cpu: Cpu, drone: Drone, ellipsis: Ellipsis, eraser: Eraser, eye: Eye, file: File, film: Film, fingerprint: FingerprintPattern,
   folder: Folder, "folder-open": FolderOpen, "folder-plus": FolderPlus, funnel: Funnel, "git-fork": GitFork, globe: Globe,
   "hard-drive": HardDrive, heart: Heart, house: House, image: Image, images: Images, info: Info, laptop: Laptop,
   "layout-grid": LayoutGrid, link: Link, list: List, loader: LoaderCircle, "log-in": LogIn, "log-out": LogOut,
