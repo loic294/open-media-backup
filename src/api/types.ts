@@ -14,6 +14,7 @@ export type RuleExpr =
   | { op: "or"; items: RuleExpr[] };
 export type EntityKind =
   "space" | "project" | "device" | "device_mapping" | "computer" | "source" | "destination" | "flow";
+export type RevealKind = "source" | "destination";
 
 export interface VariableDef {
   name: string;

@@ -50,6 +50,7 @@ macro_rules! omb_handlers {
             $crate::commands::catalog::thumbnail,
             $crate::commands::catalog::open_media_file,
             $crate::commands::catalog::open_flow_in_app,
+            $crate::commands::catalog::reveal_in_file_manager,
             $crate::commands::catalog::confirm_app_import,
             $crate::commands::updater::check_for_update,
             $crate::commands::updater::install_update,

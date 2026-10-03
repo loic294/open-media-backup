@@ -215,6 +215,9 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
         video: null,
       }) satisfies MediaMetadata,
     openMedia: async (absPath) => console.info(`Demo mode would open ${absPath}`),
+    revealInFileManager: async (kind, id) => {
+      console.info(`Demo mode would reveal ${kind} ${id} in the file manager`);
+    },
     openFlowInApp: async (_projectId, flowId) => {
       const flow = snapshot.flows.find((f) => f.id === flowId);
       const dest = snapshot.destinations.find((d) => d.id === flow?.destination_id);

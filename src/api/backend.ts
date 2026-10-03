@@ -11,6 +11,7 @@ import type {
   OpenAppImportResult,
   Project,
   ProjectStatus,
+  RevealKind,
   Snapshot,
   Source,
   Space,
@@ -64,6 +65,7 @@ export interface Backend {
   thumbnail(absPath: string): Promise<string | null>;
   getMediaMetadata(absPath: string): Promise<MediaMetadata>;
   openMedia(absPath: string): Promise<void>;
+  revealInFileManager(kind: RevealKind, id: string): Promise<void>;
   openFlowInApp(projectId: string, flowId: string): Promise<OpenAppImportResult>;
   confirmAppImport(projectId: string, flowId: string, token: string): Promise<number>;
   checkForUpdate(): Promise<UpdateInfo | null>;

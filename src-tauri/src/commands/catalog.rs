@@ -1,5 +1,5 @@
 use super::{blocking, CmdResult, Shared};
-use crate::app::{AppImportFile, AppSettings, FilePage, ListFilesRequest, Snapshot};
+use crate::app::{AppImportFile, AppSettings, FilePage, ListFilesRequest, RevealKind, Snapshot};
 use crate::metadata::MediaMetadata;
 use crate::plan::ProjectStatus;
 use serde_json::Value;
@@ -122,6 +122,23 @@ pub async fn open_flow_in_app(
 }
 
 #[tauri::command]
+pub async fn reveal_in_file_manager(
+    state: State<'_, Shared>,
+    project_id: Option<String>,
+    kind: RevealKind,
+    id: String,
+) -> CmdResult<()> {
+    let path = blocking(&state, move |s| {
+        s.core
+            .reveal_file_manager_path(project_id.as_deref(), kind, &id)
+    })
+    .await?;
+    tauri::async_runtime::spawn_blocking(move || reveal_path(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn confirm_app_import(
     state: State<'_, Shared>,
     project_id: String,
@@ -194,6 +211,46 @@ fn open_command(app: Option<&str>, paths: &[PathBuf]) -> Command {
             None => Command::new("xdg-open"),
         };
         command.args(paths);
+        command
+    }
+}
+
+fn reveal_path(path: &std::path::Path) -> CmdResult<()> {
+    let mut command = reveal_command(path);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Could not open the folder in the file manager: {error}"))
+}
+
+fn reveal_command(path: &std::path::Path) -> Command {
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("open");
+        if path.is_file() {
+            command.arg("-R");
+        }
+        command.arg(path);
+        command
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("explorer.exe");
+        if path.is_file() {
+            command.arg("/select,").arg(path);
+        } else {
+            command.arg(path);
+        }
+        command
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let mut command = Command::new("xdg-open");
+        if path.is_file() {
+            command.arg(path.parent().unwrap_or(path));
+        } else {
+            command.arg(path);
+        }
         command
     }
 }

@@ -1,4 +1,7 @@
-use super::{entities, files, AppSettings, FilePage, ListFilesRequest, Snapshot};
+use super::{
+    entities, files, resolve_reveal_path, reveal_space_id, AppSettings, FilePage, ListFilesRequest,
+    RevealKind, Snapshot,
+};
 use crate::domain::{Destination, DestinationKind};
 use crate::plan::{project_status, Catalog, FailureMap, ProjectStatus, RootResolver};
 use crate::store::Store;
@@ -168,6 +171,32 @@ impl AppCore {
             return Err("The requested media path is not a file".into());
         }
         Ok(path)
+    }
+
+    pub fn reveal_file_manager_path(
+        &self,
+        project_id: Option<&str>,
+        kind: RevealKind,
+        id: &str,
+    ) -> Result<PathBuf, String> {
+        let project_id = project_id.map(str::to_string).or_else(|| {
+            reveal_space_id(&self.store, kind, id)
+                .ok()
+                .and_then(|space_id| {
+                    self.settings()
+                        .active_project_by_space
+                        .get(&space_id)
+                        .cloned()
+                })
+        });
+        resolve_reveal_path(
+            &self.store,
+            self.resolver.as_ref(),
+            project_id.as_deref(),
+            kind,
+            id,
+        )
+        .map(|path| nearest_existing(&path))
     }
 
     pub fn prepare_app_import(
@@ -344,4 +373,12 @@ fn free_space(path: &Path) -> Option<u64> {
         .filter(|d| path.starts_with(d.mount_point()))
         .max_by_key(|d| d.mount_point().as_os_str().len())
         .map(|d| d.available_space())
+}
+
+/// Project folders are created on first transfer; reveal the closest folder that exists.
+fn nearest_existing(path: &std::path::Path) -> PathBuf {
+    path.ancestors()
+        .find(|p| p.exists())
+        .unwrap_or(path)
+        .to_path_buf()
 }
