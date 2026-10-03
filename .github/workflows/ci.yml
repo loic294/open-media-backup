@@ -29,7 +29,13 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Run cargo test
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo test --config .cargo/test-runner.toml
+      - name: Run cargo test
+        if: runner.os != 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
   bundle:
     needs: test

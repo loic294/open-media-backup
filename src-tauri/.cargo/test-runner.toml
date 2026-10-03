@@ -1,0 +1,4 @@
+# Used only by Windows CI's cargo test command; do not move into config.toml,
+# because Cargo also uses runners for cargo run.
+[target.x86_64-pc-windows-msvc]
+runner = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".cargo\\run-test.ps1"]
