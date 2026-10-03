@@ -8,7 +8,7 @@ export function newSpace(name: string, position: number): Space {
     icon: "folder",
     position,
     hash_algo: "xxh64",
-    verify_mode: "inline",
+    verify_mode: "reread",
     variables: [{ name: "project_name", default_value: "", required: true }],
     backup_marker_template: "{date}_{project_name}",
   };

@@ -6,7 +6,7 @@ const space = (id: string, name: string, icon: string, position: number): Space 
   icon,
   position,
   hash_algo: "xxh64",
-  verify_mode: "inline",
+  verify_mode: "reread",
   variables: [
     { name: "project_name", default_value: "", required: true },
     { name: "backup_folder", default_value: "{year}/Travel", required: true },
