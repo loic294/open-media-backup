@@ -95,7 +95,7 @@ export class OmbSyncDialog extends DialogBase<Extract<DialogRequest, { type: "de
         <section class="flex flex-col gap-2">
           <h4 class="font-medium">Add a peer</h4>
           <div class="flex gap-2">
-            <input class="input input-sm flex-1 font-mono" placeholder="100.92.7.21:47821" .value=${this.address} @input=${(e: Event) => (this.address = (e.target as HTMLInputElement).value.trim())} />
+            <input class="input input-sm flex-1 font-mono" placeholder="10.0.0.21:47821" .value=${this.address} @input=${(e: Event) => (this.address = (e.target as HTMLInputElement).value.trim())} />
             <input class="input input-sm flex-1 font-mono" placeholder="Peer token" .value=${this.token} @input=${(e: Event) => (this.token = (e.target as HTMLInputElement).value.trim())} />
             <button
               class="btn btn-sm btn-primary"

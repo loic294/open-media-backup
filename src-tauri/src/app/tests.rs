@@ -73,7 +73,7 @@ fn run_all_then_list_files() {
     };
     let page = core.list_files(&req(Category::ToTransfer, 1, 1)).unwrap();
     assert_eq!((page.total, page.total_bytes, page.items.len()), (3, 4, 1));
-    assert_eq!(page.items[0].target_path.as_deref(), Some("photo/Iceland/A7IV Card 1/B.MOV"));
+    assert_eq!(page.items[0].target_path.as_deref(), Some("photo/Trip/Camera A Card 1/B.MOV"));
     assert_eq!(core.run_all("project").unwrap().len(), 1);
     wait_idle(&core);
     assert_eq!(core.list_files(&req(Category::Transferred, 0, 50)).unwrap().total, 3);

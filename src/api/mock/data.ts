@@ -54,35 +54,35 @@ const destination = (id: string, device_id: string, path_template: string, posit
 const flow = (id: string, source_id: string, destination_id: string): Flow => ({ id, space_id: "travel", source_id, destination_id });
 
 const projects: Project[] = [
-  { id: "iceland", space_id: "travel", name: "Iceland 2026", values: { project_name: "Iceland_2026", backup_folder: "2026/Travel" }, final_copies_required: 2, archived: false },
-  { id: "patagonia", space_id: "travel", name: "Patagonia 2025", values: { project_name: "Patagonia_2025" }, final_copies_required: 2, archived: true },
-  { id: "wedding", space_id: "travel", name: "Wedding · Martin & Ana", values: { project_name: "Wedding_Martin_Ana", client: "Martin" }, final_copies_required: 2, archived: false },
+  { id: "trip", space_id: "travel", name: "Trip 2026", values: { project_name: "Trip_2026", backup_folder: "2026/Travel" }, final_copies_required: 2, archived: false },
+  { id: "trip-2025", space_id: "travel", name: "Trip 2025", values: { project_name: "Trip_2025" }, final_copies_required: 2, archived: true },
+  { id: "event", space_id: "travel", name: "Client event", values: { project_name: "Client_event", client: "Client" }, final_copies_required: 2, archived: false },
 ];
 
 export function demoSnapshot(): Snapshot {
   return structuredClone({
-    computer: { id: "mbp", name: "MacBook Pro · Loïc", os: "macos" },
+    computer: { id: "laptop", name: "Laptop", os: "macos" },
     computers: [
-      { id: "mbp", name: "MacBook Pro · Loïc", os: "macos" },
-      { id: "studio", name: "Studio PC", os: "windows" },
+      { id: "laptop", name: "Laptop", os: "macos" },
+      { id: "studio", name: "Desktop PC", os: "windows" },
       { id: "nas-agent", name: "Home NAS agent", os: "linux" },
     ],
     spaces: [space("travel", "Travel", "plane", 0), space("home", "Home", "house", 1), space("backup", "Backup", "archive", 2)],
     projects,
     devices: [
-      device("card1", "A7IV · Card 1", "SD card", "original", "sd_card", 128e9),
-      device("card2", "A7IV · Card 2", "SD card", "original", "sd_card", 128e9),
-      device("dji", "DJI Mini 4 Pro", "microSD", "original", "drone", 64e9),
-      device("ssd", "Travel SSD", "Samsung T7", "temporary", "ssd", 2e12),
-      device("nas", "Home NAS", "Synology DS923+ · via Netbird", "final", "nas", 16e12),
-      device("hdd", "Archive HDD", "LaCie Rugged", "final", "hdd", 5e12),
+      device("card1", "Camera A · Card 1", "SD card", "original", "sd_card", 128e9),
+      device("card2", "Camera A · Card 2", "SD card", "original", "sd_card", 128e9),
+      device("dji", "Drone card", "microSD", "original", "drone", 64e9),
+      device("ssd", "Travel SSD", "Portable SSD", "temporary", "ssd", 2e12),
+      device("nas", "Home NAS", "Network storage", "final", "nas", 16e12),
+      device("hdd", "Archive HDD", "USB drive", "final", "hdd", 5e12),
     ],
     mappings: [
-      { id: "card1@mbp", device_id: "card1", computer_id: "mbp", root_path: "/Volumes/A7IV_01" },
-      { id: "card2@mbp", device_id: "card2", computer_id: "mbp", root_path: "/Volumes/A7IV_02" },
-      { id: "dji@mbp", device_id: "dji", computer_id: "mbp", root_path: "/Volumes/DJI" },
-      { id: "ssd@mbp", device_id: "ssd", computer_id: "mbp", root_path: "/Volumes/T7" },
-      { id: "nas@mbp", device_id: "nas", computer_id: "mbp", root_path: "/Volumes/photo" },
+      { id: "card1@laptop", device_id: "card1", computer_id: "laptop", root_path: "/Volumes/CAM_A_01" },
+      { id: "card2@laptop", device_id: "card2", computer_id: "laptop", root_path: "/Volumes/CAM_A_02" },
+      { id: "dji@laptop", device_id: "dji", computer_id: "laptop", root_path: "/Volumes/DRONE" },
+      { id: "ssd@laptop", device_id: "ssd", computer_id: "laptop", root_path: "/Volumes/T7" },
+      { id: "nas@laptop", device_id: "nas", computer_id: "laptop", root_path: "/Volumes/photo" },
       { id: "hdd@studio", device_id: "hdd", computer_id: "studio", root_path: "E:\\" },
     ],
     sources: [source("s1", "card1", "DCIM", 0), source("s2", "card2", "DCIM", 1), source("s3", "dji", "DCIM", 2)],
@@ -98,7 +98,7 @@ export function demoSnapshot(): Snapshot {
       auto_sync_minutes: 5,
       sync_port: 47821,
       active_space_id: "travel",
-      active_project_by_space: { travel: "iceland" },
+      active_project_by_space: { travel: "trip" },
     },
   } satisfies Snapshot);
 }

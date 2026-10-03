@@ -83,7 +83,7 @@ mod tests {
             rule(Exclude, Glob, "*.THM"),
         ])
         .unwrap();
-        assert!(set.allows("DCIM/100MSDCF/DSC0001.ARW"));
+        assert!(set.allows("DCIM/100MSDCF/IMG_001.ARW"));
         assert!(!set.allows("PRIVATE/M4ROOT/CLIP/C0001.MP4"));
         assert!(!set.allows("DCIM/100MSDCF/c0001.thm"));
     }

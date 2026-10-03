@@ -14,7 +14,7 @@ describe("format", () => {
     expect(formatEta(360)).toBe("~6 min");
     expect(formatEta(0)).toBe("");
     expect(formatAgo(Date.now() - 3 * 86_400_000)).toBe("3 days ago");
-    expect(initials("Studio PC")).toBe("SP");
+    expect(initials("Desktop PC")).toBe("DP");
     expect(initials("nas")).toBe("NA");
     expect(percent(1, 3)).toBe(33);
   });

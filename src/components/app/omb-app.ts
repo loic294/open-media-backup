@@ -1,5 +1,6 @@
 import { html } from "lit";
 import { customElement } from "lit/decorators.js";
+import { DEMO, inDesktopShell } from "../../api";
 import { OmbElement } from "../ui/omb-element";
 import "../top-bar/omb-top-bar";
 import "../workspace/omb-workspace";
@@ -12,7 +13,7 @@ export class OmbApp extends OmbElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.classList.add("flex", "flex-col", "h-screen", "bg-base-200", "text-base-content");
-    void this.store.init();
+    if (DEMO || inDesktopShell()) void this.store.init();
   }
 
   override disconnectedCallback(): void {
@@ -21,6 +22,12 @@ export class OmbApp extends OmbElement {
   }
 
   override render() {
+    if (!DEMO && !inDesktopShell()) {
+      return html`<div class="m-auto max-w-md alert">
+        <omb-icon name="circle-alert"></omb-icon>
+        <span>Open Media Backup runs in its desktop app (<code>npx tauri dev</code>). To try the interface in a browser with sample data, start <code>npm run dev:demo</code>.</span>
+      </div>`;
+    }
     const { snapshot, error } = this.store;
     if (error) {
       return html`<div class="m-auto max-w-md alert alert-error"><omb-icon name="circle-alert"></omb-icon><span>Could not start: ${error}</span></div>`;

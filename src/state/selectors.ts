@@ -46,7 +46,7 @@ export function mappingFor(s: Snapshot, deviceId: string, computerId = s.compute
   return s.mappings.find((m) => m.device_id === deviceId && m.computer_id === computerId);
 }
 
-/** Other computers that know this device, e.g. "on Studio PC". */
+/** Other computers that know this device, e.g. "on Desktop PC". */
 export function deviceHosts(s: Snapshot, deviceId: string): string[] {
   return s.mappings
     .filter((m) => m.device_id === deviceId && m.computer_id !== s.computer.id)
@@ -57,7 +57,7 @@ export function nextPosition(items: { position: number }[]): number {
   return items.reduce((max, i) => Math.max(max, i.position + 1), 0);
 }
 
-/** "A7IV · Card 1 → Home NAS" */
+/** "Camera A · Card 1 → Home NAS" */
 export function flowLabel(s: Snapshot, flow: Flow): string {
   const src = s.sources.find((x) => x.id === flow.source_id);
   const dst = s.destinations.find((x) => x.id === flow.destination_id);

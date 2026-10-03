@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn classifies_extensions_case_insensitively() {
-        assert_eq!(media_kind(Path::new("a/DSC0001.ARW")), MediaKind::Raw);
+        assert_eq!(media_kind(Path::new("a/IMG_001.ARW")), MediaKind::Raw);
         assert_eq!(media_kind(Path::new("x.jpg")), MediaKind::Image);
         assert_eq!(media_kind(Path::new("C0001.MP4")), MediaKind::Video);
         assert_eq!(media_kind(Path::new("notes.xml")), MediaKind::Other);

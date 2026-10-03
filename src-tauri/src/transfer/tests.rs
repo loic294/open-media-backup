@@ -45,7 +45,7 @@ fn copies_files_and_records_lineage() {
     let (h, _) = run(&fx);
     let job = h.snapshot();
     assert_eq!((job.files_done, job.files_total, job.bytes_done), (2, 2, 14));
-    let target = fx.nas_dir.path().join("photo/Iceland/A7IV Card 1/100/A.JPG");
+    let target = fx.nas_dir.path().join("photo/Trip/Camera A Card 1/100/A.JPG");
     assert_eq!(std::fs::read(target).unwrap(), b"photo a");
     let copies = fx.store.list::<FileCopy>().unwrap();
     assert_eq!(copies.len(), 4);
@@ -67,7 +67,7 @@ fn adopts_identical_and_renames_conflicting_targets() {
     let fx = Fixture::new();
     fx.write_card_file("DCIM/A.JPG", b"same");
     fx.write_card_file("DCIM/B.JPG", b"new content");
-    let dest = fx.nas_dir.path().join("photo/Iceland/A7IV Card 1");
+    let dest = fx.nas_dir.path().join("photo/Trip/Camera A Card 1");
     write(&dest, "A.JPG", b"same");
     write(&dest, "B.JPG", b"other file");
     run(&fx);
@@ -83,7 +83,7 @@ fn reread_verification_and_no_partials_left() {
     fx.store.put(&fx.space).unwrap();
     fx.write_card_file("DCIM/A.JPG", &vec![7u8; 9_000_000]);
     run(&fx);
-    let dest = fx.nas_dir.path().join("photo/Iceland/A7IV Card 1");
+    let dest = fx.nas_dir.path().join("photo/Trip/Camera A Card 1");
     let names: Vec<_> = std::fs::read_dir(&dest).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names, vec!["A.JPG"]);
 }
@@ -99,8 +99,8 @@ fn backup_marker_folder_is_created_and_reused() {
     fx.store.put(&fx.space).unwrap();
     fx.write_card_file("DCIM/A.JPG", b"a");
     run(&fx);
-    assert!(fx.nas_dir.path().join("backups/card-Iceland/A.JPG").exists());
-    assert_eq!(crate::paths::read_backup_folder(fx.card_dir.path()).as_deref(), Some("card-Iceland"));
+    assert!(fx.nas_dir.path().join("backups/card-Trip/A.JPG").exists());
+    assert_eq!(crate::paths::read_backup_folder(fx.card_dir.path()).as_deref(), Some("card-Trip"));
 }
 
 #[test]

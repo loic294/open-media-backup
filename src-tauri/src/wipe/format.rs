@@ -47,7 +47,7 @@ pub fn quick_format(root: &Path, name: &str) -> Result<(), String> {
 mod tests {
     #[test]
     fn labels_are_safe() {
-        assert_eq!(super::label("A7IV Card #1 extra"), "A7IV CARD 1");
+        assert_eq!(super::label("CAM1 Card #1 extra"), "CAM1 CARD 1");
         assert_eq!(super::label("ü/"), "MEDIA");
     }
 }

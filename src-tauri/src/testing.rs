@@ -37,11 +37,11 @@ impl Fixture {
         let project = Project {
             id: "project".into(),
             space_id: space.id.clone(),
-            name: "Iceland".into(),
+            name: "Trip".into(),
             final_copies_required: 1,
             ..Default::default()
         };
-        let card = Device { id: "card".into(), name: "A7IV Card 1".into(), role: DeviceRole::Original, ..Default::default() };
+        let card = Device { id: "card".into(), name: "Camera A Card 1".into(), role: DeviceRole::Original, ..Default::default() };
         let nas = Device { id: "nas".into(), name: "Home NAS".into(), role: DeviceRole::Final, ..Default::default() };
         let source = Source {
             id: "src".into(),

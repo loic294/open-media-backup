@@ -132,7 +132,7 @@ export class OmbDeviceField extends OmbElement {
         </div>
         <fieldset class="fieldset">
           <legend class="fieldset-legend">Device name</legend>
-          <input class="input w-full" .value=${d.name} placeholder="A7IV · Card 1" @input=${(e: Event) => set({ name: (e.target as HTMLInputElement).value })} />
+          <input class="input w-full" .value=${d.name} placeholder="Camera A · Card 1" @input=${(e: Event) => set({ name: (e.target as HTMLInputElement).value })} />
           <p class="label">Shared with your other computers, so the same card has the same name everywhere.</p>
         </fieldset>
         ${this.#kindRole(d, set)}
@@ -174,7 +174,7 @@ export class OmbDeviceField extends OmbElement {
                   <omb-icon name=${DEVICE_ICON[device.kind]} class="size-5 text-primary"></omb-icon>
                   <input class="input input-sm flex-1 font-semibold" .value=${device.name} @change=${(e: Event) => this.#update(device, { name: (e.target as HTMLInputElement).value.trim() || device.name })} />
                 </div>
-                <input class="input input-sm w-full" placeholder="Description, e.g. Samsung T7" .value=${device.description} @change=${(e: Event) => this.#update(device, { description: (e.target as HTMLInputElement).value })} />
+                <input class="input input-sm w-full" placeholder="Description, e.g. Portable SSD" .value=${device.description} @change=${(e: Event) => this.#update(device, { description: (e.target as HTMLInputElement).value })} />
                 ${this.#kindRole(device, (patch) => this.#update(device, patch))}
                 <div class="text-sm font-medium mt-1">Location on ${snapshot.computer.name}</div>
                 <div class="flex items-center gap-2">

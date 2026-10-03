@@ -83,7 +83,7 @@ export class OmbDestinationDialog extends DialogBase<Extract<DialogRequest, { ty
                 ? html`<p class="text-sm text-warning -mt-2">{backup_folder} comes from the card marker: turn on “Full-card backup folder” below.</p>`
                 : nothing}
               <div class="flex flex-col gap-3">
-                ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source device, e.g. …/A7IV · Card 1/.")}
+                ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source device, e.g. …/Camera A · Card 1/.")}
                 ${this.#toggle(
                   "use_backup_marker",
                   "Full-card backup folder",

@@ -3,16 +3,14 @@ import { createMockBackend } from "./mock/mock-backend";
 import { tauriBackend } from "./tauri-backend";
 
 /**
- * True inside our Tauri shell. TAURI_ENV_PLATFORM is only injected by the Tauri CLI, which avoids
- * misdetecting other Tauri-based hosts (embedded browsers). `?mock` forces the demo backend.
+ * Demo mode is opt-in at build time (`vite --mode demo`, see .env.demo). Normal builds always talk to the
+ * Rust core, and the sample backend is dropped from the bundle because this constant folds to false.
  */
-export const isTauri = () =>
-  typeof window !== "undefined" &&
-  "__TAURI_INTERNALS__" in window &&
-  !!import.meta.env.TAURI_ENV_PLATFORM &&
-  !new URLSearchParams(location.search).has("mock");
+export const DEMO = import.meta.env.VITE_OMB_DEMO === "1";
 
-/** The real Rust core inside Tauri; a simulated in-memory backend in a plain browser. */
-export const backend: Backend = isTauri() ? tauriBackend : createMockBackend();
+/** True when running inside the Tauri desktop shell. */
+export const inDesktopShell = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export const backend: Backend = DEMO ? createMockBackend() : tauriBackend;
 
 export type { Backend } from "./backend";

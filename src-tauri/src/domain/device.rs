@@ -39,7 +39,7 @@ pub struct Device {
 }
 impl_entity!(Device, Device);
 
-/// Where a device is reachable on a given computer (e.g. `/Volumes/A7IV` or `E:\`).
+/// Where a device is reachable on a given computer (e.g. `/Volumes/CAMERA_A` or `E:\`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DeviceMapping {

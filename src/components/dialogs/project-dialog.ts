@@ -57,7 +57,7 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
       <div class="flex flex-col gap-5">
         <fieldset class="fieldset">
           <legend class="fieldset-legend">Project name</legend>
-          <input class="input w-full" autofocus .value=${d.name} placeholder="Iceland 2026" @input=${(e: Event) => (this.draft = { ...d, name: (e.target as HTMLInputElement).value })} />
+          <input class="input w-full" autofocus .value=${d.name} placeholder="Trip 2026" @input=${(e: Event) => (this.draft = { ...d, name: (e.target as HTMLInputElement).value })} />
         </fieldset>
         <section>
           <h4 class="font-medium mb-1">Variables</h4>

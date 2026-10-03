@@ -72,9 +72,9 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     let ui = Ui::start();
     let card = tempfile::tempdir().unwrap();
     let nas = tempfile::tempdir().unwrap();
-    write(card.path(), "DCIM/100MSDCF/DSC00001.ARW", b"raw-one");
-    write(card.path(), "DCIM/100MSDCF/DSC00002.JPG", b"jpeg-two");
-    write(card.path(), "DCIM/100MSDCF/DSC00002.THM", b"thumb");
+    write(card.path(), "DCIM/100MSDCF/IMG_0001.ARW", b"raw-one");
+    write(card.path(), "DCIM/100MSDCF/IMG_0002.JPG", b"jpeg-two");
+    write(card.path(), "DCIM/100MSDCF/IMG_0002.THM", b"thumb");
     write(card.path(), "PRIVATE/M4ROOT/C0001.XML", b"xml");
 
     let snapshot = ui.ok("get_snapshot", json!({}));
@@ -87,7 +87,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
         "backup_marker_template": "{date}_{project_name}",
     }));
     ui.save("project", json!({
-        "id": "pr", "space_id": "sp", "name": "Iceland", "values": { "project_name": "Iceland 2026" },
+        "id": "pr", "space_id": "sp", "name": "Trip", "values": { "project_name": "Trip 2026" },
         "final_copies_required": 1, "archived": false,
     }));
     let mut settings = snapshot["settings"].clone();
@@ -102,7 +102,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     };
     let card_path = card.path().to_string_lossy();
     let nas_path = nas.path().to_string_lossy();
-    ui.ok("register_device", json!({ "mountPath": card_path, "device": device("card", "A7IV Card 1", "sd_card", "original") }));
+    ui.ok("register_device", json!({ "mountPath": card_path, "device": device("card", "Camera A Card 1", "sd_card", "original") }));
     ui.ok("register_device", json!({ "mountPath": nas_path, "device": device("nas", "Home NAS", "nas", "final") }));
     assert!(card.path().join(".openmediabackup/device.json").exists());
 
@@ -141,13 +141,13 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
         .map(|e| e.path().strip_prefix(nas.path()).unwrap().to_string_lossy().replace('\\', "/"))
         .collect();
     assert_eq!(copied.len(), 2, "{copied:?}");
-    assert!(copied.iter().all(|p| p.contains("Iceland 2026/A7IV Card 1/")), "{copied:?}");
+    assert!(copied.iter().all(|p| p.contains("Trip 2026/Camera A Card 1/")), "{copied:?}");
 
     let plan = ui.ok("plan_wipe", json!({ "projectId": "pr", "sourceId": "src" }));
     assert_eq!((plan["files_total"].as_u64(), plan["ignored"].as_u64(), plan["eligible"].as_bool()), (Some(4), Some(2), Some(true)), "{plan}");
     ui.ok("wipe", json!({ "projectId": "pr", "sourceId": "src", "method": "delete_files" }));
     ui.wait_idle();
-    assert!(!card.path().join("DCIM/100MSDCF/DSC00001.ARW").exists());
+    assert!(!card.path().join("DCIM/100MSDCF/IMG_0001.ARW").exists());
     assert!(card.path().join("PRIVATE/M4ROOT/C0001.XML").exists(), "ignored files are kept");
 }
 

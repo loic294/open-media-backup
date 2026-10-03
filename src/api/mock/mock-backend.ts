@@ -43,7 +43,7 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       job.files_done += n;
       job.bytes_done = job.files_done * AVG_FILE;
       job.speed_bps = 180_000_000;
-      job.current_file = `DSC0${7412 + job.files_done}.ARW`;
+      job.current_file = `IMG_${7412 + job.files_done}.ARW`;
       const c = counts[job.flow_id];
       if (c) {
         c[0] += n;
@@ -152,8 +152,8 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
     },
     listTransfers: async () => structuredClone(jobs),
     listVolumes: async (): Promise<Volume[]> => [
-      { mount_path: "/Volumes/A7IV_01", name: "A7IV_01", volume_uuid: "4F2A-91C3", hw_serial: null, total_bytes: 128e9, free_bytes: 70e9, removable: true, device_id: "card1", matched_by: "marker" },
-      { mount_path: "/Volumes/A7IV_02", name: "A7IV_02", volume_uuid: "77B1-02AA", hw_serial: null, total_bytes: 128e9, free_bytes: 80e9, removable: true, device_id: "card2", matched_by: "marker" },
+      { mount_path: "/Volumes/CAM_A_01", name: "CAM_A_01", volume_uuid: "4F2A-91C3", hw_serial: null, total_bytes: 128e9, free_bytes: 70e9, removable: true, device_id: "card1", matched_by: "marker" },
+      { mount_path: "/Volumes/CAM_A_02", name: "CAM_A_02", volume_uuid: "77B1-02AA", hw_serial: null, total_bytes: 128e9, free_bytes: 80e9, removable: true, device_id: "card2", matched_by: "marker" },
       { mount_path: "/Volumes/Untitled", name: "Untitled", volume_uuid: "9C0D-1E2F", hw_serial: null, total_bytes: 64e9, free_bytes: 60e9, removable: true, device_id: null, matched_by: null },
     ],
     registerDevice: async (mountPath, device) => {

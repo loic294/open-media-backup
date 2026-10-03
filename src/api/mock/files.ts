@@ -12,7 +12,7 @@ const EXT: [string, MediaKind][] = [
 export function mockFiles(total: number, category: FileCategory, offset: number, limit: number, filter = "", target = ""): FilePage {
   const all = Array.from({ length: total }, (_, i) => {
     const [ext, media] = EXT[i % EXT.length];
-    const prefix = media === "video" ? "C" : "DSC";
+    const prefix = media === "video" ? "C" : "IMG_";
     const name = `${prefix}${String(7412 + i).padStart(5, "0")}.${ext}`;
     const size = media === "video" ? 1_200_000_000 + (i % 7) * 90_000_000 : 46_000_000 + (i % 5) * 1_000_000;
     const entry: FileEntry = {

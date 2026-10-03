@@ -42,7 +42,7 @@ export class OmbRulesEditor extends OmbPureElement {
         <input
           class="input input-sm flex-1 font-mono ${error ? "input-error" : ""}"
           .value=${rule.pattern}
-          placeholder=${rule.syntax === "glob" ? "*.ARW or PRIVATE/" : "^DSC\\d+\\.(ARW|JPG)$"}
+          placeholder=${rule.syntax === "glob" ? "*.ARW or PRIVATE/" : "^IMG_\\d+\\.(ARW|JPG)$"}
           title=${error ?? ""}
           @input=${(e: Event) => this.#patch(i, { pattern: (e.target as HTMLInputElement).value })}
         />

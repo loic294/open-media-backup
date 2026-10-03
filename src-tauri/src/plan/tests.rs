@@ -22,7 +22,7 @@ fn resolves_paths_with_variables_and_subfolder() {
     let fx = Fixture::new();
     let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
     assert_eq!(ctx.source_folder_rel, "DCIM");
-    assert_eq!(ctx.target_rel("100/A.ARW"), "photo/Iceland/A7IV Card 1/100/A.ARW");
+    assert_eq!(ctx.target_rel("100/A.ARW"), "photo/Trip/Camera A Card 1/100/A.ARW");
     assert!(ctx.config_error.is_none());
 }
 
@@ -47,7 +47,7 @@ fn classifies_pending_transferred_and_ignored() {
     fx.write_card_file("DCIM/100/B.ARW", b"bbbbbb");
     fx.write_card_file("DCIM/100/A.THM", b"t");
     record_copy(&fx, "hashA", 4, "card", "DCIM/100/A.ARW");
-    record_copy(&fx, "hashA", 4, "nas", "photo/Iceland/A7IV Card 1/100/A.ARW");
+    record_copy(&fx, "hashA", 4, "nas", "photo/Trip/Camera A Card 1/100/A.ARW");
 
     let s = status(&fx);
     let flow = &s.flows[0];

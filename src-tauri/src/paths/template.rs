@@ -66,12 +66,12 @@ mod tests {
     #[test]
     fn expands_variables() {
         let v = vars(&[
-            ("project_name", "Iceland_2026"),
+            ("project_name", "Trip_2026"),
             ("backup_folder", "2026/Travel"),
         ]);
         assert_eq!(
             expand("photo/{backup_folder}/{project_name}", &v).unwrap(),
-            "photo/2026/Travel/Iceland_2026"
+            "photo/2026/Travel/Trip_2026"
         );
     }
 

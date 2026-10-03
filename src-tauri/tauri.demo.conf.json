@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeDevCommand": "npm run dev:demo",
+    "beforeBuildCommand": "npm run build:demo"
+  },
+  "app": {
+    "windows": [
+      { "label": "main", "title": "Open Media Backup (demo)", "width": 1440, "height": 900, "minWidth": 1100, "minHeight": 700 }
+    ]
+  }
+}

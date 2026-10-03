@@ -7,7 +7,7 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 | Term | Meaning |
 | --- | --- |
 | **Space** | A workspace such as *Travel*, *Home* or *Backup*. It holds sources, destinations, the flows between them, and its own variables. |
-| **Project** | One shoot or trip, such as *Iceland 2026*. It supplies values for the space variables. |
+| **Project** | One shoot or trip, such as *Trip 2026*. It supplies values for the space variables. |
 | **Device** | A card, SSD, HDD, NAS or computer. Each device has a role: `original`, `temporary` or `final`. Its name is shared by every peer. |
 | **Mapping** | Where a device lives on a particular computer, for example `/Volumes/NAS/photos` or `\\nas\photos`. |
 | **Source / Destination** | A device plus a folder. Destination folders are templates such as `{backup_folder}/{project_name}`. |
@@ -42,19 +42,30 @@ Requirements: Node 24+, Rust stable, and the [Tauri 2 prerequisites](https://tau
 
 ```sh
 npm install
-npm run dev          # UI only, in a browser, on sample data ("Demo data" badge); add ?mock to force it in Tauri
-npx tauri dev        # full desktop app
+npx tauri dev        # full desktop app on your real catalog
 npm test             # frontend unit tests (vitest)
 npm run test:rust    # backend tests, incl. IPC end-to-end tests on real folders
 npm run lint && npm run typecheck
 npx tauri build      # installers (.dmg / .msi / .exe)
 ```
 
+### Demo mode
+
+Normal builds never contain sample data: the in-memory demo backend is only bundled when Vite runs in `demo` mode (`.env.demo` sets `VITE_OMB_DEMO=1`). Demo mode shows a "Demo data" badge and makes no changes on disk, so it's a safe way for people and LLM agents to try the UI.
+
+```sh
+npm run dev:demo     # UI in a browser at http://localhost:1420 with generic sample data
+npm run tauri:demo   # desktop window with sample data (src-tauri/tauri.demo.conf.json)
+npm run build:demo   # static demo build in dist/
+```
+
+Running `npm run dev` without demo mode in a plain browser only shows a hint to start the desktop app.
+
 ### Layout
 
 ```
 src/                     Lit + Tailwind 4 + daisyUI 5 frontend
-  api/                   Backend interface: Tauri implementation + in-memory mock
+  api/                   Backend interface: Tauri implementation + in-memory demo backend (demo mode only)
   state/                 AppStore, selectors, derived stats, factories, dialog requests
   components/
     app/ top-bar/ workspace/ footer/   main layout (workspace holds the flow canvas)

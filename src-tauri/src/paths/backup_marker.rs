@@ -49,12 +49,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(read_backup_folder(dir.path()), None);
         assert_eq!(
-            ensure_backup_folder(dir.path(), "2026-03-01_Iceland").unwrap(),
-            "2026-03-01_Iceland"
+            ensure_backup_folder(dir.path(), "2026-03-01_Trip").unwrap(),
+            "2026-03-01_Trip"
         );
         assert_eq!(
             ensure_backup_folder(dir.path(), "other").unwrap(),
-            "2026-03-01_Iceland"
+            "2026-03-01_Trip"
         );
         remove_backup_folder(dir.path()).unwrap();
         assert_eq!(read_backup_folder(dir.path()), None);
