@@ -248,6 +248,57 @@ describe("source media browser components", () => {
     expect(store.backend.getMediaMetadata).toHaveBeenCalledWith("/source/unknown");
   });
 
+  it("refreshes thumbnail project tags when the project list changes", async () => {
+    const capture = Date.UTC(2026, 0, 14, 9, 5);
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("new-project.jpg", capture)]) : page([]),
+    );
+    const element = await browser();
+    expect(element.textContent).not.toContain("New shoot");
+
+    store.snapshot = {
+      ...store.snapshot!,
+      projects: [
+        ...store.snapshot!.projects,
+        {
+          ...newProject(store.snapshot!.spaces[0], "New shoot"),
+          start_time: capture,
+          end_time: capture,
+          color: "#abcdef",
+        },
+      ],
+    };
+    store.dispatchEvent(new Event("change"));
+    await element.updateComplete;
+
+    expect(element.querySelector(".badge")?.textContent).toContain("New shoot");
+  });
+
+  it("uses the first project tag color for unselected thumbnail borders", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("tagged.jpg", 0)]) : page([]),
+    );
+    const element = await browser();
+    const tile = element.querySelector<HTMLButtonElement>('button[aria-label="Select tagged.jpg"]')!;
+
+    expect(tile.getAttribute("style")).toContain("border-color: #123456");
+  });
+
+  it("keeps selected thumbnails distinguishable with a primary offset ring", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer" ? page([file("selected.jpg", 0)]) : page([]),
+    );
+    const element = await browser();
+    const tile = element.querySelector<HTMLButtonElement>('button[aria-label="Select selected.jpg"]')!;
+    tile.click();
+    await element.updateComplete;
+
+    expect(tile.className).toContain("ring-4");
+    expect(tile.className).toContain("ring-primary");
+    expect(tile.className).toContain("ring-offset-2");
+    expect(tile.getAttribute("style")).toBeNull();
+  });
+
   it("enables project creation for selected files and reads their embedded capture times on demand", async () => {
     vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("a"), file("b")]) : page([]),

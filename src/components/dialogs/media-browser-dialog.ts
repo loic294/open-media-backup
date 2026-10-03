@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { customElement, state } from "lit/decorators.js";
 import type { FileCategory } from "../../api/types";
+import type { Project, Snapshot, Source } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { selectMedia, type MediaSelection } from "../../state/media-selection";
 import { matchingProjects } from "../../state/projects";
@@ -23,11 +24,27 @@ import "../ui/omb-thumbnail";
 const PAGE = 60;
 const REQUESTS_PER_LOAD = 4;
 const CATEGORIES: FileCategory[] = ["to_transfer", "transferred", "ignored", "error"];
+const VALID_PROJECT_COLOR = /^#[0-9a-f]{6}$/i;
 interface Cursor {
   flowId: string;
   category: FileCategory;
   offset: number;
   done: boolean;
+}
+
+function projectColor(project: Project): string {
+  return VALID_PROJECT_COLOR.test(project.color ?? "") ? project.color! : "var(--color-primary)";
+}
+
+function projectsForMedia(snapshot: Snapshot, source: Source, item: BrowserMedia): Project[] {
+  const matchedIds = new Set(
+    matchingProjects(snapshot, source, item.file.capture_time).map((project) => project.id),
+  );
+  return snapshot.projects.filter(
+    (project) =>
+      project.space_id === source.space_id &&
+      (matchedIds.has(project.id) || item.projectIds.includes(project.id)),
+  );
 }
 
 @customElement("omb-media-browser-dialog")
@@ -45,17 +62,55 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
   #next = 0;
   #seq = 0;
   #projectId: string | null = null;
+  #projectsSignature = "";
 
   override connectedCallback(): void {
     super.connectedCallback();
     this.#projectId = this.store.project?.id ?? null;
+    this.#projectsSignature = this.#signature();
+    this.store.addEventListener("change", this.#onStoreChange);
     this.#reset();
   }
 
   override disconnectedCallback(): void {
     this.#seq++;
+    this.store.removeEventListener("change", this.#onStoreChange);
     super.disconnectedCallback();
   }
+
+  #signature(): string {
+    const snapshot = this.store.snapshot;
+    const source = snapshot?.sources.find((item) => item.id === this.request.sourceId);
+    return JSON.stringify({
+      activeProjectId: this.store.project?.id ?? null,
+      sourceScope: source?.project_scope ?? { mode: "all" },
+      projects: snapshot?.projects
+        .filter((project) => project.space_id === source?.space_id)
+        .map((project) => [
+          project.id,
+          project.start_time ?? null,
+          project.end_time ?? null,
+          project.granularity ?? "minute",
+          project.color ?? null,
+          project.archived,
+        ]),
+    });
+  }
+
+  #onStoreChange = () => {
+    const projectId = this.store.project?.id ?? null;
+    const signature = this.#signature();
+    if (projectId !== this.#projectId) {
+      this.#projectId = projectId;
+      this.#projectsSignature = signature;
+      this.#reload();
+      return;
+    }
+    if (signature !== this.#projectsSignature) {
+      this.#projectsSignature = signature;
+      this.requestUpdate();
+    }
+  };
 
   #reset() {
     this.#seq++;
@@ -238,17 +293,13 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
               (item) => item.file.rel_path,
               (item) => {
                 const selected = this.selection.selected.has(item.file.rel_path);
-                const matched = matchingProjects(snapshot, source, item.file.capture_time);
-                const projects = snapshot.projects.filter(
-                  (project) =>
-                    project.space_id === source.space_id &&
-                    (item.projectIds.includes(project.id) ||
-                      matched.some((match) => match.id === project.id)),
-                );
+                const projects = projectsForMedia(snapshot, source, item);
+                const firstProjectColor = projects[0] && !selected ? projectColor(projects[0]) : null;
                 return html` <div class="flex flex-col gap-1 min-w-0">
                   <button
                     type="button"
-                    class="rounded-box p-2 text-left border border-base-300 focus-visible:outline-2 focus-visible:outline-primary ${selected ? "ring-2 ring-primary bg-primary/10" : "hover:bg-base-200"}"
+                    class="rounded-box p-2 text-left border border-base-300 focus-visible:outline-2 focus-visible:outline-primary ${selected ? "ring-4 ring-primary ring-offset-2 ring-offset-base-100 bg-primary/10 border-primary" : "hover:bg-base-200"}"
+                    style=${firstProjectColor ? `border-color: ${firstProjectColor}` : nothing}
                     aria-label=${`Select ${item.file.rel_path}`}
                     aria-pressed=${selected}
                     title=${
@@ -277,7 +328,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
                         html`<span class="badge badge-sm badge-outline max-w-full" title=${project.name}>
                           <span
                             class="size-2 rounded-full shrink-0"
-                            style=${`background-color: ${/^#[0-9a-f]{6}$/i.test(project.color ?? "") ? project.color : "var(--color-primary)"}`}
+                            style=${`background-color: ${projectColor(project)}`}
                           ></span>
                           <span class="truncate">${project.name}</span>
                         </span>`,
