@@ -1,5 +1,6 @@
 use super::Catalog;
 use crate::domain::{Device, DeviceRole};
+use crate::paths::TemplateVars;
 use crate::rules::RuleSet;
 use serde::Serialize;
 
@@ -34,10 +35,15 @@ pub fn safe_copy_report(
     files: &[(String, Option<String>)],
     finals: &[FinalTarget],
     catalog: &Catalog,
+    rule_vars: &TemplateVars,
     temporary_copies_per_final: u32,
 ) -> SafeCopyReport {
     let required = |target: &FinalTarget, rel: &str| {
-        target.rules.is_empty() || target.rules.iter().any(|r| r.allows(rel))
+        target.rules.is_empty()
+            || target
+                .rules
+                .iter()
+                .any(|r| r.allows_with_vars(rel, rule_vars))
     };
     let copies: Vec<DeviceCopies> = finals
         .iter()

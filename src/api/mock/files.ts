@@ -18,6 +18,7 @@ export function mockFiles(
   filter = "",
   target = "",
   rules: FileRule[] = [],
+  vars: Record<string, string> = {},
 ): FilePage {
   const all = Array.from({ length: total }, (_, i) => {
     const [ext, media] = EXT[i % EXT.length];
@@ -39,7 +40,7 @@ export function mockFiles(
   }).filter(
     (f) =>
       (!filter || f.rel_path.toLowerCase().includes(filter.toLowerCase())) &&
-      (category === "ignored" || rulesAllowPath(rules, f.rel_path)),
+      (category === "ignored" || rulesAllowPath(rules, f.rel_path, vars)),
   );
   return {
     total: all.length,

@@ -6,6 +6,12 @@ export type DeviceRole = "original" | "temporary" | "final";
 export type DeviceKind = "sd_card" | "ssd" | "hdd" | "nas" | "computer" | "camera" | "drone" | "other";
 export type RuleAction = "include" | "exclude";
 export type RuleSyntax = "glob" | "regex";
+export type RuleExpr =
+  | { op: "eq"; var: string; value: string }
+  | { op: "ne"; var: string; value: string }
+  | { op: "not"; item: RuleExpr }
+  | { op: "and"; items: RuleExpr[] }
+  | { op: "or"; items: RuleExpr[] };
 export type EntityKind =
   "space" | "project" | "device" | "device_mapping" | "computer" | "source" | "destination" | "flow";
 
@@ -72,11 +78,22 @@ export interface Computer {
   os: string;
 }
 
-export interface FileRule {
+export interface PathFileRule {
   action: RuleAction;
   syntax: RuleSyntax;
   pattern: string;
 }
+
+export interface ConditionFileRule {
+  kind: "condition";
+  expr: RuleExpr;
+  /** Path-rule fields are absent at runtime; optional here keeps legacy rule editors type-compatible. */
+  action?: RuleAction;
+  syntax?: RuleSyntax;
+  pattern?: string;
+}
+
+export type FileRule = PathFileRule | ConditionFileRule;
 
 export interface Source {
   id: string;

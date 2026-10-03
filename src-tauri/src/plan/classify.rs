@@ -154,6 +154,7 @@ pub fn classify_files_with_capture_times(
                 .into_iter()
                 .map(|project| {
                     let target = ctx.target_for_project(&file.rel_path, project);
+                    let rule_vars = ctx.rule_vars_for_project(project);
                     let configuration_failed = ctx.config_error.is_some() || target.is_err();
                     let error = ctx
                         .config_error
@@ -171,7 +172,7 @@ pub fn classify_files_with_capture_times(
                                 .cloned()
                         });
                     let target_path = target.ok().flatten();
-                    let category = if !ctx.rules.allows(&file.rel_path) {
+                    let category = if !ctx.rules.allows_with_vars(&file.rel_path, &rule_vars) {
                         Category::Ignored
                     } else if configuration_failed {
                         Category::Error

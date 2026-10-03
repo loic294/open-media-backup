@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::{
-    validate_project_ranges, HashAlgo, Project, ProjectGranularity, ProjectScope, Source, Space,
+    validate_project_ranges, FileRule, HashAlgo, Project, ProjectGranularity, ProjectScope,
+    RuleExpr, Source, Space,
 };
 use crate::testing::Fixture;
 use chrono::{DateTime, Utc};
@@ -186,6 +187,59 @@ fn routes_each_matching_project_using_its_values_not_the_selection() {
     let selected = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].target_path.as_deref(), Some("Bob/b/A.JPG"));
+}
+
+#[test]
+fn condition_rules_filter_each_project_route_during_classification() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"x");
+    let mut a = project(
+        "a",
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z",
+        ProjectGranularity::Day,
+    );
+    let mut b = a.clone();
+    a.values.insert("client".into(), "Acme".into());
+    b.id = "b".into();
+    b.name = "b".into();
+    b.values.insert("client".into(), "Other".into());
+    fx.store.put_all(&[a, b]).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    destination.rules = vec![FileRule::condition(RuleExpr::Eq {
+        var: "client".into(),
+        value: " acme ".into(),
+    })];
+    fx.store.put(&destination).unwrap();
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let files = source_files(ctx.source_root.as_deref(), "DCIM", "card", &catalog);
+    let capture = HashMap::from([("A.JPG".into(), time("2026-01-01T12:00:00Z"))]);
+
+    let planned = classify_files_with_capture_times(&ctx, &catalog, files.clone(), &capture, None);
+    assert_eq!(planned.len(), 2);
+    assert_eq!(
+        planned
+            .iter()
+            .find(|file| file.project_id.as_deref() == Some("a"))
+            .unwrap()
+            .category,
+        Category::ToTransfer
+    );
+    assert_eq!(
+        planned
+            .iter()
+            .find(|file| file.project_id.as_deref() == Some("b"))
+            .unwrap()
+            .category,
+        Category::Ignored
+    );
+
+    let unassigned =
+        classify_files_with_capture_times(&ctx, &catalog, files, &HashMap::new(), None);
+    assert_eq!(unassigned[0].project_id, None);
+    assert_eq!(unassigned[0].category, Category::Ignored);
 }
 
 #[test]

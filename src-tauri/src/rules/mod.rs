@@ -1,13 +1,17 @@
-//! Include/exclude rules evaluated against folder names and file names.
+//! Include/exclude and condition rules evaluated for destination files.
 //!
 //! Semantics: rules are evaluated in order and the last matching rule wins.
 //! Without any include rule everything is included by default.
+//! Condition rules are additional filters: every condition expression must be
+//! true for the matching project's variables or the file is ignored. This mirrors
+//! include/exclude rules by only narrowing the destination's eligible files.
 //! - A pattern ending with `/` matches folder names only (e.g. `PRIVATE/`).
 //! - A pattern containing `/` elsewhere matches the whole relative path.
 //! - Otherwise it matches the file name or any folder name.
 mod matcher;
 
-use crate::domain::{FileRule, RuleAction};
+use crate::domain::{FileRule, RuleAction, RuleExpr};
+use crate::paths::TemplateVars;
 use matcher::Matcher;
 use thiserror::Error;
 
@@ -20,38 +24,59 @@ pub struct RuleError {
 
 pub struct RuleSet {
     rules: Vec<(RuleAction, Matcher)>,
+    conditions: Vec<RuleExpr>,
     default_included: bool,
 }
 
 impl RuleSet {
     pub fn compile(rules: &[FileRule]) -> Result<Self, RuleError> {
+        let conditions = rules
+            .iter()
+            .filter_map(|rule| match rule {
+                FileRule::Condition { expr, .. } => Some(expr.clone()),
+                FileRule::Path(_) => None,
+            })
+            .collect();
         let compiled = rules
             .iter()
-            .filter(|r| !r.pattern.trim().is_empty())
-            .map(|r| Ok((r.action, Matcher::new(r)?)))
+            .filter_map(|rule| match rule {
+                FileRule::Path(path) if !path.pattern.trim().is_empty() => {
+                    Some(Matcher::new(path).map(|matcher| (path.action, matcher)))
+                }
+                FileRule::Path(_) | FileRule::Condition { .. } => None,
+            })
             .collect::<Result<Vec<_>, RuleError>>()?;
         let default_included = !compiled.iter().any(|(a, _)| *a == RuleAction::Include);
         Ok(Self {
             rules: compiled,
+            conditions,
             default_included,
         })
     }
 
     /// `rel_path` uses `/` separators and is relative to the source folder.
     pub fn allows(&self, rel_path: &str) -> bool {
+        self.allows_with_vars(rel_path, &TemplateVars::new())
+    }
+
+    /// `vars` are the template/project variables for this file's matching project.
+    /// Missing projects should pass an empty map; missing variables compare as "".
+    pub fn allows_with_vars(&self, rel_path: &str, vars: &TemplateVars) -> bool {
         let parts: Vec<&str> = rel_path.split('/').filter(|p| !p.is_empty()).collect();
         let Some((file, folders)) = parts.split_last() else {
             return false;
         };
-        self.rules
-            .iter()
-            .fold(self.default_included, |included, (action, matcher)| {
-                if matcher.matches(rel_path, folders, file) {
-                    *action == RuleAction::Include
-                } else {
-                    included
-                }
-            })
+        let path_included =
+            self.rules
+                .iter()
+                .fold(self.default_included, |included, (action, matcher)| {
+                    if matcher.matches(rel_path, folders, file) {
+                        *action == RuleAction::Include
+                    } else {
+                        included
+                    }
+                });
+        path_included && self.conditions.iter().all(|expr| expr.eval(vars))
     }
 }
 
@@ -61,11 +86,7 @@ mod tests {
     use crate::domain::RuleSyntax;
 
     fn rule(action: RuleAction, syntax: RuleSyntax, pattern: &str) -> FileRule {
-        FileRule {
-            action,
-            syntax,
-            pattern: pattern.into(),
-        }
+        FileRule::path(action, syntax, pattern)
     }
     use RuleAction::{Exclude, Include};
     use RuleSyntax::{Glob, Regex};
@@ -127,5 +148,79 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(err.pattern, "(");
+    }
+
+    #[test]
+    fn condition_filters_after_path_rules() {
+        let set = RuleSet::compile(&[
+            rule(Include, Glob, "*.jpg"),
+            FileRule::condition(RuleExpr::Eq {
+                var: "client".into(),
+                value: "Acme".into(),
+            }),
+        ])
+        .unwrap();
+        let vars = TemplateVars::from([("client".into(), " acme ".into())]);
+        assert!(set.allows_with_vars("DCIM/A.JPG", &vars));
+        assert!(!set.allows_with_vars("DCIM/A.ARW", &vars));
+        assert!(!set.allows_with_vars("DCIM/A.JPG", &TemplateVars::new()));
+    }
+
+    #[test]
+    fn condition_expr_supports_eq_ne_not_and_or_missing_and_normalized_values() {
+        let vars = TemplateVars::from([
+            ("client".into(), " Acme ".into()),
+            ("status".into(), "Ready".into()),
+        ]);
+        let expr = RuleExpr::And {
+            items: vec![
+                RuleExpr::Eq {
+                    var: "client".into(),
+                    value: "acme".into(),
+                },
+                RuleExpr::Not {
+                    item: Box::new(RuleExpr::Eq {
+                        var: "status".into(),
+                        value: "draft".into(),
+                    }),
+                },
+                RuleExpr::Or {
+                    items: vec![
+                        RuleExpr::Ne {
+                            var: "missing".into(),
+                            value: "present".into(),
+                        },
+                        RuleExpr::Eq {
+                            var: "status".into(),
+                            value: "blocked".into(),
+                        },
+                    ],
+                },
+            ],
+        };
+        assert!(expr.eval(&vars));
+        assert!(RuleExpr::Eq {
+            var: "missing".into(),
+            value: "".into(),
+        }
+        .eval(&vars));
+    }
+
+    #[test]
+    fn condition_rule_json_round_trips_and_legacy_rule_deserializes() {
+        let legacy: FileRule =
+            serde_json::from_str(r#"{"action":"exclude","syntax":"glob","pattern":"*.THM"}"#)
+                .unwrap();
+        assert_eq!(legacy, rule(Exclude, Glob, "*.THM"));
+        let condition = FileRule::condition(RuleExpr::Not {
+            item: Box::new(RuleExpr::Eq {
+                var: "client".into(),
+                value: "Acme".into(),
+            }),
+        });
+        let json = serde_json::to_value(&condition).unwrap();
+        assert_eq!(json["kind"], "condition");
+        assert_eq!(json["expr"]["op"], "not");
+        assert_eq!(serde_json::from_value::<FileRule>(json).unwrap(), condition);
     }
 }

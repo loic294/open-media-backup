@@ -148,11 +148,11 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
     destination.path_template.clear();
     destination.app_name = Some("Lightroom".into());
     destination.counts_as_safe_copy = false;
-    destination.rules = vec![crate::domain::FileRule {
-        action: crate::domain::RuleAction::Include,
-        syntax: crate::domain::RuleSyntax::Glob,
-        pattern: "*.JPG".into(),
-    }];
+    destination.rules = vec![crate::domain::FileRule::path(
+        crate::domain::RuleAction::Include,
+        crate::domain::RuleSyntax::Glob,
+        "*.JPG",
+    )];
     fx.store.put(&destination).unwrap();
     let (core, _t) = core(&fx);
     let err = core.prepare_app_import("project", "flow").unwrap_err();
@@ -169,11 +169,11 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
     assert_eq!(prepared.files[0].rel_path, "A.JPG");
 
     destination.rules.clear();
-    destination.rules.push(crate::domain::FileRule {
-        action: crate::domain::RuleAction::Exclude,
-        syntax: crate::domain::RuleSyntax::Glob,
-        pattern: "*.JPG".into(),
-    });
+    destination.rules.push(crate::domain::FileRule::path(
+        crate::domain::RuleAction::Exclude,
+        crate::domain::RuleSyntax::Glob,
+        "*.JPG",
+    ));
     fx.store.put(&destination).unwrap();
     assert_eq!(
         core.confirm_app_import("project", "flow", &prepared.token)

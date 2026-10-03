@@ -13,7 +13,7 @@ pub use entity::{Entity, EntityKind};
 pub use file::{FileCopy, FileRecord};
 pub use flow::{Destination, DestinationKind, Flow};
 pub use project::{validate_project_ranges, Project, ProjectGranularity};
-pub use rule::{FileRule, RuleAction, RuleSyntax};
+pub use rule::{ConditionRuleKind, FileRule, PathRule, RuleAction, RuleExpr, RuleSyntax};
 pub use source::{ProjectScope, Source};
 pub use space::{HashAlgo, Space, VariableDef, VerifyMode};
 

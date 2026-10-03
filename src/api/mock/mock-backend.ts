@@ -1,5 +1,5 @@
 import type { Backend } from "../backend";
-import type { EntityKind, MediaMetadata, Snapshot, TransferJob, Volume } from "../types";
+import type { EntityKind, MediaMetadata, Project, Snapshot, Space, TransferJob, Volume } from "../types";
 import { demoCounts, demoOffline, demoSnapshot } from "./data";
 import { Emitter } from "./emitter";
 import { mockFiles } from "./files";
@@ -18,6 +18,21 @@ const COLLECTION: Record<EntityKind, keyof Snapshot> = {
   flow: "flows",
 };
 const AVG_FILE = 39_000_000;
+
+function projectVars(space: Space | undefined, project: Project | undefined): Record<string, string> {
+  if (!space || !project) return {};
+  const vars: Record<string, string> = {
+    project: project.name,
+    project_name: project.name,
+  };
+  for (const variable of space.variables) {
+    if (variable.default_value) vars[variable.name] = variable.default_value;
+  }
+  for (const [name, value] of Object.entries(project.values)) {
+    if (value) vars[name] = value;
+  }
+  return vars;
+}
 
 /** In-memory backend used in a plain browser (and in UI tests). Simulates transfers. */
 export function createMockBackend(options: { tickMs?: number } = {}): Backend {
@@ -145,13 +160,24 @@ export function createMockBackend(options: { tickMs?: number } = {}): Backend {
       snapshot.settings = structuredClone(settings);
     },
     getProjectStatus: async (projectId) => mockStatus(snapshot, projectId, counts, offline),
-    listFiles: async ({ flowId, category, offset, limit, filter }) => {
+    listFiles: async ({ projectId, flowId, category, offset, limit, filter }) => {
       const [transferred, toTransfer, ignored, failed] = counts[flowId] ?? [0, 25, 0, 0];
       const total = { transferred, to_transfer: toTransfer, ignored, error: failed }[category];
+      const project = snapshot.projects.find((p) => p.id === projectId);
+      const space = snapshot.spaces.find((s) => s.id === project?.space_id);
       const dest = snapshot.destinations.find(
         (d) => d.id === snapshot.flows.find((f) => f.id === flowId)?.destination_id,
       );
-      return mockFiles(total, category, offset, limit, filter, dest?.path_template ?? "", dest?.rules ?? []);
+      return mockFiles(
+        total,
+        category,
+        offset,
+        limit,
+        filter,
+        dest?.path_template ?? "",
+        dest?.rules ?? [],
+        projectVars(space, project),
+      );
     },
     thumbnail: async () => null,
     getMediaMetadata: async () =>

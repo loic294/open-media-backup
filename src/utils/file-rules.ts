@@ -1,4 +1,4 @@
-import type { FileRule } from "../api/types";
+import type { FileRule, PathFileRule, RuleExpr } from "../api/types";
 
 const GLOB_META = /[\\*?[\]{}]/g;
 
@@ -25,6 +25,7 @@ export function appendExcludeRule(rules: FileRule[], pattern: string): { rules: 
   const normalized = pattern.trim().toLowerCase();
   const exists = rules.some(
     (rule) =>
+      isPathRule(rule) &&
       rule.action === "exclude" &&
       rule.syntax === "glob" &&
       rule.pattern.trim().toLowerCase() === normalized,
@@ -55,7 +56,31 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function ruleMatches(rule: FileRule, relPath: string, folders: string[], file: string): boolean {
+function isPathRule(rule: FileRule): rule is PathFileRule {
+  return !("kind" in rule && rule.kind === "condition");
+}
+
+function normalized(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function evalExpr(expr: RuleExpr, vars: Record<string, string>): boolean {
+  switch (expr.op) {
+    case "eq":
+      // Mirror Rust: trim and compare case-insensitively; missing variables are empty strings.
+      return normalized(vars[expr.var] ?? "") === normalized(expr.value);
+    case "ne":
+      return normalized(vars[expr.var] ?? "") !== normalized(expr.value);
+    case "not":
+      return !evalExpr(expr.item, vars);
+    case "and":
+      return expr.items.every((item) => evalExpr(item, vars));
+    case "or":
+      return expr.items.some((item) => evalExpr(item, vars));
+  }
+}
+
+function ruleMatches(rule: PathFileRule, relPath: string, folders: string[], file: string): boolean {
   const raw = rule.pattern.trim();
   if (!raw) return false;
   if (rule.syntax === "regex") {
@@ -71,14 +96,18 @@ function ruleMatches(rule: FileRule, relPath: string, folders: string[], file: s
   return glob.test(file) || folders.some((folder) => glob.test(folder));
 }
 
-export function rulesAllowPath(rules: FileRule[], relPath: string): boolean {
+export function rulesAllowPath(
+  rules: FileRule[],
+  relPath: string,
+  vars: Record<string, string> = {},
+): boolean {
   const parts = relPath.split("/").filter(Boolean);
   const file = parts.at(-1);
   if (!file) return false;
   const folders = parts.slice(0, -1);
-  let included = !rules.some((rule) => rule.action === "include" && rule.pattern.trim());
+  let included = !rules.some((rule) => isPathRule(rule) && rule.action === "include" && rule.pattern.trim());
   for (const rule of rules) {
-    if (ruleMatches(rule, relPath, folders, file)) included = rule.action === "include";
+    if (isPathRule(rule) && ruleMatches(rule, relPath, folders, file)) included = rule.action === "include";
   }
-  return included;
+  return included && rules.every((rule) => isPathRule(rule) || evalExpr(rule.expr, vars));
 }

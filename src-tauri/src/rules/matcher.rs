@@ -1,5 +1,5 @@
 use super::RuleError;
-use crate::domain::{FileRule, RuleSyntax};
+use crate::domain::{PathRule, RuleSyntax};
 use globset::{GlobBuilder, GlobMatcher};
 use regex::{Regex, RegexBuilder};
 
@@ -30,7 +30,7 @@ pub(super) struct Matcher {
 }
 
 impl Matcher {
-    pub fn new(rule: &FileRule) -> Result<Self, RuleError> {
+    pub fn new(rule: &PathRule) -> Result<Self, RuleError> {
         let raw = rule.pattern.trim();
         let err = |reason: String| RuleError {
             pattern: rule.pattern.clone(),

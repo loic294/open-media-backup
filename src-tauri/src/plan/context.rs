@@ -230,6 +230,16 @@ impl FlowContext {
         Ok(Some(join_rel(&folder, rel)))
     }
 
+    /// Variables used by condition rules for a single routed file. Condition
+    /// rules are project filters, so unassigned files intentionally get no vars.
+    pub fn rule_vars_for_project(&self, project: Option<&Project>) -> TemplateVars {
+        project
+            .map(|project| {
+                super::project_template_vars(&self.space, Some(project), &self.source_device)
+            })
+            .unwrap_or_default()
+    }
+
     pub fn source_folder(&self) -> Option<PathBuf> {
         self.source_root
             .as_ref()

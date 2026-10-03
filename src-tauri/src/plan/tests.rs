@@ -66,11 +66,11 @@ fn missing_variable_is_a_config_error() {
 fn classifies_pending_transferred_and_ignored() {
     let fx = Fixture::new();
     let mut dst = fx.destination.clone();
-    dst.rules = vec![FileRule {
-        action: RuleAction::Exclude,
-        syntax: RuleSyntax::Glob,
-        pattern: "*.THM".into(),
-    }];
+    dst.rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "*.THM",
+    )];
     fx.store.put(&dst).unwrap();
     fx.write_card_file("DCIM/100/A.ARW", b"aaaa");
     fx.write_card_file("DCIM/100/B.ARW", b"bbbbbb");

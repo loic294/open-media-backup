@@ -106,7 +106,7 @@ pub fn assess_source(
         folder,
         known: vec![],
         files: vec![],
-        report: safe_copy_report(&[], &[], catalog, space.temporary_copies_per_final),
+        report: safe_copy_report(&[], &[], catalog, &vars, space.temporary_copies_per_final),
     };
     assessment.known = files
         .iter()
@@ -136,6 +136,7 @@ pub fn assess_source(
         &assessment.known,
         &targets,
         catalog,
+        &vars,
         space.temporary_copies_per_final,
     );
     let missing: Vec<&str> = report
