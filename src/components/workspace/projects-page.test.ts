@@ -27,14 +27,12 @@ describe("project management page", () => {
     board?.remove();
     store.snapshot = previousSnapshot;
     store.dialogs = previousDialogs;
-    store.projectsPageOpen = false;
     vi.restoreAllMocks();
   });
 
   it("shows project action buttons without the active project display", async () => {
     store.snapshot = demoSnapshot();
     store.dialogs = [];
-    store.projectsPageOpen = false;
     picker = new OmbProjectPicker();
     document.body.append(picker);
     await picker.updateComplete;
@@ -43,7 +41,7 @@ describe("project management page", () => {
     [...picker.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Projects"))!
       .click();
-    expect(store.projectsPageOpen).toBe(true);
+    expect(store.dialogs.at(-1)).toMatchObject({ type: "projects" });
     [...picker.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("New project"))!
       .click();
@@ -69,8 +67,10 @@ describe("project management page", () => {
       destinations: [],
     });
     page = new OmbProjectsPage();
+    page.request = { type: "projects" };
     document.body.append(page);
     await page.updateComplete;
+    await page.querySelector("omb-modal")!.updateComplete;
     await until(
       () =>
         !!page!.querySelector('button[aria-label="Create project"]') ||
@@ -97,6 +97,7 @@ describe("project management page", () => {
     const created = store.snapshot!.projects.find((project) => project.name === "New workspace project")!;
     expect(created.color).toBe(expectedColor);
     expect(store.project?.id).toBe(created.id);
-    expect(page.textContent).toContain("Project timeline");
+    expect(page.textContent).toContain("Projects in Travel");
+    expect(page.textContent).toContain("Project variables");
   });
 });

@@ -45,7 +45,6 @@ export class AppStore extends EventTarget {
   toasts: Toast[] = [];
   availableUpdate: UpdateInfo | null = null;
   error: string | null = null;
-  projectsPageOpen = false;
   /** Source card highlighted in the workspace (its flows stand out). */
   selectedSourceId: string | null = null;
   #toastId = 0;
@@ -231,12 +230,8 @@ export class AppStore extends EventTarget {
     this.#set({ dialogs: [...this.dialogs, dialog] });
   }
 
-  openProjectsPage(): void {
-    this.#set({ projectsPageOpen: true });
-  }
-
-  closeProjectsPage(): void {
-    this.#set({ projectsPageOpen: false });
+  openProjectsDialog(): void {
+    this.open({ type: "projects" });
   }
 
   close(dialog?: DialogRequest): void {

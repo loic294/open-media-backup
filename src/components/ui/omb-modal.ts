@@ -12,7 +12,7 @@ export class OmbModal extends OmbPureElement {
   @property() heading = "";
   @property() subheading = "";
   @property() icon = "";
-  @property() size: "sm" | "md" | "lg" | "xl" = "md";
+  @property() size: "sm" | "md" | "lg" | "xl" | "screen" = "md";
   @property() bodyClass = "px-6 py-5 overflow-y-auto flex-1 min-h-0";
   @property({ attribute: false }) body: TemplateResult | typeof nothing = nothing;
   @property({ attribute: false }) actions: TemplateResult | typeof nothing = nothing;
@@ -29,10 +29,18 @@ export class OmbModal extends OmbPureElement {
   #onClose = () => this.dispatchEvent(new CustomEvent("close"));
 
   override render() {
-    const width = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl", xl: "max-w-6xl" }[this.size];
+    const width = {
+      sm: "max-w-md",
+      md: "max-w-xl",
+      lg: "max-w-3xl",
+      xl: "max-w-6xl",
+      screen: "max-w-[90vw] h-[90vh] max-h-[90vh]",
+    }[this.size];
     return html`
-      <dialog class="modal" @close=${this.#onClose}>
-        <div class="modal-box ${width} w-full p-0 flex flex-col max-h-[88vh]">
+      <dialog class="modal backdrop:bg-neutral/70" @close=${this.#onClose}>
+        <div
+          class="modal-box bg-base-100 text-base-content ${width} w-full p-0 flex flex-col ${this.size === "screen" ? "" : "max-h-[88vh]"}"
+        >
           <header class="flex items-start gap-3 px-6 pt-5 pb-4 border-b border-base-300">
             ${
               this.icon

@@ -12,7 +12,7 @@ export class OmbProjectPicker extends OmbElement {
       <button
         class="btn btn-sm btn-primary btn-outline gap-2 px-5"
         aria-label="Open projects"
-        @click=${() => this.store.openProjectsPage()}
+        @click=${() => this.store.openProjectsDialog()}
       >
         <omb-icon name="folder"></omb-icon>Projects
       </button>

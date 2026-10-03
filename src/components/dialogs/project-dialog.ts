@@ -1,6 +1,6 @@
 import { html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import type { Project, ProjectGranularity } from "../../api/types";
+import type { Project, ProjectGranularity, Space } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { newProject } from "../../state/factories";
 import { nextProjectColor, PROJECT_COLORS } from "../../state/projects";
@@ -30,6 +30,56 @@ export function parseProjectTime(value: string, granularity: ProjectGranularity)
   }
   const timestamp = Date.parse(granularity === "day" ? `${value}T00:00:00.000Z` : `${value}Z`);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function projectVariablesSection(
+  space: Space,
+  draft: Project,
+  setValue: (name: string, value: string) => void,
+) {
+  return html`<section class="card card-border bg-base-100">
+    <div class="card-body p-4 gap-4">
+      <div>
+        <h4 class="card-title text-base">Project variables</h4>
+        <p class="text-sm text-base-content/60">
+          Values are used anywhere this space's source and destination templates reference a variable.
+        </p>
+      </div>
+      ${
+        space.variables.length === 0
+          ? html`<p class="text-sm text-base-content/60">
+              This space has no variables. Add some in the space settings.
+            </p>`
+          : html`<div class="grid grid-cols-1 gap-3">
+              ${space.variables.map((variable) => {
+                const fallback =
+                  variable.default_value ||
+                  (variable.name === "project_name" ? draft.name || "defaults to the project name" : "");
+                const hint = variable.required
+                  ? fallback
+                    ? `Required · Default: ${fallback}`
+                    : "Required"
+                  : fallback
+                    ? `Default: ${fallback}`
+                    : "Optional";
+                return html`<fieldset class="fieldset">
+                  <legend class="fieldset-legend font-mono">
+                    ${variable.name}${variable.required ? html`<span class="text-error">*</span>` : nothing}
+                  </legend>
+                  <input
+                    class="input w-full"
+                    .value=${draft.values[variable.name] ?? ""}
+                    placeholder=${fallback}
+                    aria-label=${`Project variable ${variable.name}`}
+                    @input=${(e: Event) => setValue(variable.name, (e.target as HTMLInputElement).value)}
+                  />
+                  <p class="label">${hint}</p>
+                </fieldset>`;
+              })}
+            </div>`
+      }
+    </div>
+  </section>`;
 }
 
 /** Create or edit a project: name, a value for each space variable, and wipe safety. */
@@ -166,14 +216,15 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
             <legend class="fieldset-legend">Project color</legend>
             <div class="grid grid-cols-8 gap-2 w-fit" role="group" aria-label="Predefined project colors">
               ${PROJECT_COLORS.map(
-                (color) => html`<button
-                  type="button"
-                  class="size-6 rounded-full border-2 transition-transform hover:scale-110 ${d.color?.toLowerCase() === color.toLowerCase() ? "border-base-content ring-2 ring-primary ring-offset-2 ring-offset-base-100" : "border-transparent"}"
-                  style=${`background-color:${color}`}
-                  aria-label=${`Choose project color ${color}`}
-                  aria-pressed=${d.color?.toLowerCase() === color.toLowerCase()}
-                  @click=${() => (this.draft = { ...d, color })}
-                ></button>`,
+                (color) =>
+                  html`<button
+                    type="button"
+                    class="size-6 rounded-full border-2 transition-transform hover:scale-110 ${d.color?.toLowerCase() === color.toLowerCase() ? "border-base-content ring-2 ring-primary ring-offset-2 ring-offset-base-100" : "border-transparent"}"
+                    style=${`background-color:${color}`}
+                    aria-label=${`Choose project color ${color}`}
+                    aria-pressed=${d.color?.toLowerCase() === color.toLowerCase()}
+                    @click=${() => (this.draft = { ...d, color })}
+                  ></button>`,
               )}
             </div>
             <p class="label">New projects use the next unused palette color.</p>
@@ -184,25 +235,7 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
             }
           </fieldset>
         </section>
-        <section>
-          <h4 class="font-medium mb-1">Variables</h4>
-          ${space.variables.length === 0 ? html`<p class="text-sm text-base-content/60">This space has no variables. Add some in the space settings.</p>` : nothing}
-          <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-center">
-            ${space.variables.map(
-              (v) => html`
-                <label class="font-mono text-sm"
-                  >{${v.name}}${v.required ? html`<span class="text-error">*</span>` : nothing}</label
-                >
-                <input
-                  class="input input-sm w-full"
-                  .value=${d.values[v.name] ?? ""}
-                  placeholder=${v.default_value || (v.name === "project_name" ? d.name || "defaults to the project name" : "")}
-                  @input=${(e: Event) => setValue(v.name, (e.target as HTMLInputElement).value)}
-                />
-              `,
-            )}
-          </div>
-        </section>
+        ${projectVariablesSection(space, d, setValue)}
         <section>
           <h4 class="font-medium mb-1">Resulting destination folders</h4>
           <ul class="text-xs font-mono flex flex-col gap-1">

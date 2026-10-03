@@ -2,6 +2,7 @@
 export type DialogRequest =
   | { type: "device-sync" }
   | { type: "app-settings" }
+  | { type: "projects" }
   | {
       type: "project";
       projectId: string | null;

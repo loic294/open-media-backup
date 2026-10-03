@@ -12,6 +12,7 @@ import "./source-dialog";
 import "./space-dialog";
 import "./sync-dialog";
 import "./wipe-dialog";
+import "../workspace/projects-page";
 
 type Renderer<T extends DialogType> = (r: Extract<DialogRequest, { type: T }>) => TemplateResult;
 
@@ -19,6 +20,7 @@ const RENDERERS: { [T in DialogType]: Renderer<T> } = {
   confirm: (r) => html`<omb-confirm-dialog .request=${r}></omb-confirm-dialog>`,
   "device-sync": (r) => html`<omb-sync-dialog .request=${r}></omb-sync-dialog>`,
   "app-settings": (r) => html`<omb-app-settings-dialog .request=${r}></omb-app-settings-dialog>`,
+  projects: (r) => html`<omb-projects-page .request=${r}></omb-projects-page>`,
   project: (r) => html`<omb-project-dialog .request=${r}></omb-project-dialog>`,
   "space-settings": (r) => html`<omb-space-dialog .request=${r}></omb-space-dialog>`,
   "source-settings": (r) => html`<omb-source-dialog .request=${r}></omb-source-dialog>`,
