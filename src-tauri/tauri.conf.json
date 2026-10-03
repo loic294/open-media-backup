@@ -17,7 +17,13 @@
         "width": 1440,
         "height": 900,
         "minWidth": 1100,
-        "minHeight": 700
+        "minHeight": 700,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 24
+        }
       }
     ],
     "security": {
@@ -54,7 +60,9 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://updates.openmediabackup.app/{{target}}/{{arch}}/{{current_version}}"],
+      "endpoints": [
+        "https://updates.openmediabackup.app/{{target}}/{{arch}}/{{current_version}}"
+      ],
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY"
     }
   }

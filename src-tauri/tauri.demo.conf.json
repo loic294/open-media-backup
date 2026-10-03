@@ -6,7 +6,20 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Open Media Backup (demo)", "width": 1440, "height": 900, "minWidth": 1100, "minHeight": 700 }
+      {
+        "label": "main",
+        "title": "Open Media Backup (demo)",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 24
+        }
+      }
     ]
   }
 }

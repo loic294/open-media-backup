@@ -12,8 +12,22 @@ const CATALOG_KINDS: [&str; 2] = ["file_record", "file_copy"];
 /// Opens the database, starts background services and wires their events to the UI.
 pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
+    configure_window_chrome(app)?;
     crate::commands::menu::setup(app.handle())?;
     init(app.handle(), &data_dir)
+}
+
+#[cfg(target_os = "windows")]
+fn configure_window_chrome(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_decorations(false)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_window_chrome(_app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
 }
 
 /// Same as `setup` with an explicit data directory (used by IPC tests).
