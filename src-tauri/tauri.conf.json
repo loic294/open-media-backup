@@ -11,16 +11,47 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Open Media Backup", "width": 1440, "height": 900, "minWidth": 1100, "minHeight": 700 }
+      {
+        "label": "main",
+        "title": "Open Media Backup",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 700
+      }
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'",
-      "assetProtocol": { "enable": true, "scope": ["$APPDATA/thumbnails/**", "$APPLOCALDATA/thumbnails/**"] }
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/thumbnails/**",
+          "$APPLOCALDATA/thumbnails/**"
+        ]
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Photography",
+    "shortDescription": "Verified, tracked backups from memory cards to final storage",
+    "longDescription": "Copies photos and videos from memory cards through temporary drives to final storage, verifying every file with a hash, tracking each copy across computers and offering to wipe cards once enough safe copies exist.",
+    "copyright": "© Loïc",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

@@ -1,4 +1,4 @@
-// Mirrors src-tauri/src/domain and src-tauri/src/commands/dto.rs. Keep in sync.
+// Mirrors src-tauri/src/domain and src-tauri/src/app, plan, transfer, devices, sync, wipe. Keep in sync.
 
 export type HashAlgo = "xxh64" | "blake3";
 export type VerifyMode = "inline" | "reread";

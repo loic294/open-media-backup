@@ -1,0 +1,37 @@
+import { html } from "lit";
+import { customElement } from "lit/decorators.js";
+import { OmbElement } from "../ui/omb-element";
+import "../top-bar/omb-top-bar";
+import "../workspace/omb-workspace";
+import "../footer/omb-footer";
+import "../dialogs/omb-dialog-host";
+import "./omb-toasts";
+
+@customElement("omb-app")
+export class OmbApp extends OmbElement {
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.classList.add("flex", "flex-col", "h-screen", "bg-base-200", "text-base-content");
+    void this.store.init();
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.store.dispose();
+  }
+
+  override render() {
+    const { snapshot, error } = this.store;
+    if (error) {
+      return html`<div class="m-auto max-w-md alert alert-error"><omb-icon name="circle-alert"></omb-icon><span>Could not start: ${error}</span></div>`;
+    }
+    if (!snapshot) return html`<span class="m-auto loading loading-spinner loading-lg text-primary"></span>`;
+    return html`
+      <omb-top-bar></omb-top-bar>
+      <omb-workspace class="flex-1 min-h-0"></omb-workspace>
+      <omb-footer></omb-footer>
+      <omb-dialog-host></omb-dialog-host>
+      <omb-toasts></omb-toasts>
+    `;
+  }
+}
