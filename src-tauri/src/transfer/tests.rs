@@ -428,3 +428,69 @@ fn manager_serialises_jobs_sharing_a_device() {
     }
     assert_eq!(*order.lock(), vec!["start0", "end0", "start1", "end1"]);
 }
+
+#[test]
+fn manager_caps_parallel_jobs_at_three_and_reuses_finished_slots() {
+    use std::sync::mpsc;
+
+    let manager = TransferManager::new(|_| {});
+    let (started_tx, started_rx) = mpsc::channel();
+    let mut releases = Vec::new();
+    for (n, kind) in [
+        JobKind::Transfer,
+        JobKind::Check,
+        JobKind::Wipe,
+        JobKind::Transfer,
+        JobKind::Check,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (release_tx, release_rx) = mpsc::channel();
+        releases.push(release_tx);
+        let started = started_tx.clone();
+        manager.enqueue(JobSpec {
+            key: format!("job{n}"),
+            label: String::new(),
+            devices: vec![format!("device{n}")],
+            kind,
+            queue: None,
+            work: Box::new(move |_| {
+                started.send(n).map_err(|e| e.to_string())?;
+                release_rx.recv().map_err(|e| e.to_string())?;
+                Ok(())
+            }),
+        });
+    }
+    drop(started_tx);
+
+    let mut initial = Vec::new();
+    for _ in 0..3 {
+        initial.push(started_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+    }
+    initial.sort_unstable();
+    assert_eq!(initial, vec![0, 1, 2]);
+    assert!(matches!(
+        started_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    releases[0].send(()).unwrap();
+    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 3);
+    assert!(matches!(
+        started_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    releases[1].send(()).unwrap();
+    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 4);
+
+    for release in releases.iter().skip(2) {
+        release.send(()).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while manager.is_busy() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!manager.is_busy());
+    assert!(manager.jobs().iter().all(|job| job.state == JobState::Done));
+}

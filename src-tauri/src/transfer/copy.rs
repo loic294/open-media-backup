@@ -56,6 +56,34 @@ pub fn compare_files(
     handle: &JobHandle,
     source_hash: &mut Option<String>,
 ) -> Result<Comparison, CopyError> {
+    compare_files_using(src, dst, handle, source_hash, &mut |path, _| {
+        hash_checked(path, algo, handle)
+    })
+}
+
+pub(super) fn compare_files_with_progress(
+    src: &Path,
+    dst: &Path,
+    algo: HashAlgo,
+    handle: &JobHandle,
+    source_hash: &mut Option<String>,
+    mut on_bytes: impl FnMut(bool, u64, u64),
+) -> Result<Comparison, CopyError> {
+    compare_files_using(src, dst, handle, source_hash, &mut |path, source| {
+        hash_checked_with_progress(path, algo, handle, |bytes, total| {
+            on_bytes(source, bytes, total);
+        })
+    })
+}
+
+fn compare_files_using(
+    src: &Path,
+    dst: &Path,
+    handle: &JobHandle,
+    source_hash: &mut Option<String>,
+    hash: &mut impl FnMut(&Path, bool) -> Result<String, CopyError>,
+) -> Result<Comparison, CopyError> {
+    handle.checkpoint()?;
     match fs::metadata(dst) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Comparison::Missing),
         Err(e) => return Err(e.into()),
@@ -68,9 +96,9 @@ pub fn compare_files(
     }
     let source = match source_hash {
         Some(hash) => hash.clone(),
-        None => source_hash.insert(hash_checked(src, algo, handle)?).clone(),
+        None => source_hash.insert(hash(src, true)?).clone(),
     };
-    let destination = match hash_checked(dst, algo, handle) {
+    let destination = match hash(dst, false) {
         Err(CopyError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(Comparison::Missing)
         }
@@ -316,7 +344,36 @@ pub(super) fn hash_checked(
     algo: HashAlgo,
     handle: &JobHandle,
 ) -> Result<String, CopyError> {
-    hash_file(path, algo, |_| handle.checkpoint().is_ok()).map_err(|e| {
+    hash_checked_reporting(path, algo, handle, |_| {})
+}
+
+pub(super) fn hash_checked_with_progress(
+    path: &Path,
+    algo: HashAlgo,
+    handle: &JobHandle,
+    mut on_bytes: impl FnMut(u64, u64),
+) -> Result<String, CopyError> {
+    handle.checkpoint()?;
+    let total = fs::metadata(path)?.len();
+    hash_checked_reporting(path, algo, handle, |bytes| on_bytes(bytes, total))
+}
+
+fn hash_checked_reporting(
+    path: &Path,
+    algo: HashAlgo,
+    handle: &JobHandle,
+    mut on_bytes: impl FnMut(u64),
+) -> Result<String, CopyError> {
+    handle.checkpoint()?;
+    hash_file(path, algo, |bytes| {
+        if handle.checkpoint().is_err() {
+            return false;
+        }
+        on_bytes(bytes);
+        // A progress observer may cancel or pause the job after this chunk.
+        handle.checkpoint().is_ok()
+    })
+    .map_err(|e| {
         if e.kind() == std::io::ErrorKind::Interrupted {
             CopyError::Cancelled
         } else {
@@ -359,6 +416,27 @@ mod tests {
             TransferJob::new("j".into(), "f".into(), String::new(), JobKind::Transfer),
             Arc::new(|| {}),
         )
+    }
+
+    #[test]
+    fn comparison_and_reread_hashing_do_not_change_transfer_byte_accounting() {
+        let size = 3 * BUFFER_SIZE;
+        let (dir, src, dst) = files(&vec![1; size], &vec![1; size]);
+        let handle = handle();
+        let comparison = compare_files(&src, &dst, HashAlgo::Blake3, &handle, &mut None).unwrap();
+        assert!(matches!(comparison, Comparison::Match(_)));
+        assert_eq!(handle.snapshot().bytes_done, 0);
+        let copied = copy_verified(
+            &src,
+            &dir.path().join("new.jpg"),
+            HashAlgo::Blake3,
+            VerifyMode::Reread,
+            None,
+            &handle,
+        )
+        .unwrap();
+        assert!(!copied.adopted);
+        assert_eq!(handle.snapshot().bytes_done, size as u64);
     }
 
     fn files(src: &[u8], dst: &[u8]) -> (tempfile::TempDir, PathBuf, PathBuf) {

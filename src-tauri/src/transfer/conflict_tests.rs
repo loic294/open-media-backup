@@ -235,6 +235,198 @@ fn check_handle() -> JobHandle {
     )
 }
 
+fn observed_check_handle(
+    observe: impl Fn(&JobHandle, &TransferJob) + Send + Sync + 'static,
+) -> (Arc<JobHandle>, Arc<Mutex<Vec<TransferJob>>>) {
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
+    let captured = snapshots.clone();
+    let handle = Arc::new_cyclic(|weak: &std::sync::Weak<JobHandle>| {
+        let weak = weak.clone();
+        JobHandle::new(
+            TransferJob::new("c".into(), "flow".into(), String::new(), JobKind::Check),
+            Arc::new(move || {
+                let handle = weak.upgrade().unwrap();
+                let job = handle.snapshot();
+                captured.lock().push(job.clone());
+                observe(&handle, &job);
+            }),
+        )
+    });
+    (handle, snapshots)
+}
+
+fn run_check(fx: &Fixture, handle: &JobHandle) {
+    let context = WorkspaceContext::for_project(&fx.store, "project").unwrap();
+    run_workspace_check(&fx.store, &fx.resolver, &context, "flow", handle).unwrap();
+}
+
+fn assert_check_progress(snapshots: &[TransferJob]) {
+    assert!(snapshots
+        .windows(2)
+        .all(|pair| pair[0].bytes_done <= pair[1].bytes_done));
+    assert!(snapshots
+        .iter()
+        .all(|job| job.bytes_done <= job.bytes_total));
+    let last = snapshots.last().unwrap();
+    assert_eq!(last.bytes_done, last.bytes_total);
+    assert_eq!(last.files_done, last.files_total);
+}
+
+#[test]
+fn check_reports_chunk_progress_during_both_reads_without_overcounting() {
+    let size = 3 * crate::hashing::BUFFER_SIZE;
+    for destination_size in [size / 2, size, size * 2] {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", &vec![1; size]);
+        write(&dest(&fx), "A.JPG", &vec![1; destination_size]);
+        let (handle, snapshots) = observed_check_handle(|_, _| {});
+        run_check(&fx, &handle);
+        let snapshots = snapshots.lock();
+        assert_check_progress(&snapshots);
+        assert!(snapshots.iter().any(|job| job.files_done == 0
+            && job.bytes_done > 0
+            && job.bytes_done < (size / 2) as u64
+            && job.current_file.as_deref() == Some("A.JPG")));
+        assert!(snapshots.iter().any(|job| job.files_done == 0
+            && job.bytes_done > (size / 2) as u64
+            && job.bytes_done < size as u64));
+        let results = handle.snapshot().check_results.unwrap();
+        assert_eq!(results.matched, usize::from(destination_size == size));
+        assert_eq!(results.conflicts, usize::from(destination_size != size));
+    }
+}
+
+#[test]
+fn check_finishes_missing_empty_and_unreadable_files_at_exact_totals() {
+    for outcome in ["missing", "empty", "unreadable"] {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", if outcome == "empty" { b"" } else { b"data" });
+        match outcome {
+            "empty" => {
+                write(&dest(&fx), "A.JPG", b"");
+            }
+            "unreadable" => std::fs::create_dir_all(dest(&fx).join("A.JPG")).unwrap(),
+            _ => {}
+        }
+        let (handle, snapshots) = observed_check_handle(|_, _| {});
+        run_check(&fx, &handle);
+        assert_check_progress(&snapshots.lock());
+        let results = handle.snapshot().check_results.unwrap();
+        assert_eq!(results.missing, usize::from(outcome == "missing"));
+        assert_eq!(results.matched, usize::from(outcome == "empty"));
+        assert_eq!(results.errors, usize::from(outcome == "unreadable"));
+        assert_eq!(handle.snapshot().files_done, 1);
+    }
+}
+
+#[test]
+fn check_destination_read_failure_after_source_progress_finishes_at_exact_totals() {
+    let fx = Fixture::new();
+    let size = 3 * crate::hashing::BUFFER_SIZE;
+    fx.write_card_file("DCIM/A.JPG", &vec![1; size]);
+    let target = write(&dest(&fx), "A.JPG", &vec![1; size]);
+    let changed = std::sync::atomic::AtomicBool::new(false);
+    let (handle, snapshots) = observed_check_handle(move |_, job| {
+        if job.bytes_done > 0 && !changed.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            std::fs::remove_file(&target).unwrap();
+            std::fs::create_dir(&target).unwrap();
+        }
+    });
+    run_check(&fx, &handle);
+    assert_check_progress(&snapshots.lock());
+    let results = handle.snapshot().check_results.unwrap();
+    assert_eq!(results.errors, 1);
+    assert!(results.items[0].error.is_some());
+    assert!(fx.store.list::<FileCopy>().unwrap().is_empty());
+}
+
+#[test]
+fn check_missing_destination_reports_source_claim_revalidation_progress() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", &vec![1; 3 * crate::hashing::BUFFER_SIZE]);
+    run_transfer(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "flow",
+        &check_handle(),
+        &Mutex::new(FailureMap::new()),
+    )
+    .unwrap();
+    std::fs::remove_file(dest(&fx).join("A.JPG")).unwrap();
+    let (handle, snapshots) = observed_check_handle(|_, _| {});
+    run_check(&fx, &handle);
+    let snapshots = snapshots.lock();
+    assert_check_progress(&snapshots);
+    assert!(snapshots
+        .iter()
+        .any(|job| job.files_done == 0 && job.bytes_done > 0 && job.bytes_done < job.bytes_total));
+    assert_eq!(handle.snapshot().check_results.unwrap().missing, 1);
+}
+
+#[test]
+fn check_cancellation_during_either_read_keeps_partial_progress_without_verifying() {
+    let size = 3 * crate::hashing::BUFFER_SIZE;
+    for cancel_after in [0, size as u64 / 2] {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", &vec![1; size]);
+        write(&dest(&fx), "A.JPG", &vec![1; size]);
+        let (handle, snapshots) = observed_check_handle(move |handle, job| {
+            if job.bytes_done > cancel_after {
+                handle.cancel();
+            }
+        });
+        run_check(&fx, &handle);
+        let job = handle.snapshot();
+        assert!(handle.is_cancelled());
+        assert!(job.bytes_done > cancel_after && job.bytes_done < job.bytes_total);
+        assert_eq!(job.files_done, 0);
+        assert_eq!(job.check_results.unwrap(), CheckResults::default());
+        assert!(fx.store.list::<FileCopy>().unwrap().is_empty());
+        assert!(snapshots
+            .lock()
+            .windows(2)
+            .all(|pair| pair[0].bytes_done <= pair[1].bytes_done));
+    }
+}
+
+#[test]
+fn check_pause_blocks_chunk_progress_until_resumed() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    let fx = Fixture::new();
+    let size = 3 * crate::hashing::BUFFER_SIZE;
+    fx.write_card_file("DCIM/A.JPG", &vec![1; size]);
+    write(&dest(&fx), "A.JPG", &vec![1; size]);
+    let paused_once = AtomicBool::new(false);
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (handle, snapshots) = observed_check_handle(move |handle, job| {
+        if job.bytes_done > 0 && !paused_once.swap(true, Ordering::SeqCst) {
+            handle.set_paused(true);
+            paused_tx.send(()).unwrap();
+        }
+    });
+    let worker_handle = handle.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        run_check(&fx, &worker_handle);
+        done_tx.send(()).unwrap();
+    });
+    paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let paused_bytes = handle.snapshot().bytes_done;
+    let blocked = done_rx.recv_timeout(Duration::from_millis(200));
+    let after = handle.snapshot();
+    handle.set_paused(false);
+    worker.join().unwrap();
+    assert_eq!(blocked, Err(mpsc::RecvTimeoutError::Timeout));
+    assert_eq!(after.state, JobState::Paused);
+    assert_eq!(after.bytes_done, paused_bytes);
+    assert_check_progress(&snapshots.lock());
+    assert_eq!(handle.snapshot().check_results.unwrap().matched, 1);
+}
+
 fn check(fx: &Fixture) -> (JobHandle, Result<(), String>) {
     let h = check_handle();
     let context = WorkspaceContext::for_project(&fx.store, "project").unwrap();

@@ -1,4 +1,4 @@
-use super::copy::{compare_files, hash_checked, Comparison, CopyError};
+use super::copy::{compare_files_with_progress, hash_checked_with_progress, Comparison, CopyError};
 use super::handle::{CheckItem, CheckOutcome, CheckResults, JobHandle, JobState};
 use super::job::{prepare, RecordWriter};
 use crate::domain::{DestinationKind, FileCopy};
@@ -58,6 +58,7 @@ pub fn run_workspace_check(
         if handle.checkpoint().is_err() {
             break;
         }
+        let before = handle.snapshot().bytes_done;
         handle.update(|j| j.current_file = Some(file.rel_path.clone()));
         match check_one(&ctx, &catalog, file, handle, &mut writer) {
             Ok(item) => results.add(item),
@@ -71,7 +72,7 @@ pub fn run_workspace_check(
         }
         handle.update(|j| {
             j.files_done += 1;
-            j.bytes_done += file.size;
+            j.bytes_done = before + file.size;
         });
         if writer.len() >= BATCH {
             writer.flush().map_err(|e| e.to_string())?;
@@ -110,13 +111,34 @@ fn check_one(
         &ctx.source_device_path(&file.rel_path),
     );
     let mut fresh_source = None;
-    match compare_files(src, &dst, algo, handle, &mut fresh_source)? {
+    let before = handle.snapshot().bytes_done;
+    let source_budget = file.size / 2;
+    let mut source_progress = HashProgress::new(handle, before, source_budget);
+    let mut destination_progress =
+        HashProgress::new(handle, before + source_budget, file.size - source_budget);
+    match compare_files_with_progress(
+        src,
+        &dst,
+        algo,
+        handle,
+        &mut fresh_source,
+        |source, bytes, total| {
+            if source {
+                source_progress.add(bytes, total);
+            } else {
+                destination_progress.add(bytes, total);
+            }
+        },
+    )? {
         Comparison::Missing => {
             if let Some(claim) = claim {
                 writer.invalidate(claim);
             }
             if let Some(claim) = source_claim {
-                let hash = hash_checked(src, algo, handle)?;
+                let mut progress = HashProgress::new(handle, before, file.size);
+                let hash = hash_checked_with_progress(src, algo, handle, |bytes, total| {
+                    progress.add(bytes, total);
+                })?;
                 if differs(catalog, claim, algo, &hash) {
                     writer.invalidate(claim);
                 }
@@ -143,6 +165,35 @@ fn check_one(
             }
             Ok(item(CheckOutcome::Conflict))
         }
+    }
+}
+
+struct HashProgress<'a> {
+    handle: &'a JobHandle,
+    before: u64,
+    budget: u64,
+    read: u64,
+}
+
+impl<'a> HashProgress<'a> {
+    fn new(handle: &'a JobHandle, before: u64, budget: u64) -> Self {
+        Self {
+            handle,
+            before,
+            budget,
+            read: 0,
+        }
+    }
+
+    fn add(&mut self, bytes: u64, total: u64) {
+        self.read = self.read.saturating_add(bytes);
+        let done = if total == 0 {
+            self.budget
+        } else {
+            (u128::from(self.read.min(total)) * u128::from(self.budget) / u128::from(total)) as u64
+        };
+        self.handle
+            .update(|j| j.bytes_done = j.bytes_done.max(self.before + done));
     }
 }
 

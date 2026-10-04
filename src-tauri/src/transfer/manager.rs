@@ -8,6 +8,7 @@ use std::time::Duration;
 
 const EMIT_INTERVAL: Duration = Duration::from_millis(200);
 const KEEP_FINISHED: usize = 20;
+const MAX_CONCURRENT_JOBS: usize = 3;
 
 pub type Work = Box<dyn FnOnce(&JobHandle) -> Result<(), String> + Send>;
 
@@ -167,7 +168,7 @@ impl TransferManager {
         }
     }
 
-    /// Starts every queued job whose devices are not used by a running job.
+    /// Starts eligible queued jobs while respecting the worker and device limits.
     fn schedule(&self) {
         let mut entries = self.inner.entries.lock();
         let mut busy: HashSet<String> = entries
@@ -175,11 +176,19 @@ impl TransferManager {
             .filter(|e| e.work.is_none() && !e.handle.snapshot().state.is_finished())
             .flat_map(|e| e.devices.clone())
             .collect();
+        let mut active = entries
+            .iter()
+            .filter(|e| e.work.is_none() && !e.handle.snapshot().state.is_finished())
+            .count();
         for entry in entries.iter_mut() {
+            if active >= MAX_CONCURRENT_JOBS {
+                break;
+            }
             if entry.work.is_none() || entry.devices.iter().any(|d| busy.contains(d)) {
                 continue;
             }
             busy.extend(entry.devices.iter().cloned());
+            active += 1;
             let work = entry.work.take().expect("checked");
             let handle = entry.handle.clone();
             let manager = self.clone();
