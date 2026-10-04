@@ -91,9 +91,9 @@ pub fn classify_files(
         });
     if needs_capture {
         for file in &files {
-            match crate::metadata::extract_metadata(&file.abs_path) {
-                Ok(metadata) => {
-                    if let Some(capture) = metadata.capture_time {
+            match crate::metadata::extract_capture_time(&file.abs_path) {
+                Ok(capture) => {
+                    if let Some(capture) = capture {
                         match capture_time_ms(&capture) {
                             Ok(Some(time)) => {
                                 capture_times.insert(file.rel_path.clone(), time);
@@ -105,7 +105,6 @@ pub fn classify_files(
                         }
                     }
                 }
-                Err(crate::metadata::MetadataError::Unsupported { .. }) => {}
                 Err(error) => {
                     errors.insert(file.rel_path.clone(), format!("capture metadata: {error}"));
                 }

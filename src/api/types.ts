@@ -100,6 +100,10 @@ export interface Source {
   id: string;
   space_id: string;
   device_id: string;
+  /** Display-only card label; blank or missing uses the physical device name. */
+  task_name?: string;
+  /** Per-source backup name for source_name and subfolders; blank uses the device name. */
+  backup_name?: string;
   path_template: string;
   offer_wipe: boolean;
   position: number;
@@ -110,6 +114,8 @@ export interface Source {
 export interface Destination {
   id: string;
   space_id: string;
+  /** Display-only card label; blank or missing uses the device/application name. */
+  task_name?: string;
   /** Missing in older snapshots means folder. */
   kind?: "folder" | "app";
   device_id: string;
@@ -146,6 +152,8 @@ export interface AppSettings {
   active_project_by_space: Record<string, string>;
   /** Per-device custom apps. Missing on older snapshots means system defaults. */
   preview_apps?: PreviewAppSettings;
+  /** Missing in older snapshots means mounted devices appear first in device lists. */
+  show_mounted_devices_first?: boolean;
   /** Local per-computer app paths for App destinations, keyed by destination id. */
   app_destinations?: Record<string, string>;
   /** Learned transfer throughput in bytes/sec, keyed by destination device id. `_global` is the fallback. */
@@ -232,6 +240,7 @@ export interface WorkspaceFilesRequest {
   offset: number;
   limit: number;
   filter?: string;
+  directory?: FileDirectory;
 }
 
 export type FileCategory = "to_transfer" | "transferred" | "ignored" | "error";
@@ -301,10 +310,22 @@ export interface FileEntry {
   metadata?: MediaMetadata | null;
 }
 
+export interface FileDirectory {
+  kind: "destination" | "source";
+  path: string;
+}
+
+export interface DirectorySummary extends FileDirectory {
+  total: number;
+  total_bytes: number;
+  direct_files: number;
+}
+
 export interface FilePage {
   total: number;
   total_bytes: number;
   items: FileEntry[];
+  directories?: DirectorySummary[];
 }
 
 export interface AppImportFile {

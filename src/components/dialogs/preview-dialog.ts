@@ -1,6 +1,7 @@
-import { html, nothing } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import { customElement, state } from "lit/decorators.js";
-import type { FileCategory, FileEntry } from "../../api/types";
+import type { DirectorySummary, FileCategory, FileDirectory, FileEntry } from "../../api/types";
 import { flowStatus, isRunnable, projectTotals } from "../../state/derived";
 import type { DialogRequest } from "../../state/dialogs";
 import { flowLabel, spaceFlows } from "../../state/selectors";
@@ -11,11 +12,18 @@ import {
   extensionExcludePattern,
 } from "../../utils/file-rules";
 import { formatBytes, formatCount } from "../../utils/format";
+import { childDirectories, directoryKey } from "../../utils/transfer-tree";
 import { DialogBase } from "./dialog-base";
 import { ref } from "lit/directives/ref.js";
 import "../ui/omb-thumbnail";
 
 const PAGE = 120;
+interface DirectoryPage {
+  items: FileEntry[];
+  total: number;
+  loading: boolean;
+  error: string | null;
+}
 const TABS: [FileCategory, string][] = [
   ["to_transfer", "To transfer"],
   ["transferred", "Transferred"],
@@ -38,7 +46,10 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
   @state() private flowId: string | null = null;
   @state() private category: FileCategory = "to_transfer";
   @state() private filter = "";
-  @state() private view: "grid" | "list" = "grid";
+  @state() private view: "tree" | "grid" | "list" = "tree";
+  @state() private directories: DirectorySummary[] = [];
+  @state() private directoryPages = new Map<string, DirectoryPage>();
+  @state() private expanded = new Set<string>();
   @state() private items: FileEntry[] = [];
   @state() private menu: { x: number; y: number; file: FileEntry } | null = null;
   @state() private total = 0;
@@ -79,6 +90,11 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
     const context = this.store.context;
     if (!context || !this.flowId) return;
     const seq = ++this.#seq;
+    if (reset) {
+      this.directories = [];
+      this.directoryPages = new Map();
+      this.expanded = new Set();
+    }
     this.loading = true;
     this.error = null;
     try {
@@ -89,11 +105,33 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
         offset: reset ? 0 : this.items.length,
         limit: PAGE,
         filter: this.filter || undefined,
+        directory: this.view === "tree" ? this.#rootDirectory() : undefined,
       });
       if (seq !== this.#seq) return;
       this.items = reset ? page.items : [...this.items, ...page.items];
-      this.total = page.total;
-      this.totalBytes = page.total_bytes;
+      if (this.view === "tree") {
+        if (!page.directories) throw new Error("Folder summaries were not returned by the backend");
+        this.directories = page.directories;
+        const roots = page.directories.filter((directory) => directory.path === "");
+        this.total = roots.reduce((sum, root) => sum + root.total, 0);
+        this.totalBytes = roots.reduce((sum, root) => sum + root.total_bytes, 0);
+        const root = this.#rootDirectory();
+        this.directoryPages = new Map([
+          [
+            directoryKey(root),
+            {
+              items: page.items,
+              total: page.total,
+              loading: false,
+              error: null,
+            },
+          ],
+        ]);
+        this.expanded = new Set(roots.map(directoryKey));
+      } else {
+        this.total = page.total;
+        this.totalBytes = page.total_bytes;
+      }
     } catch (e) {
       if (seq !== this.#seq) return;
       this.error = String(e);
@@ -105,6 +143,73 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
 
   #reload = debounce(() => void this.#load(true), 200);
 
+  #isApp(): boolean {
+    const snapshot = this.store.snapshot;
+    const flow = snapshot?.flows.find((item) => item.id === this.flowId);
+    return snapshot?.destinations.find((item) => item.id === flow?.destination_id)?.kind === "app";
+  }
+
+  #rootDirectory(): FileDirectory {
+    return { kind: this.#isApp() || this.category === "ignored" ? "source" : "destination", path: "" };
+  }
+
+  #changeView(view: "tree" | "grid" | "list") {
+    if (view === this.view) return;
+    this.view = view;
+    this.#set({});
+  }
+
+  async #loadDirectory(directory: FileDirectory) {
+    const context = this.store.context;
+    if (!context || !this.flowId) return;
+    const seq = this.#seq;
+    const key = directoryKey(directory);
+    const previous = this.directoryPages.get(key);
+    if (previous?.loading) return;
+    const update = (page: DirectoryPage) => {
+      this.directoryPages = new Map(this.directoryPages).set(key, page);
+    };
+    update({ items: previous?.items ?? [], total: previous?.total ?? 0, loading: true, error: null });
+    try {
+      const page = await this.store.listWorkspaceFiles({
+        context,
+        flowId: this.flowId,
+        category: this.category,
+        filter: this.filter || undefined,
+        directory,
+        offset: previous?.items.length ?? 0,
+        limit: PAGE,
+      });
+      if (seq !== this.#seq) return;
+      update({
+        items: [...(previous?.items ?? []), ...page.items],
+        total: page.total,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      if (seq !== this.#seq) return;
+      update({
+        items: previous?.items ?? [],
+        total: previous?.total ?? 0,
+        loading: false,
+        error: String(error),
+      });
+      this.store.toast("error", String(error));
+    }
+  }
+
+  #toggleDirectory(directory: DirectorySummary) {
+    const key = directoryKey(directory);
+    const expanded = new Set(this.expanded);
+    if (expanded.has(key)) expanded.delete(key);
+    else {
+      expanded.add(key);
+      if (directory.direct_files && !this.directoryPages.has(key)) void this.#loadDirectory(directory);
+    }
+    this.expanded = expanded;
+  }
+
   #workspaceSignature(): string {
     const snapshot = this.store.snapshot;
     return JSON.stringify({
@@ -113,6 +218,7 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
       projects: snapshot?.projects,
       sources: snapshot?.sources,
       destinations: snapshot?.destinations,
+      devices: snapshot?.devices,
       flows: snapshot?.flows,
       mappings: snapshot?.mappings,
     });
@@ -136,6 +242,9 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
     this.items = [];
     this.total = 0;
     this.totalBytes = 0;
+    this.directories = [];
+    this.directoryPages = new Map();
+    this.expanded = new Set();
     if ("filter" in patch) this.#reload();
     else void this.#load(true);
   }
@@ -209,6 +318,7 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
   }
 
   #grid() {
+    if (this.view === "tree") return this.#tree();
     if (this.view === "list") {
       return html`<table class="table table-xs">
         <thead>
@@ -235,6 +345,85 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
     return html`<div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
       ${this.items.map((f) => html`<div @contextmenu=${(e: MouseEvent) => this.#openMenu(e, f)}><omb-thumbnail data-omb-block .file=${f}></omb-thumbnail></div>`)}
     </div>`;
+  }
+
+  #treeDirectory(directory: DirectorySummary): TemplateResult {
+    const key = directoryKey(directory);
+    const page = this.directoryPages.get(key);
+    const children = childDirectories(this.directories, directory);
+    const open = this.expanded.has(key);
+    const label = directory.path
+      ? directory.path.split("/").at(-1)!
+      : directory.kind === "destination"
+        ? "Destination root (planned paths)"
+        : this.#isApp()
+          ? "Source folders (open in app)"
+          : "No destination (source paths)";
+    return html`<li>
+      <details .open=${open}>
+        <summary
+          title=${directory.path || label}
+          @click=${(event: MouseEvent) => {
+            event.preventDefault();
+            this.#toggleDirectory(directory);
+          }}
+        >
+          <omb-icon name="folder" class="text-primary"></omb-icon>
+          <span class="break-all font-mono">${label}</span>
+          <span class="text-xs text-base-content/60"
+            >${formatCount(directory.total)} files · ${formatBytes(directory.total_bytes)}</span
+          >
+        </summary>
+        ${
+          open
+            ? html`<ul>
+                ${repeat(children, directoryKey, (child) => this.#treeDirectory(child))}
+                ${repeat(
+                  page?.items ?? [],
+                  (file) => JSON.stringify([file.rel_path, file.project_id, file.target_path]),
+                  (file) =>
+                    html`<li>
+                      <div
+                        @contextmenu=${(event: MouseEvent) => this.#openMenu(event, file)}
+                        title=${`Source: ${file.rel_path}${file.target_path && !this.#isApp() ? `\nPlanned destination: ${file.target_path}` : ""}`}
+                      >
+                        <omb-icon name="file"></omb-icon>
+                        <span class="break-all font-mono">${file.name}</span>
+                        <span class="text-xs text-base-content/60">${formatBytes(file.size)}</span>
+                        ${file.error ? html`<span class="text-xs text-error">${file.error}</span>` : nothing}
+                      </div>
+                    </li>`,
+                )}
+                ${
+                  page?.loading
+                    ? html`<li>
+                        <span role="status"
+                          ><span class="loading loading-spinner loading-xs"></span>Loading files</span
+                        >
+                      </li>`
+                    : nothing
+                }
+                ${page?.error ? html`<li><span class="text-error">${page.error}</span><button @click=${() => this.#loadDirectory(directory)}>Retry</button></li>` : nothing}
+                ${directory.direct_files && !page ? html`<li><button @click=${() => this.#loadDirectory(directory)}>Load files</button></li>` : nothing}
+                ${page && !page.loading && !page.error && page.items.length < page.total ? html`<li><button @click=${() => this.#loadDirectory(directory)}>Load ${Math.min(PAGE, page.total - page.items.length)} more files</button></li>` : nothing}
+              </ul>`
+            : nothing
+        }
+      </details>
+    </li>`;
+  }
+
+  #tree() {
+    return html`<ul
+      class="menu menu-sm w-full rounded-box border border-base-300"
+      aria-label="Transfer folder structure"
+    >
+      ${repeat(
+        this.directories.filter((directory) => directory.path === ""),
+        directoryKey,
+        (root) => this.#treeDirectory(root),
+      )}
+    </ul>`;
   }
 
   override render() {
@@ -287,16 +476,25 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
           </label>
           <div class="join">
             <button
+              class="btn btn-sm btn-square join-item ${this.view === "tree" ? "btn-active" : ""}"
+              title="Folder structure"
+              aria-label="Folder structure"
+              aria-pressed=${this.view === "tree"}
+              @click=${() => this.#changeView("tree")}
+            >
+              <omb-icon name="folder"></omb-icon>
+            </button>
+            <button
               class="btn btn-sm btn-square join-item ${this.view === "grid" ? "btn-active" : ""}"
               title="Thumbnails"
-              @click=${() => (this.view = "grid")}
+              @click=${() => this.#changeView("grid")}
             >
               <omb-icon name="layout-grid"></omb-icon>
             </button>
             <button
               class="btn btn-sm btn-square join-item ${this.view === "list" ? "btn-active" : ""}"
               title="List"
-              @click=${() => (this.view = "list")}
+              @click=${() => this.#changeView("list")}
             >
               <omb-icon name="list"></omb-icon>
             </button>
@@ -314,10 +512,10 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
             : nothing
         }
         ${!flows.length ? html`<p class="text-center py-10 text-base-content/60">Connect a source to a destination to preview files.</p>` : nothing}
-        ${this.items.length === 0 && !this.loading && !this.error && flows.length ? html`<p class="text-center py-10 text-base-content/60">No files here.</p>` : this.#grid()}
+        ${this.total === 0 && !this.loading && !this.error && flows.length ? html`<p class="text-center py-10 text-base-content/60">No files here.</p>` : this.#grid()}
         ${this.loading ? html`<div class="grid place-items-center py-4"><span class="loading loading-spinner"></span></div>` : nothing}
         ${
-          !this.loading && this.items.length < this.total
+          this.view !== "tree" && !this.loading && this.items.length < this.total
             ? html`<button class="btn btn-sm self-center" @click=${() => this.#load(false)}>
                 Load ${Math.min(PAGE, this.total - this.items.length)} more
               </button>`

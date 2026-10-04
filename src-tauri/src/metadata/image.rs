@@ -84,6 +84,38 @@ fn rational(exif: &Exif, tag: Tag) -> Result<Option<f64>, MetadataError> {
 }
 
 pub(super) fn populate(exif: &Exif, metadata: &mut MediaMetadata) -> Result<(), MetadataError> {
+    metadata.capture_time = capture_from_exif(exif)?;
+    let width = integer(exif, Tag::PixelXDimension)?.or(integer(exif, Tag::ImageWidth)?);
+    let height = integer(exif, Tag::PixelYDimension)?.or(integer(exif, Tag::ImageLength)?);
+    if let (Some(width), Some(height)) = (width, height) {
+        if width == 0 || height == 0 {
+            return Err(MetadataError::Invalid("zero image dimensions".into()));
+        }
+        metadata.dimensions = Some(Dimensions { width, height });
+    }
+    metadata.orientation = integer(exif, Tag::Orientation)?;
+    if metadata
+        .orientation
+        .is_some_and(|value| !(1..=8).contains(&value))
+    {
+        return Err(MetadataError::Invalid(
+            "EXIF orientation outside 1-8".into(),
+        ));
+    }
+    metadata.camera.make = text(exif, Tag::Make)?;
+    metadata.camera.model = text(exif, Tag::Model)?;
+    metadata.camera.lens_make = text(exif, Tag::LensMake)?;
+    metadata.camera.lens_model = text(exif, Tag::LensModel)?;
+    metadata.exposure.shutter_seconds = rational(exif, Tag::ExposureTime)?;
+    metadata.exposure.aperture_f_number = rational(exif, Tag::FNumber)?;
+    metadata.exposure.iso = integer(exif, Tag::PhotographicSensitivity)?;
+    metadata.exposure.focal_length_mm = rational(exif, Tag::FocalLength)?;
+    metadata.exposure.focal_length_35mm = integer(exif, Tag::FocalLengthIn35mmFilm)?;
+    metadata.exposure.compensation_ev = rational(exif, Tag::ExposureBiasValue)?;
+    Ok(())
+}
+
+pub(super) fn capture_from_exif(exif: &Exif) -> Result<Option<super::CaptureTime>, MetadataError> {
     let original = text(exif, Tag::DateTimeOriginal)?;
     let digitized = text(exif, Tag::DateTimeDigitized)?;
     let selected = original
@@ -125,34 +157,7 @@ pub(super) fn populate(exif: &Exif, metadata: &mut MediaMetadata) -> Result<(), 
                 )));
             }
         }
-        metadata.capture_time = Some(capture);
+        return Ok(Some(capture));
     }
-    let width = integer(exif, Tag::PixelXDimension)?.or(integer(exif, Tag::ImageWidth)?);
-    let height = integer(exif, Tag::PixelYDimension)?.or(integer(exif, Tag::ImageLength)?);
-    if let (Some(width), Some(height)) = (width, height) {
-        if width == 0 || height == 0 {
-            return Err(MetadataError::Invalid("zero image dimensions".into()));
-        }
-        metadata.dimensions = Some(Dimensions { width, height });
-    }
-    metadata.orientation = integer(exif, Tag::Orientation)?;
-    if metadata
-        .orientation
-        .is_some_and(|value| !(1..=8).contains(&value))
-    {
-        return Err(MetadataError::Invalid(
-            "EXIF orientation outside 1-8".into(),
-        ));
-    }
-    metadata.camera.make = text(exif, Tag::Make)?;
-    metadata.camera.model = text(exif, Tag::Model)?;
-    metadata.camera.lens_make = text(exif, Tag::LensMake)?;
-    metadata.camera.lens_model = text(exif, Tag::LensModel)?;
-    metadata.exposure.shutter_seconds = rational(exif, Tag::ExposureTime)?;
-    metadata.exposure.aperture_f_number = rational(exif, Tag::FNumber)?;
-    metadata.exposure.iso = integer(exif, Tag::PhotographicSensitivity)?;
-    metadata.exposure.focal_length_mm = rational(exif, Tag::FocalLength)?;
-    metadata.exposure.focal_length_35mm = integer(exif, Tag::FocalLengthIn35mmFilm)?;
-    metadata.exposure.compensation_ev = rational(exif, Tag::ExposureBiasValue)?;
-    Ok(())
+    Ok(None)
 }

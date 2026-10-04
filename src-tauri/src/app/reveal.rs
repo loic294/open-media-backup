@@ -2,7 +2,9 @@ use crate::domain::{
     Destination, DestinationKind, Device, Flow, Project, ProjectScope, Source, Space,
 };
 use crate::paths::{expand, join_relative};
-use crate::plan::{backup_folder_name, project_template_vars, resolve_flow, RootResolver};
+use crate::plan::{
+    backup_folder_name, project_template_vars, resolve_flow, source_template_vars, RootResolver,
+};
 use crate::store::Store;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -103,9 +105,9 @@ fn resolve_source_path(
         .filter(|path| path.exists())
         .ok_or_else(|| format!("{} is not connected on this computer", device.name))?;
     let vars = if matches!(source.project_scope, ProjectScope::None) {
-        project_template_vars(&space, None, &device)
+        source_template_vars(&space, None, &device, &source)
     } else {
-        project_template_vars(&space, project.as_ref(), &device)
+        source_template_vars(&space, project.as_ref(), &device, &source)
     };
     let folder = normalize(&expand(&source.path_template, &vars).map_err(|e| e.to_string())?);
     Ok(join_relative(&root, &folder))
@@ -227,6 +229,9 @@ mod tests {
     #[test]
     fn unmounted_source_errors() {
         let fx = Fixture::new();
+        let mut source = fx.source.clone();
+        source.task_name = "Import task".into();
+        fx.store.put(&source).unwrap();
         fx.unmount(&fx.card.id);
         let error = resolve_reveal_path(
             &fx.store,
@@ -242,6 +247,9 @@ mod tests {
     #[test]
     fn unmounted_destination_errors() {
         let fx = Fixture::new();
+        let mut destination = fx.destination.clone();
+        destination.task_name = "Archive task".into();
+        fx.store.put(&destination).unwrap();
         fx.unmount(&fx.nas.id);
         let error = resolve_reveal_path(
             &fx.store,
@@ -252,5 +260,60 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("Home NAS is not connected"));
+    }
+
+    #[test]
+    fn backup_name_resolves_source_with_or_without_flow_or_project() {
+        let fx = Fixture::new();
+        let mut source = fx.source.clone();
+        source.backup_name = "  Camera/A  ".into();
+        source.task_name = "Display only".into();
+        source.path_template = "{source_name}/DCIM".into();
+        fx.store.put(&source).unwrap();
+        for project_id in [Some(fx.project.id.as_str()), None] {
+            let path = resolve_reveal_path(
+                &fx.store,
+                &fx.resolver,
+                project_id,
+                RevealKind::Source,
+                &source.id,
+            )
+            .unwrap();
+            assert_eq!(path, fx.card_dir.path().join("Camera_A/DCIM"));
+        }
+        fx.store
+            .delete(crate::domain::EntityKind::Flow, &fx.flow.id)
+            .unwrap();
+        let path = resolve_reveal_path(
+            &fx.store,
+            &fx.resolver,
+            Some(&fx.project.id),
+            RevealKind::Source,
+            &source.id,
+        )
+        .unwrap();
+        assert_eq!(path, fx.card_dir.path().join("Camera_A/DCIM"));
+    }
+
+    #[test]
+    fn destination_reveal_uses_backup_name_not_task_name() {
+        let fx = Fixture::new();
+        let mut source = fx.source.clone();
+        source.backup_name = "  Camera/A  ".into();
+        source.task_name = "Import".into();
+        let mut destination = fx.destination.clone();
+        destination.task_name = "Archive".into();
+        destination.path_template = "{source_name}".into();
+        fx.store.put(&source).unwrap();
+        fx.store.put(&destination).unwrap();
+        let path = resolve_reveal_path(
+            &fx.store,
+            &fx.resolver,
+            Some(&fx.project.id),
+            RevealKind::Destination,
+            &destination.id,
+        )
+        .unwrap();
+        assert_eq!(path, fx.nas_dir.path().join("Camera_A/Camera_A"));
     }
 }

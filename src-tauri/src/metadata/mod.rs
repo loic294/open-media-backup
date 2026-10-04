@@ -6,9 +6,11 @@
 //! Dimensions describe the stored pixels; orientation/rotation is separate.
 //! Unsupported containers and malformed metadata return errors, not empty data.
 
+mod capture;
 mod image;
 mod video;
 mod video_fallback;
+pub use capture::extract_capture_time;
 
 use std::path::{Path, PathBuf};
 

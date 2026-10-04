@@ -7,6 +7,7 @@ import type { DialogRequest } from "../../state/dialogs";
 import { selectMedia, type MediaSelection } from "../../state/media-selection";
 import { matchingProjects } from "../../state/projects";
 import { deviceById } from "../../state/selectors";
+import { sourceTaskName } from "../../utils/names";
 import { debounce } from "../../utils/debounce";
 import { openInAppLabel } from "../../utils/preview-apps";
 import { DialogBase } from "./dialog-base";
@@ -472,7 +473,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     return html`<omb-modal
       size="xl"
       heading="Browse media"
-      subheading=${deviceById(snapshot, source.device_id)?.name ?? "Source"}
+      subheading=${`${sourceTaskName(source, deviceById(snapshot, source.device_id))} · Device: ${deviceById(snapshot, source.device_id)?.name ?? "Unknown device"}`}
       icon="images"
       .body=${body}
       bodyClass="px-6 py-5 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:flex lg:flex-col"

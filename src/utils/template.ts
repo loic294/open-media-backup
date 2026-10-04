@@ -1,3 +1,5 @@
+import { sanitizeBackupName } from "./names";
+
 const PLACEHOLDER = /\{\s*([a-zA-Z0-9_]+)\s*\}/g;
 
 /** Built-in variables provided by the engine (see src-tauri/src/plan/vars.rs). */
@@ -48,10 +50,13 @@ export function todayVars(now = new Date()): Record<string, string> {
 export function previewVars(
   space: { variables: { name: string; default_value: string }[] },
   project: { name: string; values: Record<string, string> } | null,
-  sourceName = "{source_name}",
+  sourceName?: string,
   now = new Date(),
 ): Record<string, string> {
-  const vars: Record<string, string> = { ...todayVars(now), source_name: sourceName };
+  const vars: Record<string, string> = {
+    ...todayVars(now),
+    source_name: sourceName === undefined ? "{source_name}" : sanitizeBackupName(sourceName),
+  };
   if (project) Object.assign(vars, { project: project.name, project_name: project.name });
   if (project) for (const v of space.variables) if (v.default_value) vars[v.name] = v.default_value;
   for (const [k, v] of Object.entries(project?.values ?? {})) if (v) vars[k] = v;

@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { usesProjectVariables, validateProjectRanges, validateSourceDestination } from "../../state/projects";
 import { previewVars, templateVars } from "../../utils/template";
+import { sourceBackupName } from "../../utils/names";
 
 export type Counts = Record<string, [number, number, number, number]>;
 const AVG_FILE = 39_000_000;
@@ -49,6 +50,23 @@ export function mockWorkspaceStatus(
     const [transferred, toTransfer, ignored, failed] = counts[f.id] ?? [0, 25, 0, 0];
     const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
     const src = snapshot.sources.find((s) => s.id === f.source_id);
+    if (!src || !dest) throw new Error("Flow source or destination not found");
+    const missingSource = !deviceOf(src.device_id);
+    const missingDestination = dest.kind !== "app" && !deviceOf(dest.device_id);
+    if (missingSource || missingDestination) {
+      const task = missingSource ? "source" : "destination";
+      return {
+        flow_id: f.id,
+        state: "unavailable",
+        transferred: 0,
+        to_transfer: 0,
+        ignored: 0,
+        failed: 0,
+        bytes_to_transfer: 0,
+        runnable: false,
+        error: `No device selected. Choose a device in ${task} settings.`,
+      };
+    }
     let configError: string | null = null;
     if (space && src && dest) {
       try {
@@ -56,7 +74,7 @@ export function mockWorkspaceStatus(
         validateProjectRanges(projects, space.allow_project_overlap ?? true);
         validateSourceDestination(src, dest, space, projects);
         if (!project) {
-          const vars = previewVars(space, null, deviceOf(src.device_id)?.name);
+          const vars = previewVars(space, null, sourceBackupName(src, deviceOf(src.device_id)));
           if (templateVars(src.path_template).some((name) => !(name in vars)))
             throw new Error("Source path requires project values or an unknown variable");
           if ((dest.kind ?? "folder") === "folder") {
@@ -110,6 +128,18 @@ export function mockWorkspaceStatus(
     .filter((s) => s.space_id === spaceId)
     .map((s) => {
       const sourceDevice = deviceOf(s.device_id);
+      if (!sourceDevice)
+        return {
+          source_id: s.id,
+          available: false,
+          root_path: null,
+          file_count: 0,
+          total_bytes: 0,
+          safe_copies: 0,
+          required_copies: project?.final_copies_required ?? null,
+          wipe_eligible: false,
+          blocking_reason: "No device selected. Choose a device in source settings.",
+        };
       const temporaryCopiesPerFinal = Math.max(
         0,
         Math.floor(snapshot.spaces.find((space) => space.id === spaceId)?.temporary_copies_per_final ?? 0),
@@ -122,16 +152,16 @@ export function mockWorkspaceStatus(
       const safeCopyFlows = outgoing.filter((f) => {
         const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
         if (!dest?.counts_as_safe_copy) return false;
+        if ((dest.kind ?? "folder") === "app") return true;
         const deviceId = dest.device_id;
         return finals.includes(deviceId) || (temporaryCopiesPerFinal > 0 && temporary.includes(deviceId));
       });
       const complete = (f: (typeof outgoing)[number]) =>
         (counts[f.id]?.[1] ?? 1) === 0 && (counts[f.id]?.[3] ?? 0) === 0;
-      const finalSafe = safeCopyFlows.filter(
-        (f) =>
-          finals.includes(snapshot.destinations.find((d) => d.id === f.destination_id)?.device_id ?? "") &&
-          complete(f),
-      );
+      const finalSafe = safeCopyFlows.filter((f) => {
+        const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
+        return ((dest?.kind ?? "folder") === "app" || finals.includes(dest?.device_id ?? "")) && complete(f);
+      });
       const temporarySafe = safeCopyFlows.filter(
         (f) =>
           temporary.includes(snapshot.destinations.find((d) => d.id === f.destination_id)?.device_id ?? "") &&
@@ -145,11 +175,15 @@ export function mockWorkspaceStatus(
         .filter((f) => (counts[f.id]?.[1] ?? 1) > 0)
         .map((f) => {
           const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
+          if (dest?.kind === "app") {
+            return `Needs ${dest.task_name?.trim() || dest.app_name || "Application"}`;
+          }
           const dev = deviceOf(dest?.device_id ?? "");
           return offline.has(dev?.id ?? "") ? `${dev?.name} offline` : `Needs ${dev?.name}`;
         });
-      const reason =
-        required === null
+      const reason = offline.has(s.device_id)
+        ? `${sourceDevice.name} not mounted`
+        : required === null
           ? "Create a project to set card-wiping safety requirements"
           : sourceDevice?.role === "final"
             ? "Final devices are never wiped"
@@ -177,7 +211,8 @@ export function mockWorkspaceStatus(
       const sum = (key: "transferred" | "to_transfer" | "ignored" | "failed" | "bytes_to_transfer") =>
         own.reduce((a, f) => a + f[key], 0);
       const isApp = (d.kind ?? "folder") === "app";
-      const available = isApp || !offline.has(d.device_id);
+      const assigned = !!deviceOf(d.device_id);
+      const available = isApp || (assigned && !offline.has(d.device_id));
       return {
         destination_id: d.id,
         available,
@@ -192,7 +227,10 @@ export function mockWorkspaceStatus(
         ignored: sum("ignored"),
         failed: sum("failed"),
         bytes_to_transfer: sum("bytes_to_transfer"),
-        last_error: own.find((f) => f.error)?.error ?? null,
+        last_error:
+          !isApp && !assigned
+            ? "No device selected. Choose a device in destination settings."
+            : (own.find((f) => f.error)?.error ?? null),
       };
     });
   return { context: structuredClone(context), flows: flowStatuses, sources, destinations };

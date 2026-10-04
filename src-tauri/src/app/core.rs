@@ -121,12 +121,13 @@ impl AppCore {
 
     pub fn workspace_status(&self, context: &WorkspaceContext) -> Result<WorkspaceStatus, String> {
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
+        let failures = self.failures.lock().clone();
         let mut status = workspace_status(
             &self.store,
             self.resolver.as_ref(),
             &catalog,
             context,
-            &self.failures.lock(),
+            &failures,
         )
         .map_err(|e| e.to_string())?;
         let app_destinations: HashSet<String> = self
@@ -150,12 +151,8 @@ impl AppCore {
     }
 
     pub fn list_files(&self, req: &ListFilesRequest) -> Result<FilePage, String> {
-        let page = files::list_files(
-            &self.store,
-            self.resolver.as_ref(),
-            &self.failures.lock(),
-            req,
-        )?;
+        let failures = self.failures.lock().clone();
+        let page = files::list_files(&self.store, self.resolver.as_ref(), &failures, req)?;
         self.authorize_preview_paths(&page);
         Ok(page)
     }
@@ -164,12 +161,9 @@ impl AppCore {
         &self,
         req: &ListWorkspaceFilesRequest,
     ) -> Result<FilePage, String> {
-        let page = files::list_workspace_files(
-            &self.store,
-            self.resolver.as_ref(),
-            &self.failures.lock(),
-            req,
-        )?;
+        let failures = self.failures.lock().clone();
+        let page =
+            files::list_workspace_files(&self.store, self.resolver.as_ref(), &failures, req)?;
         self.authorize_preview_paths(&page);
         Ok(page)
     }
@@ -278,7 +272,8 @@ impl AppCore {
             .map(|path| super::app_paths::path_to_string(&path))
             .ok_or_else(|| format!("Choose the application for {app_name} on this computer"))?;
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
-        let planned: Vec<_> = classify_flow(&ctx, &catalog, self.failures.lock().get(flow_id))
+        let failures = self.failures.lock().get(flow_id).cloned();
+        let planned: Vec<_> = classify_flow(&ctx, &catalog, failures.as_ref())
             .into_iter()
             .filter(|f| f.category == Category::ToTransfer)
             .collect();
@@ -353,15 +348,15 @@ impl AppCore {
             return Err("This destination is not an app destination".into());
         }
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
-        let allowed: HashSet<AppImportFile> =
-            classify_flow(&ctx, &catalog, self.failures.lock().get(flow_id))
-                .into_iter()
-                .filter(|f| f.category == Category::ToTransfer)
-                .map(|f| AppImportFile {
-                    rel_path: f.rel_path,
-                    project_id: f.project_id,
-                })
-                .collect();
+        let failures = self.failures.lock().get(flow_id).cloned();
+        let allowed: HashSet<AppImportFile> = classify_flow(&ctx, &catalog, failures.as_ref())
+            .into_iter()
+            .filter(|f| f.category == Category::ToTransfer)
+            .map(|f| AppImportFile {
+                rel_path: f.rel_path,
+                project_id: f.project_id,
+            })
+            .collect();
         let requested: HashSet<AppImportFile> = session.files.into_iter().collect();
         let mut records = Vec::new();
         let mut copies = Vec::new();

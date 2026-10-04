@@ -4,6 +4,7 @@ import type { PreviewAppMediaType, ThemePreference } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { previewAppChoiceLabel, previewApps } from "../../utils/preview-apps";
 import { DialogBase } from "./dialog-base";
+import "../settings/devices-settings";
 
 const THEMES: [ThemePreference, string, string][] = [
   ["system", "System", "monitor"],
@@ -14,6 +15,20 @@ const THEMES: [ThemePreference, string, string][] = [
 @customElement("omb-app-settings-dialog")
 export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { type: "app-settings" }>> {
   @state() private checkingForUpdate = false;
+  @state() private tab: "general" | "devices" = "general";
+
+  #tabKeydown(event: KeyboardEvent) {
+    const tabs = ["general", "devices"] as const;
+    const index = tabs.indexOf(this.tab);
+    let next: number;
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") next = 1 - index;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = 1;
+    else return;
+    event.preventDefault();
+    this.tab = tabs[next];
+    this.querySelector<HTMLButtonElement>(`#settings-tab-${this.tab}`)?.focus();
+  }
 
   async #choosePreviewApp(type: PreviewAppMediaType) {
     const s = this.store.snapshot?.settings;
@@ -168,11 +183,33 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
       </div>
     `;
     return html`<omb-modal
-      size="sm"
+      size="lg"
       heading="Settings"
       icon="settings"
       @close=${this.onClosed}
-      .body=${body}
+      .body=${html`
+        <div role="tablist" aria-label="Settings pages" class="tabs tabs-border mb-5">
+          ${(["general", "devices"] as const).map(
+            (tab) =>
+              html` <button
+                type="button"
+                role="tab"
+                id=${`settings-tab-${tab}`}
+                aria-controls="settings-panel"
+                aria-selected=${this.tab === tab}
+                tabindex=${this.tab === tab ? 0 : -1}
+                class="tab ${this.tab === tab ? "tab-active" : ""}"
+                @click=${() => (this.tab = tab)}
+                @keydown=${(event: KeyboardEvent) => this.#tabKeydown(event)}
+              >
+                ${tab === "general" ? "General" : "Devices"}
+              </button>`,
+          )}
+        </div>
+        <div role="tabpanel" id="settings-panel" aria-labelledby=${`settings-tab-${this.tab}`}>
+          ${this.tab === "general" ? body : html`<omb-devices-settings></omb-devices-settings>`}
+        </div>
+      `}
     ></omb-modal>`;
   }
 }

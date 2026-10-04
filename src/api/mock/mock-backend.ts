@@ -2,9 +2,7 @@ import type { Backend } from "../backend";
 import type {
   EntityKind,
   MediaMetadata,
-  Project,
   Snapshot,
-  Space,
   TransferJob,
   UpdateInfo,
   Volume,
@@ -16,6 +14,8 @@ import { mockFiles } from "./files";
 import { mockStatus, mockWorkspaceStatus, type Counts } from "./status";
 import { demoSync } from "./sync";
 import { validateProjectConfiguration } from "../../state/projects";
+import { flowLabel } from "../../state/selectors";
+import { sanitizeBackupName, sourceBackupName } from "../../utils/names";
 import { expandTemplate, previewVars, templateVars } from "../../utils/template";
 
 const COLLECTION: Record<EntityKind, keyof Snapshot> = {
@@ -29,21 +29,6 @@ const COLLECTION: Record<EntityKind, keyof Snapshot> = {
   flow: "flows",
 };
 const AVG_FILE = 39_000_000;
-
-function projectVars(space: Space | undefined, project: Project | undefined): Record<string, string> {
-  if (!space || !project) return {};
-  const vars: Record<string, string> = {
-    project: project.name,
-    project_name: project.name,
-  };
-  for (const variable of space.variables) {
-    if (variable.default_value) vars[variable.name] = variable.default_value;
-  }
-  for (const [name, value] of Object.entries(project.values)) {
-    if (value) vars[name] = value;
-  }
-  return vars;
-}
 
 /** In-memory backend used in a plain browser (and in UI tests). Simulates transfers. */
 export function createMockBackend(
@@ -117,17 +102,22 @@ export function createMockBackend(
       c[3] = 0;
     }
     const flow = snapshot.flows.find((f) => f.id === flowId);
-    const name = (id?: string) => snapshot.devices.find((d) => d.id === id)?.name ?? "?";
-    const src = snapshot.sources.find((s) => s.id === flow?.source_id);
     const dst = snapshot.destinations.find((d) => d.id === flow?.destination_id);
+    const src = snapshot.sources.find((s) => s.id === flow?.source_id);
+    if (!src || !snapshot.devices.some((d) => d.id === src.device_id))
+      throw new Error("Select a device for this source in its settings");
+    if (dst?.kind !== "app" && (!dst || !snapshot.devices.some((d) => d.id === dst.device_id)))
+      throw new Error("Select a device for this destination in its settings");
     if (flow) validateProjectConfiguration(snapshot, flow.space_id);
     if (dst?.kind === "app") throw new Error("App destinations can only be triggered manually");
-    if (!c[1] || offline.has(dst?.device_id ?? "")) return;
+    if (offline.has(src.device_id) || offline.has(dst?.device_id ?? ""))
+      throw new Error("Connect the source and destination devices to run");
+    if (!c[1]) return;
     if (jobs.some((j) => j.flow_id === flowId && !["done", "failed", "cancelled"].includes(j.state))) return;
     jobs.push({
       id: crypto.randomUUID(),
       flow_id: flowId,
-      label: `${name(src?.device_id)} → ${name(dst?.device_id)}`,
+      label: flow ? flowLabel(snapshot, flow) : "?",
       state: "queued",
       files_done: 0,
       files_total: c[1],
@@ -160,6 +150,9 @@ export function createMockBackend(
   const openMockApp = (flowId: string) => {
     const flow = snapshot.flows.find((f) => f.id === flowId);
     const dest = snapshot.destinations.find((d) => d.id === flow?.destination_id);
+    const source = snapshot.sources.find((s) => s.id === flow?.source_id);
+    if (!source || !snapshot.devices.some((d) => d.id === source.device_id))
+      throw new Error("Select a device for this source in its settings");
     if (dest?.kind !== "app") throw new Error("This destination is not an app destination");
     const appPath = snapshot.settings.app_destinations?.[dest.id]?.trim();
     const appName = dest.app_name ?? (appPath ? appPath.split(/[\\/]/).pop() : null) ?? "Application";
@@ -195,9 +188,18 @@ export function createMockBackend(
       const index = items.findIndex((e) => e.id === entity.id);
       if (index >= 0) items[index] = structuredClone(entity);
       else items.push(structuredClone(entity));
+      if (kind === "device" && index < 0) offline.add(entity.id);
       changed();
     },
     deleteEntity: async (kind, id) => {
+      if (kind === "device") {
+        if (!id) throw new Error("device id is required");
+        for (const task of [...snapshot.sources, ...snapshot.destinations]) {
+          if (task.device_id === id) task.device_id = "";
+        }
+        snapshot.mappings = snapshot.mappings.filter((m) => m.device_id !== id);
+        offline.delete(id);
+      }
       const items = list(kind);
       const index = items.findIndex((e) => e.id === id);
       if (index >= 0) items.splice(index, 1);
@@ -231,10 +233,21 @@ export function createMockBackend(
       const source = snapshot.sources.find((s) => s.id === flow.source_id)!;
       const space = snapshot.spaces.find((s) => s.id === req.context.spaceId)!;
       const project = snapshot.projects.find((p) => p.id === req.context.projectId) ?? null;
-      const vars = previewVars(space, project, snapshot.devices.find((d) => d.id === source.device_id)?.name);
+      const vars = previewVars(
+        space,
+        source.project_scope?.mode === "none" ? null : project,
+        sourceBackupName(
+          source,
+          snapshot.devices.find((d) => d.id === source.device_id),
+        ),
+      );
       if (templateVars(source.path_template).some((name) => !(name in vars)))
         throw new Error("Source path requires project values or an unknown variable");
       const destination = snapshot.destinations.find((d) => d.id === flow.destination_id)!;
+      if (!snapshot.devices.some((d) => d.id === source.device_id))
+        throw new Error("Select a device for this source in its settings");
+      if (destination.kind !== "app" && !snapshot.devices.some((d) => d.id === destination.device_id))
+        throw new Error("Select a device for this destination in its settings");
       const configError = status.state === "error" && !status.runnable ? status.error : null;
       const total = configError
         ? req.category === "error"
@@ -246,15 +259,28 @@ export function createMockBackend(
             ignored: status.ignored,
             error: status.failed,
           }[req.category];
+      let targetFolder = expandTemplate(destination.path_template, vars);
+      if ((destination.kind ?? "folder") === "folder" && destination.subfolder_per_source) {
+        const segment = sanitizeBackupName(
+          sourceBackupName(
+            source,
+            snapshot.devices.find((d) => d.id === source.device_id),
+          ),
+        );
+        targetFolder = [targetFolder.replace(/\/+$/, ""), segment].filter(Boolean).join("/");
+      }
       const page = mockFiles(
         total,
         req.category,
         req.offset,
         req.limit,
         req.filter,
-        expandTemplate(destination.path_template, vars),
+        targetFolder,
         destination.rules,
         project ? vars : {},
+        req.directory,
+        destination.kind === "app",
+        configError,
       );
       for (const file of page.items) {
         file.project_id = project?.id ?? null;
@@ -265,24 +291,18 @@ export function createMockBackend(
       }
       return page;
     },
-    listFiles: async ({ projectId, flowId, category, offset, limit, filter }) => {
-      const [transferred, toTransfer, ignored, failed] = counts[flowId] ?? [0, 25, 0, 0];
-      const total = { transferred, to_transfer: toTransfer, ignored, error: failed }[category];
+    listFiles: async ({ projectId, flowId, category, offset, limit, filter, directory }) => {
       const project = snapshot.projects.find((p) => p.id === projectId);
-      const space = snapshot.spaces.find((s) => s.id === project?.space_id);
-      const dest = snapshot.destinations.find(
-        (d) => d.id === snapshot.flows.find((f) => f.id === flowId)?.destination_id,
-      );
-      return mockFiles(
-        total,
+      if (!project) throw new Error(`Project ${projectId} not found`);
+      return backend.listWorkspaceFiles({
+        context: { spaceId: project.space_id, projectId },
+        flowId,
         category,
         offset,
         limit,
         filter,
-        dest?.path_template ?? "",
-        dest?.rules ?? [],
-        projectVars(space, project),
-      );
+        directory,
+      });
     },
     thumbnail: async () => null,
     getMediaMetadata: async () =>
@@ -358,11 +378,16 @@ export function createMockBackend(
       pendingUpdate = null;
       console.info("Demo mode would restart to finish installing the update");
     },
-    runFlow: async (_projectId, flowId) => startFlow(flowId),
+    runFlow: async (projectId, flowId) => {
+      const status = mockStatus(snapshot, projectId, counts, offline).flows.find((f) => f.flow_id === flowId);
+      if (!status?.runnable)
+        throw new Error(status?.error || "Connect the source and destination devices to run");
+      startFlow(flowId);
+    },
     runAll: async (projectId) => {
       const status = mockStatus(snapshot, projectId, counts, offline);
       status.flows
-        .filter((f) => f.state === "pending" || f.state === "error")
+        .filter((f) => f.runnable)
         .filter((f) => {
           const flow = snapshot.flows.find((flow) => flow.id === f.flow_id);
           return snapshot.destinations.find((d) => d.id === flow?.destination_id)?.kind !== "app";
@@ -406,56 +431,78 @@ export function createMockBackend(
       events.emit("transfers", structuredClone(jobs));
     },
     listTransfers: async () => structuredClone(jobs),
-    listVolumes: async (): Promise<Volume[]> => [
-      {
-        mount_path: "/Volumes/CAM_A_01",
-        name: "CAM_A_01",
-        volume_uuid: "4F2A-91C3",
-        hw_serial: null,
-        total_bytes: 128e9,
-        free_bytes: 70e9,
-        removable: true,
-        device_id: "card1",
-        matched_by: "marker",
-      },
-      {
-        mount_path: "/Volumes/CAM_A_02",
-        name: "CAM_A_02",
-        volume_uuid: "77B1-02AA",
-        hw_serial: null,
-        total_bytes: 128e9,
-        free_bytes: 80e9,
-        removable: true,
-        device_id: "card2",
-        matched_by: "marker",
-      },
-      {
-        mount_path: "/Volumes/Untitled",
-        name: "Untitled",
-        volume_uuid: "9C0D-1E2F",
-        hw_serial: null,
-        total_bytes: 64e9,
-        free_bytes: 60e9,
-        removable: true,
-        device_id: null,
-        matched_by: null,
-      },
-    ],
+    listVolumes: async (): Promise<Volume[]> =>
+      [
+        {
+          mount_path: "/Volumes/CAM_A_01",
+          name: "CAM_A_01",
+          volume_uuid: "4F2A-91C3",
+          hw_serial: null,
+          total_bytes: 128e9,
+          free_bytes: 70e9,
+          removable: true,
+          device_id: "card1",
+          matched_by: "marker",
+        },
+        {
+          mount_path: "/Volumes/CAM_A_02",
+          name: "CAM_A_02",
+          volume_uuid: "77B1-02AA",
+          hw_serial: null,
+          total_bytes: 128e9,
+          free_bytes: 80e9,
+          removable: true,
+          device_id: "card2",
+          matched_by: "marker",
+        },
+        {
+          mount_path: "/Volumes/Untitled",
+          name: "Untitled",
+          volume_uuid: "9C0D-1E2F",
+          hw_serial: null,
+          total_bytes: 64e9,
+          free_bytes: 60e9,
+          removable: true,
+          device_id: null,
+          matched_by: null,
+        },
+      ].map((volume): Volume => {
+        const mapping = snapshot.mappings.find(
+          (m) =>
+            m.computer_id === snapshot.computer.id &&
+            m.root_path === volume.mount_path &&
+            snapshot.devices.some((d) => d.id === m.device_id),
+        );
+        return { ...volume, device_id: mapping?.device_id ?? null, matched_by: mapping ? "mapping" : null };
+      }),
     registerDevice: async (mountPath, device) => {
-      list("device").push(structuredClone(device));
-      snapshot.mappings.push({
+      const index = snapshot.devices.findIndex((d) => d.id === device.id);
+      if (index < 0) snapshot.devices.push(structuredClone(device));
+      else snapshot.devices[index] = structuredClone(device);
+      const mapping = {
         id: `${device.id}@${snapshot.computer.id}`,
         device_id: device.id,
         computer_id: snapshot.computer.id,
         root_path: mountPath,
-      });
+      };
+      snapshot.mappings = snapshot.mappings.filter((m) => m.id !== mapping.id);
+      snapshot.mappings.push(mapping);
+      offline.delete(device.id);
       changed();
     },
     relinkDevice: async (deviceId, mountPath) => {
+      if (!snapshot.devices.some((d) => d.id === deviceId)) throw new Error(`Device ${deviceId} not found`);
       const mapping = snapshot.mappings.find(
         (m) => m.device_id === deviceId && m.computer_id === snapshot.computer.id,
       );
       if (mapping) mapping.root_path = mountPath;
+      else
+        snapshot.mappings.push({
+          id: `${deviceId}@${snapshot.computer.id}`,
+          device_id: deviceId,
+          computer_id: snapshot.computer.id,
+          root_path: mountPath,
+        });
       offline.delete(deviceId);
       changed();
     },

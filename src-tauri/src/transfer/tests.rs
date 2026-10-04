@@ -86,6 +86,62 @@ fn second_run_is_a_no_op() {
     assert_eq!(h.snapshot().files_total, 0);
 }
 
+#[test]
+fn preserves_source_relative_folders_and_same_names_without_copying_empty_or_excluded_folders() {
+    for per_source in [false, true] {
+        let fx = Fixture::new();
+        let mut destination = fx.destination.clone();
+        destination.path_template = "backup".into();
+        destination.subfolder_per_source = per_source;
+        destination.rules = vec![crate::domain::FileRule::path(
+            crate::domain::RuleAction::Exclude,
+            crate::domain::RuleSyntax::Glob,
+            "*.TXT",
+        )];
+        fx.store.put(&destination).unwrap();
+        for (path, bytes) in [
+            ("ROOT.JPG", b"root".as_slice()),
+            ("100/A.JPG", b"first".as_slice()),
+            ("101/nested/A.JPG", b"second".as_slice()),
+        ] {
+            fx.write_card_file(&format!("DCIM/{path}"), bytes);
+        }
+        fx.write_card_file("DCIM/excluded/NOTES.TXT", b"excluded");
+        std::fs::create_dir_all(fx.card_dir.path().join("DCIM/empty")).unwrap();
+        let (handle, failures) = run(&fx);
+        assert!(handle.snapshot().errors.is_empty());
+        assert!(failures.lock().is_empty());
+        assert_eq!(handle.snapshot().files_total, 3);
+        let base = if per_source {
+            "backup/Camera A Card 1"
+        } else {
+            "backup"
+        };
+        for (path, bytes) in [
+            ("ROOT.JPG", b"root".as_slice()),
+            ("100/A.JPG", b"first".as_slice()),
+            ("101/nested/A.JPG", b"second".as_slice()),
+        ] {
+            assert_eq!(
+                std::fs::read(fx.nas_dir.path().join(format!("{base}/{path}"))).unwrap(),
+                bytes
+            );
+            assert!(fx.card_dir.path().join(format!("DCIM/{path}")).exists());
+        }
+        for absent in ["DCIM", "empty", "excluded", "A.JPG"] {
+            assert!(!fx.nas_dir.path().join(format!("{base}/{absent}")).exists());
+        }
+        let copies = fx.store.list::<FileCopy>().unwrap();
+        assert!(
+            copies
+                .iter()
+                .any(|copy| copy.device_id == "nas"
+                    && copy.path == format!("{base}/101/nested/A.JPG"))
+        );
+        assert_eq!(run(&fx).0.snapshot().files_total, 0);
+    }
+}
+
 /// Synthetic TIFF containing only DateTimeOriginal and OffsetTimeOriginal.
 fn capture_fixture(offset: bool) -> Vec<u8> {
     let mut bytes = vec![0; 83];
@@ -155,9 +211,24 @@ fn overlapping_projects_transfer_each_route_preserving_physical_source_path() {
             offset: 0,
             limit: 50,
             filter: None,
+            directory: None,
         })
         .unwrap();
     assert_eq!(page.items.len(), 2);
+    assert_eq!(
+        page.directories
+            .iter()
+            .find(|directory| directory.path.is_empty())
+            .unwrap()
+            .total,
+        2
+    );
+    for folder in ["Alice/Alice", "Bob/Bob"] {
+        assert!(page
+            .directories
+            .iter()
+            .any(|directory| directory.path == folder && directory.direct_files == 1));
+    }
     assert!(page
         .items
         .iter()

@@ -6,6 +6,7 @@ import { newDestination } from "../../state/factories";
 import { deviceById, mappingFor, nextPosition, spaceDestinations } from "../../state/selectors";
 import { appDisplayName, configuredDestinationApp } from "../../utils/preview-apps";
 import { previewVars, templateVars } from "../../utils/template";
+import { destinationTaskName } from "../../utils/names";
 import { ruleError } from "../form/rules-editor";
 import { DialogBase } from "./dialog-base";
 import "../form/device-field";
@@ -33,7 +34,10 @@ export class OmbDestinationDialog extends DialogBase<
   }
 
   async #save() {
-    const saved = await this.store.save("destination", this.draft);
+    const saved = await this.store.save("destination", {
+      ...this.draft,
+      task_name: this.draft.task_name?.trim() ?? "",
+    });
     if (!saved) return;
     if ((this.draft.kind ?? "folder") === "app" && this.pendingAppPath !== undefined) {
       await this.#saveLocalApp(this.draft.id, this.pendingAppPath);
@@ -63,7 +67,11 @@ export class OmbDestinationDialog extends DialogBase<
   }
 
   #delete() {
-    const name = deviceById(this.store.snapshot!, this.draft.device_id)?.name ?? "this destination";
+    const name = destinationTaskName(
+      this.draft,
+      deviceById(this.store.snapshot!, this.draft.device_id),
+      configuredDestinationApp(this.store.snapshot!.settings, this.draft.id),
+    );
     this.store.open({
       type: "confirm",
       title: `Remove ${name}?`,
@@ -115,9 +123,22 @@ export class OmbDestinationDialog extends DialogBase<
     const invalid =
       d.rules.some((r) => ruleError(r)) ||
       unknownVars.length > 0 ||
-      (isApp ? !d.app_name?.trim() && !localAppPath?.trim() : !d.device_id);
+      (isApp ? !d.app_name?.trim() && !localAppPath?.trim() : !device);
     const body = html`
       <div class="flex flex-col gap-5">
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Destination task name</legend>
+          <input
+            aria-label="Destination task name"
+            class="input w-full"
+            .value=${d.task_name ?? ""}
+            placeholder=${destinationTaskName({ ...d, task_name: "" }, device, localAppPath)}
+            @input=${(e: Event) => set({ task_name: (e.target as HTMLInputElement).value })}
+          />
+          <p class="label whitespace-normal">
+            Only labels this card and its transfers. Leave blank to use the device or application name.
+          </p>
+        </fieldset>
         <section>
           <h4 class="font-medium mb-2">Type</h4>
           <div class="inline-flex rounded-field border border-base-300 bg-base-200 p-1">
@@ -177,6 +198,11 @@ export class OmbDestinationDialog extends DialogBase<
                     App destinations are manual only. They open matching files in the selected app and never
                     run during automatic transfers.
                   </p>
+                  ${this.#toggle(
+                    "counts_as_safe_copy",
+                    "Counts as a safe copy",
+                    "Confirmed imports here count one-for-one toward copies required before wiping a card.",
+                  )}
                 </section>
                 <section>
                   <h4 class="font-medium mb-2">File rules</h4>
@@ -216,7 +242,7 @@ export class OmbDestinationDialog extends DialogBase<
                             : nothing
                         }
                         <div class="flex flex-col gap-3">
-                          ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source device, e.g. …/Camera A · Card 1/.")}
+                          ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source's device name for backup, or its physical device name when blank. Task names never affect folders.")}
                           ${this.#toggle(
                             "use_backup_marker",
                             "Full-card backup folder",
@@ -267,9 +293,7 @@ export class OmbDestinationDialog extends DialogBase<
     return html`<omb-modal
       size="lg"
       heading=${
-        this.#isNew
-          ? "Add destination"
-          : `Destination · ${isApp ? d.app_name || (localAppPath ? appDisplayName(localAppPath) : "App") : (device?.name ?? "")}`
+        this.#isNew ? "Add destination" : `Destination · ${destinationTaskName(d, device, localAppPath)}`
       }
       subheading=${
         isApp

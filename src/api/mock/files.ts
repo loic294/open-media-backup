@@ -1,5 +1,6 @@
-import type { FileCategory, FileEntry, FilePage, MediaKind, FileRule } from "../types";
+import type { FileCategory, FileDirectory, FileEntry, FilePage, MediaKind, FileRule } from "../types";
 import { rulesAllowPath } from "../../utils/file-rules";
+import { directoryKey, fileDirectory, summarizeDirectories } from "../../utils/transfer-tree";
 
 const EXT: [string, MediaKind][] = [
   ["ARW", "raw"],
@@ -20,6 +21,9 @@ export function mockFiles(
   target = "",
   rules: FileRule[] = [],
   vars: Record<string, string> = {},
+  directory?: FileDirectory,
+  isApp = false,
+  configError?: string | null,
 ): FilePage {
   const all = Array.from({ length: total }, (_, i) => {
     const [ext, media] = EXT[i % EXT.length];
@@ -33,20 +37,27 @@ export function mockFiles(
       size,
       media,
       abs_path: null,
-      target_path: category === "ignored" ? null : `${target}/${name}`,
+      target_path:
+        category === "ignored" || configError ? null : [target, folder, name].filter(Boolean).join("/"),
       category,
-      error: category === "error" ? "hash mismatch after copy" : null,
+      error: configError ?? (category === "error" ? "hash mismatch after copy" : null),
       capture_time: Date.UTC(2026, 0, 14, 9, (i * 7) % 60),
     };
     return entry;
   }).filter(
     (f) =>
-      (!filter || f.rel_path.toLowerCase().includes(filter.toLowerCase())) &&
+      (!filter ||
+        f.rel_path.toLowerCase().includes(filter.toLowerCase()) ||
+        f.target_path?.toLowerCase().includes(filter.toLowerCase())) &&
       (category === "ignored" || rulesAllowPath(rules, f.rel_path, vars)),
   );
+  const matching = directory
+    ? all.filter((file) => directoryKey(fileDirectory(file, isApp)) === directoryKey(directory))
+    : all;
   return {
-    total: all.length,
-    total_bytes: all.reduce((sum, f) => sum + f.size, 0),
-    items: all.slice(offset, offset + limit),
+    total: matching.length,
+    total_bytes: matching.reduce((sum, f) => sum + f.size, 0),
+    items: matching.slice(offset, offset + Math.min(1000, Math.max(1, limit))),
+    directories: summarizeDirectories(all, isApp),
   };
 }

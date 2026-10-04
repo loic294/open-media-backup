@@ -1,4 +1,4 @@
-use crate::domain::{Device, Project, Space};
+use crate::domain::{Device, Project, Source, Space};
 use crate::paths::{expand, read_backup_folder, TemplateVars};
 use std::path::Path;
 
@@ -14,15 +14,30 @@ pub fn project_template_vars(
     project: Option<&Project>,
     source_device: &Device,
 ) -> TemplateVars {
+    vars_with_source_name(space, project, &source_device.name)
+}
+
+/// Source-specific backup naming, with the same space/project override precedence.
+pub fn source_template_vars(
+    space: &Space,
+    project: Option<&Project>,
+    source_device: &Device,
+    source: &Source,
+) -> TemplateVars {
+    vars_with_source_name(space, project, source.resolved_backup_name(source_device))
+}
+
+fn vars_with_source_name(
+    space: &Space,
+    project: Option<&Project>,
+    source_name: &str,
+) -> TemplateVars {
     let mut vars = TemplateVars::new();
     if let Some(project) = project {
         vars.insert("project".into(), project.name.clone());
         vars.insert("project_name".into(), project.name.clone());
     }
-    vars.insert(
-        "source_name".into(),
-        super::sanitize_segment(&source_device.name),
-    );
+    vars.insert("source_name".into(), super::sanitize_segment(source_name));
     if let Some(project) = project {
         for def in &space.variables {
             if !def.default_value.is_empty() {

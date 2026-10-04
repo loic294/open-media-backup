@@ -17,8 +17,12 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 | **Flow**                 | A connection from a source to a destination. Its line is green when transferred, orange when files are pending, red on an error, and grey when unavailable. |
 
 - **Templates.** Built-in variables are `project`, `project_name`, `source_name`, `backup_folder`, `date`, `year`, `month` and `day`. Space variables come after these, and project values override space defaults.
+- **Names.** The _Device name_ identifies physical hardware and is shared by every source/destination using it. Each source can override its _Device name for backup_: this supplies `{source_name}` and _Subfolder per source_, using the existing folder-name sanitization. Each source/destination also has a display-only _Task name_ for its card and transfer labels, including app destinations. Blank task names use the device/app name; blank backup names use the physical device name. Names sync between computers, but overrides belong to individual tasks, so tasks on the same device can be named differently. Changing a task name never changes paths. Changing a backup name affects future resolved paths (including source folders containing `{source_name}`) without moving existing files, changing recorded copy identities, or replacing existing backup-folder markers.
+- **Device management.** Open **Settings > Devices** to add, edit, or remove any registered device, including offline devices and devices not assigned to a task. Edit the shared name, description, type, and role; choose a mounted volume or folder to locate it on the current computer, or register it offline and locate it later. Hardware identifiers and capacity are read-only. Removing a device clears its assignment from every source and destination across all spaces and removes its mappings on all computers. Tasks, connections, physical files, and backup history stay intact. Affected tasks show **No device selected** and cannot transfer or wipe until you choose a replacement in their settings. Device changes sync to peers.
 - **Rules.** An ordered list of include/exclude rules, written as glob (`*.ARW`, `DCIM/`) or regex. They apply to both folders and files, and the last match wins. A pattern ending in `/` matches folders only.
 - **Backup marker.** If a destination has _use backup marker_ on, the backup folder name is read from `.openmediabackup/` on the card. When the card has no marker, the name is generated from the space's marker template and written to the card. Either way, every backup of the same card lands in the same folder.
+- **Folder structure.** Transfers preserve paths relative to the selected source folder inside the destination. Selecting `DCIM` copies `DCIM/100MEDIA/photo.jpg` to `<destination>/100MEDIA/photo.jpg`, without adding another `DCIM` wrapper. Destination templates and optional per-source-device subfolders still apply. Empty folders and folders containing only excluded files are not copied.
+- **Transfer preview.** The default folder view shows the planned destination hierarchy with file counts and sizes across all matching files, not just the first page. Expand folders to load their files; thumbnail and list views remain available. Ignored or unroutable files are grouped separately by source path, and app destinations show source folders. Paths are planned: existing-file conflicts can cause a numeric filename suffix during transfer.
 - **Wipe.** A card can be wiped once each of its files is verified on at least _N_ final destinations (_N_ is set per project). Wiping either deletes the files or does a quick format.
 - **Hashing.** Each space uses BLAKE3 by default (cryptographic and still very fast) or xxHash64 (fastest). The verify mode is also set per space. _Re-read_ (the default) reads every copy back and compares hashes. _Inline_ hashes the bytes while copying, which is faster.
 
@@ -32,6 +36,15 @@ Paths needing project values are blocked until those values are available. An ex
 backup-folder marker can resolve `{backup_folder}` without a project; a new marker
 can only be generated when its template resolves without invented project values.
 Card wiping remains disabled without a project to define the required safe-copy count.
+
+### Status scanning
+
+Status routing reads capture-time metadata without loading RAW pixel payloads.
+For videos it uses camera XML sidecars, then the MP4 creation header, and only
+probes the codec when neither provides a capture date. Capture results are cached
+for the current session and invalidated when file size, modification time, or
+video sidecars change. Filesystem modification time is never used as a capture
+date, and timestamps without a known timezone remain unassigned.
 
 ## Peer-to-peer sync
 
@@ -49,6 +62,7 @@ A shared server (for example Supabase) is planned as an alternative backend.
 
 - Embedded previews are pulled from JPEG and RAW files.
 - Video thumbnails need `ffmpeg`. The app looks in `OMB_FFMPEG`, then `PATH`, then the Homebrew locations. Without ffmpeg, videos show a placeholder.
+- FFmpeg must be able to start and decode the clip. Extraction failures are shown in the thumbnail's error tooltip. If `ffmpeg -version` fails with a missing-library error on macOS, repair the Homebrew installation (for example, `brew upgrade ffmpeg`) and reopen the media view after restarting the app. `OMB_FFMPEG` can point to an alternative working executable.
 
 ## Development
 

@@ -5,6 +5,7 @@ import type {
   DeviceMapping,
   EntityKind,
   FileCategory,
+  FileDirectory,
   FilePage,
   Flow,
   MediaMetadata,
@@ -66,6 +67,7 @@ export interface Backend {
     offset: number;
     limit: number;
     filter?: string;
+    directory?: FileDirectory;
   }): Promise<FilePage>;
   thumbnail(absPath: string): Promise<string | null>;
   getMediaMetadata(absPath: string): Promise<MediaMetadata>;

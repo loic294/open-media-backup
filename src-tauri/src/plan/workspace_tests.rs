@@ -68,6 +68,36 @@ fn project_free_offline_cards_still_have_terminal_status() {
 }
 
 #[test]
+fn stale_synced_device_references_are_blocked_without_masking_missing_flow_entities() {
+    let fx = without_projects();
+    let mut source = fx.source.clone();
+    source.device_id = "unknown-device-from-peer".into();
+    fx.store.put(&source).unwrap();
+    let st = status(&fx);
+    assert!(!st.sources[0].available);
+    assert!(!st.sources[0].wipe_eligible);
+    assert_eq!(st.flows[0].state, FlowState::Unavailable);
+    assert!(!st.flows[0].runnable);
+    assert!(st.flows[0]
+        .error
+        .as_ref()
+        .unwrap()
+        .contains("source settings"));
+    fx.store
+        .delete(EntityKind::Destination, &fx.destination.id)
+        .unwrap();
+    let err = workspace_status(
+        &fx.store,
+        &fx.resolver,
+        &Catalog::load(&fx.store).unwrap(),
+        &context(&fx),
+        &FailureMap::new(),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("destination"));
+}
+
+#[test]
 fn project_dependent_destination_is_explicitly_blocked() {
     let fx = without_projects();
     fx.write_card_file("DCIM/A.JPG", b"photo");

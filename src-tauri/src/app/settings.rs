@@ -20,6 +20,7 @@ pub struct AppSettings {
     pub active_space_id: Option<String>,
     pub active_project_by_space: HashMap<String, String>,
     pub preview_apps: PreviewAppSettings,
+    pub show_mounted_devices_first: bool,
     pub app_destinations: HashMap<String, String>,
     pub transfer_speeds: HashMap<String, u64>,
 }
@@ -41,6 +42,7 @@ impl Default for AppSettings {
             active_space_id: None,
             active_project_by_space: HashMap::new(),
             preview_apps: PreviewAppSettings::default(),
+            show_mounted_devices_first: true,
             app_destinations: HashMap::new(),
             transfer_speeds: HashMap::new(),
         }
@@ -106,6 +108,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn missing_mounted_device_preference_defaults_to_enabled() {
+        let settings: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(settings.show_mounted_devices_first);
+    }
+
+    #[test]
     fn learned_transfer_speed_uses_device_then_global() {
         let mut settings = AppSettings::default();
         settings
@@ -142,9 +150,11 @@ mod tests {
         let fx = crate::testing::Fixture::new();
         let mut settings = AppSettings::default();
         assert!(settings.record_transfer_sample("nas", 100 * 1024 * 1024, 2.0));
+        settings.show_mounted_devices_first = false;
         settings.save(&fx.store).unwrap();
         let loaded = AppSettings::load(&fx.store);
         assert_eq!(loaded.learned_transfer_speed("nas"), Some(52_428_800));
         assert_eq!(loaded.learned_transfer_speed("ssd"), Some(52_428_800));
+        assert!(!loaded.show_mounted_devices_first);
     }
 }

@@ -171,6 +171,29 @@ describe("AppStore with the mock backend", () => {
       expect(store.status).toEqual(status);
     });
 
+    it("coalesces refresh events without discarding a completed status result", async () => {
+      const backend = await backendWithoutProjects();
+      store = new AppStore(backend);
+      await store.init();
+      const status = await backend.getWorkspaceStatus(store.context!);
+      let finish!: (value: WorkspaceStatus) => void;
+      const request = vi.spyOn(backend, "getWorkspaceStatus").mockImplementationOnce(
+        () => new Promise((resolve) => { finish = resolve; }),
+      );
+      const pending = store.retryStatus();
+      for (let n = 0; n < 4; n++) {
+        store.refreshStatus();
+        await new Promise((resolve) => setTimeout(resolve, 130));
+      }
+      expect(request).toHaveBeenCalledTimes(1);
+      finish(status);
+      await pending;
+      expect(store.status).toEqual(status);
+      expect(store.statusLoading).toBe(false);
+      await until(() => request.mock.calls.length === 2);
+      expect(request).toHaveBeenCalledTimes(2);
+    });
+
     it("opens and confirms manual imports without a project", async () => {
       const backend = await backendWithoutProjects();
       store = new AppStore(backend);

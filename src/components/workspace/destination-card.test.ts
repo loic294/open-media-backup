@@ -28,6 +28,7 @@ describe("app destination card", () => {
 
   it("renders manual app import details", async () => {
     const snapshot = demoSnapshot();
+    snapshot.destinations.find((destination) => destination.id === "d4")!.counts_as_safe_copy = true;
     store.snapshot = snapshot;
     store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
     card = new OmbDestinationCard();
@@ -37,6 +38,7 @@ describe("app destination card", () => {
 
     expect(card.textContent).toContain("Lightroom · App · manual import");
     expect(card.textContent).toContain("Manual");
+    expect(card.querySelector('omb-icon[title="Confirmed imports count as a safe copy"]')).not.toBeNull();
     expect(card.textContent).toContain("to import");
     expect(card.querySelector("button.btn-primary")?.textContent).toContain("Open in Lightroom");
   });

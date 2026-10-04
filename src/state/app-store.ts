@@ -59,6 +59,8 @@ export class AppStore extends EventTarget {
   #snapshotSeq = 0;
   #statusContextKey = "";
   #disposed = false;
+  #statusFlight: { signature: string; promise: Promise<void> } | null = null;
+  #statusRefreshPending = false;
 
   constructor(readonly backend: Backend) {
     super();
@@ -131,14 +133,34 @@ export class AppStore extends EventTarget {
 
   refreshStatus = (): void => {
     if (this.#disposed) return;
-    this.#statusSeq++;
+    if (this.#statusFlight?.signature === this.#statusSignature()) {
+      this.#statusRefreshPending = true;
+      return;
+    }
     this.#scheduleStatus();
   };
 
   retryStatus = (): Promise<void> => this.#loadStatus();
 
-  async #loadStatus(): Promise<void> {
-    if (this.#disposed) return;
+  #loadStatus(): Promise<void> {
+    if (this.#disposed) return Promise.resolve();
+    const signature = this.#statusSignature();
+    if (this.#statusFlight?.signature === signature) return this.#statusFlight.promise;
+    const flight = { signature, promise: Promise.resolve() };
+    this.#statusRefreshPending = false;
+    this.#statusFlight = flight;
+    flight.promise = this.#fetchStatus().finally(() => {
+      if (this.#statusFlight !== flight) return;
+      this.#statusFlight = null;
+      if (this.#statusRefreshPending && !this.#disposed) {
+        this.#statusRefreshPending = false;
+        this.#scheduleStatus();
+      }
+    });
+    return flight.promise;
+  }
+
+  async #fetchStatus(): Promise<void> {
     const context = this.context;
     const key = JSON.stringify(context);
     const seq = ++this.#statusSeq;
@@ -231,6 +253,10 @@ export class AppStore extends EventTarget {
   }
 
   async remove(kind: EntityKind, id: string): Promise<void> {
+    if (kind === "device") {
+      await this.removeDevice(id);
+      return;
+    }
     if (this.snapshot) {
       const key = COLLECTION[kind];
       const items = (this.snapshot[key] as { id: string }[]).filter((e) => e.id !== id);
@@ -239,6 +265,21 @@ export class AppStore extends EventTarget {
     await this.#guard(() => this.backend.deleteEntity(kind, id));
     await this.reloadSnapshot();
     this.refreshStatus();
+  }
+
+  async removeDevice(id: string): Promise<boolean> {
+    const removed = await this.#guard(() => this.backend.deleteEntity("device", id));
+    if (!removed) return false;
+    await this.reloadSnapshot();
+    await this.refreshVolumes();
+    return true;
+  }
+
+  async refreshVolumes(): Promise<void> {
+    await this.#guard(async () => {
+      const volumes = await this.backend.listVolumes();
+      this.#set({ volumes });
+    });
   }
 
   // ---- actions ----

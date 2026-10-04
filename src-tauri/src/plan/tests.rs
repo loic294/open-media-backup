@@ -1,7 +1,7 @@
 use super::*;
 use crate::domain::{
-    Destination, Device, DeviceRole, FileCopy, FileRecord, FileRule, Flow, HashAlgo, RuleAction,
-    RuleSyntax, Source,
+    Destination, DestinationKind, Device, DeviceRole, FileCopy, FileRecord, FileRule, Flow,
+    HashAlgo, RuleAction, RuleSyntax, Source,
 };
 use crate::testing::Fixture;
 
@@ -107,6 +107,29 @@ fn fully_copied_source_is_wipe_eligible() {
     assert_eq!(s.flows[0].state, FlowState::Done);
     assert_eq!(s.sources[0].safe_copies, 1);
     assert!(s.sources[0].wipe_eligible);
+}
+
+#[test]
+fn confirmed_app_import_counts_as_a_final_safe_copy_only_when_enabled() {
+    let fx = Fixture::new();
+    let mut destination = fx.destination.clone();
+    destination.kind = DestinationKind::App;
+    destination.device_id.clear();
+    destination.path_template.clear();
+    destination.app_name = Some("Photo app".into());
+    destination.counts_as_safe_copy = false;
+    fx.store.put(&destination).unwrap();
+    fx.write_card_file("DCIM/A.ARW", b"aaaa");
+    record_copy(&fx, "hashA", 4, "card", "DCIM/A.ARW");
+    record_copy(&fx, "hashA", 4, &destination.id, "A.ARW");
+
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
+
+    destination.counts_as_safe_copy = true;
+    fx.store.put(&destination).unwrap();
+    let source = &status(&fx).sources[0];
+    assert_eq!(source.safe_copies, 1);
+    assert!(source.wipe_eligible);
 }
 
 #[test]

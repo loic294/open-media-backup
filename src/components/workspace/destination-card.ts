@@ -6,6 +6,7 @@ import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, formatCount, formatEta } from "../../utils/format";
+import { destinationTaskName } from "../../utils/names";
 import { appDisplayName, configuredDestinationApp } from "../../utils/preview-apps";
 import { DEVICE_ICON, DEVICE_TONE } from "../ui/device-icon";
 import { OmbElement } from "../ui/omb-element";
@@ -150,11 +151,11 @@ export class OmbDestinationCard extends OmbElement {
     ].filter(Boolean);
     const temporaryCopiesPerFinal = space?.temporary_copies_per_final ?? 0;
     const verified =
-      !isApp &&
       this.destination.counts_as_safe_copy &&
-      (device?.role === "final" || (device?.role === "temporary" && temporaryCopiesPerFinal > 0));
-    const safeCopyTitle =
-      device?.role === "temporary"
+      (isApp || device?.role === "final" || (device?.role === "temporary" && temporaryCopiesPerFinal > 0));
+    const safeCopyTitle = isApp
+      ? "Confirmed imports count as a safe copy"
+      : device?.role === "temporary"
         ? `Counts toward safe copies in groups of ${temporaryCopiesPerFinal}`
         : "Counts as a safe copy";
     const canRun = online && this.#runnableIncoming().length > 0;
@@ -175,8 +176,17 @@ export class OmbDestinationCard extends OmbElement {
               </span>
               <div class="flex-1 min-w-0">
                 <div class="font-semibold truncate flex items-center gap-1.5">
-                  ${appName}
+                  ${destinationTaskName(this.destination, device, localAppPath)}
                   <span class="badge badge-ghost badge-xs">Manual</span>
+                  ${
+                    verified
+                      ? html`<omb-icon
+                          name="shield-check"
+                          class="size-4 text-success"
+                          title=${safeCopyTitle}
+                        ></omb-icon>`
+                      : nothing
+                  }
                 </div>
                 <div class="text-sm text-base-content/60 truncate">${appName} · App · manual import</div>
               </div>
@@ -271,7 +281,7 @@ export class OmbDestinationCard extends OmbElement {
             </span>
             <div class="flex-1 min-w-0">
               <div class="font-semibold truncate flex items-center gap-1.5">
-                ${device?.name ?? "Unknown device"}
+                ${destinationTaskName(this.destination, device)}
                 ${
                   verified
                     ? html`<omb-icon
@@ -283,13 +293,16 @@ export class OmbDestinationCard extends OmbElement {
                 }
                 ${device?.role === "temporary" ? html`<span class="badge badge-ghost badge-xs">temporary</span>` : nothing}
               </div>
+              <div class="text-xs text-base-content/60 truncate">
+                Device: ${device?.name ?? "No device selected"}
+              </div>
               <div class="text-sm text-base-content/60 truncate">
                 ${details.join(" · ") || this.destination.path_template}
               </div>
             </div>
             <span class="flex items-center gap-2 text-sm text-base-content/70">
               <span class="status ${online ? "status-success" : "status-neutral"}"></span
-              >${!st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : online ? "Online" : "Offline"}
+              >${!device ? "Select a device" : !st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : online ? "Online" : "Offline"}
             </span>
             <button
               class="btn btn-ghost btn-xs btn-square"

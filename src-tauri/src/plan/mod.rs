@@ -21,8 +21,8 @@ pub use status::{
     SourceStatus, WorkspaceStatus,
 };
 pub use vars::{
-    backup_folder_name, project_template_vars, template_vars, uses_project_variables,
-    validate_source_destination,
+    backup_folder_name, project_template_vars, source_template_vars, template_vars,
+    uses_project_variables, validate_source_destination,
 };
 
 use std::collections::HashMap;
@@ -51,6 +51,8 @@ pub(crate) fn sanitize_segment(name: &str) -> String {
     cleaned.trim().trim_matches('.').to_string()
 }
 
+#[cfg(test)]
+mod naming_tests;
 #[cfg(test)]
 mod project_tests;
 #[cfg(test)]

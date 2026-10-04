@@ -86,6 +86,49 @@ impl Store {
         Ok(())
     }
 
+    /// Detaches tasks and forgets a device in one synced transaction.
+    pub fn delete_device(&self, id: &str) -> StoreResult<()> {
+        use crate::domain::{Destination, DeviceMapping, Source};
+        if id.is_empty() {
+            return Err(StoreError::Invalid("device id is required".into()));
+        }
+        let mut kinds = Vec::new();
+        {
+            let mut conn = self.conn.lock();
+            let tx = conn.transaction()?;
+            for kind in [Source::KIND, Destination::KIND, DeviceMapping::KIND] {
+                let ids: Vec<String> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT id FROM entities WHERE kind = ?1 AND deleted = 0 AND json_extract(data, '$.device_id') = ?2",
+                    )?;
+                    let rows = stmt.query_map(params![kind.as_str(), id], |r| r.get(0))?;
+                    rows.collect::<Result<_, _>>()?
+                };
+                for entity_id in ids {
+                    let (field, value) = if kind == DeviceMapping::KIND {
+                        (DELETED_FIELD, Value::Bool(true))
+                    } else {
+                        ("device_id", Value::String(String::new()))
+                    };
+                    if apply_op(&tx, &self.local_op(kind, &entity_id, field, value))? {
+                        if !kinds.contains(&kind.as_str().to_string()) {
+                            kinds.push(kind.as_str().to_string());
+                        }
+                    }
+                }
+            }
+            if apply_op(
+                &tx,
+                &self.local_op(EntityKind::Device, id, DELETED_FIELD, Value::Bool(true)),
+            )? {
+                kinds.push(EntityKind::Device.as_str().to_string());
+            }
+            tx.commit()?;
+        }
+        self.notify(kinds, false);
+        Ok(())
+    }
+
     fn diff_ops(
         &self,
         tx: &Transaction,

@@ -29,7 +29,7 @@ pub(super) fn fill(path: &Path, metadata: &mut MediaMetadata) -> bool {
     filled
 }
 
-fn sidecar_candidates(path: &Path) -> Vec<PathBuf> {
+pub(super) fn sidecar_candidates(path: &Path) -> Vec<PathBuf> {
     let (Some(dir), Some(stem)) = (path.parent(), path.file_stem().and_then(|s| s.to_str())) else {
         return Vec::new();
     };

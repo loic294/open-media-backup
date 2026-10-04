@@ -16,6 +16,8 @@ pub struct Destination {
     pub space_id: String,
     pub kind: DestinationKind,
     pub device_id: String,
+    /// Display-only label for this destination task.
+    pub task_name: String,
     pub path_template: String,
     pub app_name: Option<String>,
     pub subfolder_per_source: bool,
@@ -34,6 +36,7 @@ impl Default for Destination {
             space_id: String::new(),
             kind: DestinationKind::Folder,
             device_id: String::new(),
+            task_name: String::new(),
             path_template: String::new(),
             app_name: None,
             subfolder_per_source: true,
@@ -41,6 +44,23 @@ impl Default for Destination {
             use_backup_marker: false,
             rules: Vec::new(),
             position: 0,
+        }
+    }
+}
+
+impl Destination {
+    pub fn resolved_task_name<'a>(&'a self, device: &'a super::Device) -> &'a str {
+        let name = self.task_name.trim();
+        if !name.is_empty() {
+            name
+        } else if self.kind == DestinationKind::App {
+            self.app_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or("Application")
+        } else {
+            &device.name
         }
     }
 }

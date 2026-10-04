@@ -5,6 +5,7 @@ import type { DialogRequest } from "../../state/dialogs";
 import { newSource } from "../../state/factories";
 import { deviceById, mappingFor, nextPosition, spaceSources } from "../../state/selectors";
 import { previewVars } from "../../utils/template";
+import { sourceBackupName, sourceTaskName } from "../../utils/names";
 import { DialogBase } from "./dialog-base";
 import "../form/device-field";
 import "../form/template-input";
@@ -28,13 +29,17 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
 
   async #save() {
     const previous = this.store.snapshot;
-    await this.store.save("source", this.draft);
+    await this.store.save("source", {
+      ...this.draft,
+      task_name: this.draft.task_name?.trim() ?? "",
+      backup_name: this.draft.backup_name?.trim() ?? "",
+    });
     if (this.store.snapshot === previous) return;
     this.dismiss();
   }
 
   #delete() {
-    const name = deviceById(this.store.snapshot!, this.draft.device_id)?.name ?? "this source";
+    const name = sourceTaskName(this.draft, deviceById(this.store.snapshot!, this.draft.device_id));
     this.store.open({
       type: "confirm",
       title: `Remove ${name}?`,
@@ -66,6 +71,19 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
     };
     const body = html`
       <div class="flex flex-col gap-4">
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Source task name</legend>
+          <input
+            aria-label="Source task name"
+            class="input w-full"
+            .value=${d.task_name ?? ""}
+            placeholder=${device?.name ?? "Uses the device name"}
+            @input=${(e: Event) => set({ task_name: (e.target as HTMLInputElement).value })}
+          />
+          <p class="label whitespace-normal">
+            Only labels this card and its transfers. Leave blank to use the device name.
+          </p>
+        </fieldset>
         <section>
           <h4 class="font-medium mb-2">Device</h4>
           <omb-device-field
@@ -78,12 +96,27 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
         ${
           device
             ? html`
+                <fieldset class="fieldset">
+                  <legend class="fieldset-legend">Device name for backup</legend>
+                  <input
+                    aria-label="Device name for backup"
+                    class="input w-full"
+                    .value=${d.backup_name ?? ""}
+                    placeholder=${device.name}
+                    @input=${(e: Event) => set({ backup_name: (e.target as HTMLInputElement).value })}
+                  />
+                  <p class="label whitespace-normal">
+                    Only for this source: used by {source_name} and “Subfolder per source.” Leave blank to use
+                    the device name. Changes affect future paths, including source folders using
+                    {source_name}; existing files and backup-folder markers stay unchanged.
+                  </p>
+                </fieldset>
                 <omb-template-input
                   label="Folder on the device"
                   placeholder="Leave empty to back up the whole device, e.g. DCIM"
                   .prefix=${mappingFor(snapshot, device.id)?.root_path ?? device.name}
                   .value=${d.path_template}
-                  .vars=${previewVars(space, project, device.name)}
+                  .vars=${previewVars(space, scope.mode === "none" ? null : project, sourceBackupName(d, device))}
                   @value-change=${(e: CustomEvent<string>) => set({ path_template: e.detail })}
                 ></omb-template-input>
                 <label class="flex items-start gap-3 cursor-pointer">
@@ -171,12 +204,12 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
     const actions = html`
       ${this.#isNew ? nothing : html`<button class="btn btn-ghost text-error mr-auto" @click=${() => this.#delete()}><omb-icon name="trash"></omb-icon>Remove</button>`}
       <button class="btn btn-ghost" @click=${() => this.dismiss()}>Cancel</button>
-      <button class="btn btn-primary" ?disabled=${!d.device_id} @click=${() => this.#save()}>
+      <button class="btn btn-primary" ?disabled=${!device} @click=${() => this.#save()}>
         ${this.#isNew ? "Add source" : "Save"}
       </button>
     `;
     return html`<omb-modal
-      heading=${this.#isNew ? "Add source" : `Source · ${device?.name ?? ""}`}
+      heading=${this.#isNew ? "Add source" : `Source · ${sourceTaskName(d, device)}`}
       subheading="Where media comes from: a memory card, camera, drone or any folder."
       icon="log-in"
       @close=${this.onClosed}

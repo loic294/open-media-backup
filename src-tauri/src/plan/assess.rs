@@ -2,7 +2,9 @@ use super::{
     safe_copy_report, source_files, Catalog, FinalTarget, RootResolver, SafeCopyReport,
     SourceStatus,
 };
-use crate::domain::{Destination, Device, DeviceRole, Project, Source, Space};
+use crate::domain::{
+    Destination, DestinationKind, Device, DeviceKind, DeviceRole, Project, Source, Space,
+};
 use crate::paths::expand;
 use crate::rules::RuleSet;
 use crate::scan::ScannedFile;
@@ -17,14 +19,20 @@ pub struct FinalSet {
 
 impl FinalSet {
     pub fn load(store: &Store) -> StoreResult<Self> {
-        let rules: Vec<(String, RuleSet)> = store
-            .list::<Destination>()?
-            .into_iter()
-            .filter(|d| d.kind == crate::domain::DestinationKind::Folder)
+        let destinations = store.list::<Destination>()?;
+        let rules: Vec<(String, RuleSet)> = destinations
+            .iter()
             .filter(|d| d.counts_as_safe_copy)
-            .filter_map(|d| Some((d.device_id.clone(), RuleSet::compile(&d.rules).ok()?)))
+            .filter_map(|d| {
+                let id = if d.kind == DestinationKind::App {
+                    &d.id
+                } else {
+                    &d.device_id
+                };
+                Some((id.clone(), RuleSet::compile(&d.rules).ok()?))
+            })
             .collect();
-        let devices = store
+        let mut devices: Vec<Device> = store
             .list::<Device>()?
             .into_iter()
             .filter(|d| {
@@ -33,6 +41,32 @@ impl FinalSet {
                         && rules.iter().any(|(device_id, _)| device_id == &d.id))
             })
             .collect();
+        devices.extend(
+            destinations
+                .iter()
+                .filter(|d| d.kind == DestinationKind::App && d.counts_as_safe_copy)
+                .map(|destination| {
+                    let app_name = destination
+                        .app_name
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or("Application");
+                    let task_name = destination.task_name.trim();
+                    Device {
+                        id: destination.id.clone(),
+                        name: if task_name.is_empty() {
+                            app_name.to_owned()
+                        } else {
+                            task_name.to_owned()
+                        },
+                        description: app_name.to_owned(),
+                        role: DeviceRole::Final,
+                        kind: DeviceKind::Other,
+                        ..Default::default()
+                    }
+                }),
+        );
         Ok(Self { devices, rules })
     }
 
@@ -104,7 +138,7 @@ pub fn assess_workspace_source(
     finals: &[FinalTarget],
 ) -> SourceAssessment {
     let root = resolver.device_root(&device.id).filter(|p| p.exists());
-    let vars = super::project_template_vars(space, project, device);
+    let vars = super::source_template_vars(space, project, device, source);
     let expanded = expand(&source.path_template, &vars);
     let folder = expanded
         .as_ref()

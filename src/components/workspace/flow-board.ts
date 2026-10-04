@@ -1,6 +1,6 @@
 import { html, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
-import { spaceDestinations, spaceSources } from "../../state/selectors";
+import { mountedFirst, mountedFirstInSlots, spaceDestinations, spaceSources } from "../../state/selectors";
 import { OmbElement } from "../ui/omb-element";
 import "./destination-card";
 import "./flow-canvas";
@@ -30,6 +30,17 @@ export class OmbFlowBoard extends OmbElement {
     if (!snapshot || !space) return nothing;
     const sources = spaceSources(snapshot, space.id);
     const destinations = spaceDestinations(snapshot, space.id);
+    const showMountedFirst = snapshot.settings.show_mounted_devices_first !== false;
+    const orderedSources = showMountedFirst
+      ? mountedFirst(sources, this.store.volumes, (source) => source.device_id)
+      : sources;
+    const orderedDestinations = showMountedFirst
+      ? mountedFirstInSlots(
+          destinations,
+          this.store.volumes,
+          (destination) => (destination.kind ?? "folder") === "app" ? null : destination.device_id,
+        )
+      : destinations;
     return html`
       <div
         class="relative grid grid-cols-[minmax(300px,30rem)_minmax(8rem,1fr)_minmax(26rem,48rem)] gap-y-5 h-full content-start"
@@ -42,11 +53,11 @@ export class OmbFlowBoard extends OmbElement {
           ${this.#heading("log-out", "Destinations", destinations.length, () => this.store.open({ type: "destination-settings", destinationId: null }), "Add destination")}
         </div>
         <div class="col-start-1 flex flex-col gap-5">
-          ${sources.map((s) => html`<omb-source-card data-omb-block .source=${s}></omb-source-card>`)}
+          ${orderedSources.map((s) => html`<omb-source-card data-omb-block .source=${s}></omb-source-card>`)}
           <omb-new-volumes data-omb-block></omb-new-volumes>
         </div>
         <div class="col-start-3 flex flex-col gap-5">
-          ${destinations.map((d) => html`<omb-destination-card data-omb-block .destination=${d}></omb-destination-card>`)}
+          ${orderedDestinations.map((d) => html`<omb-destination-card data-omb-block .destination=${d}></omb-destination-card>`)}
           ${
             destinations.length === 0
               ? html`<button

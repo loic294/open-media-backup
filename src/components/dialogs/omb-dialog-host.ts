@@ -5,6 +5,7 @@ import { OmbElement } from "../ui/omb-element";
 import "./app-settings-dialog";
 import "./confirm-dialog";
 import "./destination-dialog";
+import "./device-dialog";
 import "./preview-dialog";
 import "./media-browser-dialog";
 import "./project-dialog";
@@ -21,6 +22,7 @@ const RENDERERS: { [T in DialogType]: Renderer<T> } = {
   confirm: (r) => html`<omb-confirm-dialog .request=${r}></omb-confirm-dialog>`,
   "device-sync": (r) => html`<omb-sync-dialog .request=${r}></omb-sync-dialog>`,
   "app-settings": (r) => html`<omb-app-settings-dialog .request=${r}></omb-app-settings-dialog>`,
+  "device-settings": (r) => html`<omb-device-dialog .request=${r}></omb-device-dialog>`,
   update: (r) => html`<omb-update-dialog .request=${r}></omb-update-dialog>`,
   projects: (r) => html`<omb-projects-page .request=${r}></omb-projects-page>`,
   project: (r) => html`<omb-project-dialog .request=${r}></omb-project-dialog>`,

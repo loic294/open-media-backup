@@ -173,25 +173,7 @@ pub fn delete_entity(store: &Store, kind: &str, id: &str) -> Result<()> {
             }
         }
         EntityKind::Device => {
-            let users = store.list_by::<Source>("device_id", id).map_err(err)?.len()
-                + store
-                    .list_by::<Destination>("device_id", id)
-                    .map_err(err)?
-                    .len();
-            if users > 0 {
-                return Err(format!(
-                    "this device is still used by {users} source(s)/destination(s)"
-                ));
-            }
-            ids(
-                store
-                    .list_by::<DeviceMapping>("device_id", id)
-                    .map_err(err)?
-                    .into_iter()
-                    .map(|e| e.id)
-                    .collect(),
-                EntityKind::DeviceMapping,
-            )?;
+            return store.delete_device(id).map_err(err);
         }
         EntityKind::FileRecord | EntityKind::FileCopy => {
             return Err("file catalog entries are read-only".into())

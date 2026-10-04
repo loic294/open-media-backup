@@ -7,7 +7,10 @@ import type {
   Snapshot,
   Source,
   Space,
+  Volume,
 } from "../api/types";
+import { destinationTaskName, sourceTaskName } from "../utils/names";
+import { configuredDestinationApp } from "../utils/preview-apps";
 export { matchingProjects } from "./projects";
 
 export function sortedSpaces(s: Snapshot): Space[] {
@@ -47,6 +50,40 @@ export function spaceFlows(s: Snapshot, spaceId: string): Flow[] {
   return s.flows.filter((x) => x.space_id === spaceId);
 }
 
+/** Stable ordering for items whose associated device is currently mounted here. */
+export function mountedFirst<T>(
+  items: T[],
+  volumes: Volume[],
+  deviceId: (item: T) => string | null,
+): T[] {
+  const mounted = new Set(volumes.flatMap((volume) => (volume.device_id ? [volume.device_id] : [])));
+  return [...items].sort(
+    (a, b) => Number(mounted.has(deviceId(b) ?? "")) - Number(mounted.has(deviceId(a) ?? "")),
+  );
+}
+
+/** Sort device-backed items while keeping items without a device in their current slots. */
+export function mountedFirstInSlots<T>(
+  items: T[],
+  volumes: Volume[],
+  deviceId: (item: T) => string | null,
+): T[] {
+  const positions: number[] = [];
+  const deviceItems: T[] = [];
+  items.forEach((item, index) => {
+    if (deviceId(item)) {
+      positions.push(index);
+      deviceItems.push(item);
+    }
+  });
+  const sorted = mountedFirst(deviceItems, volumes, deviceId);
+  const result = [...items];
+  positions.forEach((position, index) => {
+    result[position] = sorted[index];
+  });
+  return result;
+}
+
 export function deviceById(s: Snapshot, id: string): Device | undefined {
   return s.devices.find((d) => d.id === id);
 }
@@ -71,10 +108,13 @@ export function nextPosition(items: { position: number }[]): number {
   return items.reduce((max, i) => Math.max(max, i.position + 1), 0);
 }
 
-/** "Camera A · Card 1 → Home NAS" */
+/** Display-only task names, falling back to device/application names. */
 export function flowLabel(s: Snapshot, flow: Flow): string {
   const src = s.sources.find((x) => x.id === flow.source_id);
   const dst = s.destinations.find((x) => x.id === flow.destination_id);
-  const name = (deviceId?: string) => (deviceId && deviceById(s, deviceId)?.name) || "?";
-  return `${name(src?.device_id)} → ${name(dst?.device_id)}`;
+  const sourceName = src ? sourceTaskName(src, deviceById(s, src.device_id)) : "?";
+  const destinationName = dst
+    ? destinationTaskName(dst, deviceById(s, dst.device_id), configuredDestinationApp(s.settings, dst.id))
+    : "?";
+  return `${sourceName} → ${destinationName}`;
 }

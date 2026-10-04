@@ -5,6 +5,7 @@ import { flowStatus, isRunnable, sourceStatus } from "../../state/derived";
 import { deviceById, mappingFor } from "../../state/selectors";
 import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, plural } from "../../utils/format";
+import { sourceTaskName } from "../../utils/names";
 import { DEVICE_ICON, DEVICE_TONE } from "../ui/device-icon";
 import { OmbElement } from "../ui/omb-element";
 import type { CardContextMenuItem } from "./card-context-menu";
@@ -125,14 +126,17 @@ export class OmbSourceCard extends OmbElement {
               ><omb-icon name=${DEVICE_ICON[kind]} class="size-5"></omb-icon
             ></span>
             <div class="flex-1 min-w-0">
-              <div class="font-semibold truncate">${device?.name ?? "Unknown device"}</div>
+              <div class="font-semibold truncate">${sourceTaskName(this.source, device)}</div>
+              <div class="text-xs text-base-content/60 truncate">
+                Device: ${device?.name ?? "No device selected"}
+              </div>
               <div class="text-sm text-base-content/60 truncate">
                 ${st?.available ? `${plural(st.file_count, "file")} · ${formatBytes(st.total_bytes)}` : this.source.path_template || "Whole device"}
               </div>
             </div>
             <span class="flex items-center gap-2 text-sm text-base-content/70">
               <span class="status ${st?.available ? "status-success" : "status-neutral"}"></span
-              >${!st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : st.available ? "Mounted" : "Not mounted"}
+              >${!device ? "Select a device" : !st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : st.available ? "Mounted" : "Not mounted"}
             </span>
             <button
               class="btn btn-ghost btn-xs btn-square"

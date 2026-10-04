@@ -59,6 +59,11 @@ describe("destination dialog app type", () => {
     await dialog.updateComplete;
 
     expect(dialog.textContent).toContain("/Applications/Capture One.app");
+    const safeCopyToggle = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+      (input) => input.parentElement?.textContent?.includes("Counts as a safe copy"),
+    )!;
+    safeCopyToggle.click();
+    await dialog.updateComplete;
     expect(store.backend.saveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ app_destinations: { d4: "/Applications/Capture One.app" } }),
     );
@@ -69,7 +74,7 @@ describe("destination dialog app type", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(store.backend.saveEntity).toHaveBeenCalledWith(
       "destination",
-      expect.objectContaining({ id: "d4", app_name: "Capture One" }),
+      expect.objectContaining({ id: "d4", app_name: "Capture One", counts_as_safe_copy: true }),
     );
   });
 });

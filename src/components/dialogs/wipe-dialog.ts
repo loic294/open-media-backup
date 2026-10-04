@@ -4,6 +4,7 @@ import type { WipeMethod, WipePlan } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { deviceById } from "../../state/selectors";
 import { formatCount, percent } from "../../utils/format";
+import { sourceTaskName } from "../../utils/names";
 import { DialogBase } from "./dialog-base";
 
 @customElement("omb-wipe-dialog")
@@ -101,6 +102,9 @@ export class OmbWipeDialog extends DialogBase<Extract<DialogRequest, { type: "wi
         ${this.busy ? html`<span class="loading loading-spinner loading-sm"></span>` : html`<omb-icon name="eraser"></omb-icon>`}Wipe ${name}
       </button>
     `;
-    return html`<omb-modal heading="Wipe card" subheading=${name ?? ""} icon="eraser" @close=${this.onClosed} .body=${body} .actions=${actions}></omb-modal>`;
+    const identity = source
+      ? `${sourceTaskName(source, deviceById(this.store.snapshot!, source.device_id))} · Device: ${name ?? ""} · ${source.path_template || "Whole device"}`
+      : name ?? "";
+    return html`<omb-modal heading="Wipe card" subheading=${identity} icon="eraser" @close=${this.onClosed} .body=${body} .actions=${actions}></omb-modal>`;
   }
 }

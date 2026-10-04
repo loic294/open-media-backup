@@ -113,9 +113,22 @@ pub fn workspace_status(
     let mut files_by_source: HashMap<String, Vec<ScannedFile>> = HashMap::new();
     let mut source_statuses = Vec::new();
     for source in &sources {
-        let device = devices
-            .get(&source.device_id)
-            .ok_or_else(|| PlanError::NotFound(format!("device {}", source.device_id)))?;
+        let Some(device) = devices.get(&source.device_id) else {
+            source_statuses.push(SourceStatus {
+                source_id: source.id.clone(),
+                available: false,
+                root_path: None,
+                file_count: 0,
+                total_bytes: 0,
+                safe_copies: 0,
+                required_copies: project.as_ref().map(|p| p.final_copies_required),
+                wipe_eligible: false,
+                blocking_reason: Some(
+                    "No device selected. Choose a device in source settings.".into(),
+                ),
+            });
+            continue;
+        };
         let assessment = assess_workspace_source(
             resolver,
             catalog,
@@ -133,7 +146,51 @@ pub fn workspace_status(
     let flows: Vec<Flow> = store.list_by("space_id", &space.id)?;
     let mut dest_statuses: HashMap<String, DestinationStatus> = HashMap::new();
     let mut flow_statuses = Vec::new();
+    let destinations: Vec<Destination> = store.list_by("space_id", &space.id)?;
     for flow in &flows {
+        // Missing assignments are repairable configuration, not a workspace-wide failure.
+        let source = sources.iter().find(|s| s.id == flow.source_id);
+        let destination = destinations.iter().find(|d| d.id == flow.destination_id);
+        let missing_source = source.is_some_and(|s| !devices.contains_key(&s.device_id));
+        let missing_destination = destination.is_some_and(|d| {
+            d.kind == DestinationKind::Folder && !devices.contains_key(&d.device_id)
+        });
+        if source.is_some() && destination.is_some() && (missing_source || missing_destination) {
+            let task = if missing_source {
+                "source"
+            } else {
+                "destination"
+            };
+            let error = format!("No device selected. Choose a device in {task} settings.");
+            flow_statuses.push(FlowStatus {
+                flow_id: flow.id.clone(),
+                state: FlowState::Unavailable,
+                transferred: 0,
+                to_transfer: 0,
+                ignored: 0,
+                failed: 0,
+                bytes_to_transfer: 0,
+                error: Some(error.clone()),
+                runnable: false,
+            });
+            if let Some(dest) = destination {
+                let root = devices
+                    .get(&dest.device_id)
+                    .and_then(|d| resolver.device_root(&d.id))
+                    .filter(|p| p.exists());
+                let status =
+                    dest_statuses
+                        .entry(dest.id.clone())
+                        .or_insert_with(|| DestinationStatus {
+                            destination_id: dest.id.clone(),
+                            available: dest.kind == DestinationKind::App || root.is_some(),
+                            root_path: root.map(|p| p.display().to_string()),
+                            ..Default::default()
+                        });
+                status.last_error.get_or_insert(error);
+            }
+            continue;
+        }
         let ctx = resolve_workspace_flow(store, resolver, context, &flow.id)?;
         let files = files_by_source
             .get(&flow.source_id)
@@ -205,9 +262,10 @@ pub fn workspace_status(
             runnable: available && ctx.config_error.is_none() && to_transfer + failed > 0,
         });
     }
-    for dest in store.list_by::<Destination>("space_id", &space.id)? {
+    for dest in destinations {
         dest_statuses.entry(dest.id.clone()).or_insert_with(|| {
-            let root = (dest.kind == DestinationKind::Folder)
+            let assigned = devices.contains_key(&dest.device_id);
+            let root = (dest.kind == DestinationKind::Folder && assigned)
                 .then(|| resolver.device_root(&dest.device_id).filter(|p| p.exists()))
                 .flatten();
             DestinationStatus {
@@ -218,6 +276,8 @@ pub fn workspace_status(
                 } else {
                     root.map(|p| p.display().to_string())
                 },
+                last_error: (dest.kind == DestinationKind::Folder && !assigned)
+                    .then(|| "No device selected. Choose a device in destination settings.".into()),
                 ..Default::default()
             }
         });

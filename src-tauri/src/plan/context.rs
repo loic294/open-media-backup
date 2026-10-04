@@ -80,6 +80,12 @@ fn load<E: crate::domain::Entity>(store: &Store, id: &str, what: &str) -> Result
         .ok_or_else(|| PlanError::NotFound(format!("{what} {id}")))
 }
 
+fn load_task_device(store: &Store, id: &str, task: &str) -> Result<Device, PlanError> {
+    store.get::<Device>(id)?.ok_or_else(|| {
+        PlanError::InvalidContext(format!("Select a device for this {task} in its settings"))
+    })
+}
+
 pub fn resolve_flow(
     store: &Store,
     resolver: &dyn RootResolver,
@@ -110,7 +116,7 @@ pub fn resolve_workspace_flow(
             "Flow entities must belong to the same space".into(),
         ));
     }
-    let source_device: Device = load(store, &source.device_id, "device")?;
+    let source_device = load_task_device(store, &source.device_id, "source")?;
     let dest_device: Device = if destination.kind == DestinationKind::App {
         Device {
             id: destination.id.clone(),
@@ -124,7 +130,7 @@ pub fn resolve_workspace_flow(
             ..Default::default()
         }
     } else {
-        load(store, &destination.device_id, "device")?
+        load_task_device(store, &destination.device_id, "destination")?
     };
     let source_root = resolver
         .device_root(&source.device_id)
@@ -150,9 +156,9 @@ pub fn resolve_workspace_flow(
         errors.push(error);
     }
     let mut vars = if matches!(source.project_scope, crate::domain::ProjectScope::None) {
-        super::project_template_vars(&space, None, &source_device)
+        super::source_template_vars(&space, None, &source_device, &source)
     } else {
-        super::project_template_vars(&space, project.as_ref(), &source_device)
+        super::source_template_vars(&space, project.as_ref(), &source_device, &source)
     };
     if project.is_none()
         && projects.is_empty()
@@ -203,7 +209,7 @@ pub fn resolve_workspace_flow(
         }
     }
     if destination.kind == DestinationKind::Folder && destination.subfolder_per_source {
-        let segment = sanitize_segment(&source_device.name);
+        let segment = sanitize_segment(source.resolved_backup_name(&source_device));
         dest_folder_rel = if dest_folder_rel.is_empty() {
             segment
         } else {
@@ -274,7 +280,8 @@ impl FlowContext {
         {
             return Ok(None);
         }
-        let mut vars = super::project_template_vars(&self.space, project, &self.source_device);
+        let mut vars =
+            super::source_template_vars(&self.space, project, &self.source_device, &self.source);
         if self.destination.use_backup_marker {
             let folder = backup_folder_name(&self.space, &vars, self.source_root.as_deref())
                 .map_err(|e| format!("backup folder: {e}"))?;
@@ -285,7 +292,10 @@ impl FlowContext {
                 .map_err(|e| format!("destination path: {e}"))?,
         );
         if self.destination.subfolder_per_source {
-            folder = join_rel(&folder, &sanitize_segment(&self.source_device.name));
+            folder = join_rel(
+                &folder,
+                &sanitize_segment(self.source.resolved_backup_name(&self.source_device)),
+            );
         }
         Ok(Some(join_rel(&folder, rel)))
     }
@@ -295,7 +305,12 @@ impl FlowContext {
     pub fn rule_vars_for_project(&self, project: Option<&Project>) -> TemplateVars {
         project
             .map(|project| {
-                super::project_template_vars(&self.space, Some(project), &self.source_device)
+                super::source_template_vars(
+                    &self.space,
+                    Some(project),
+                    &self.source_device,
+                    &self.source,
+                )
             })
             .unwrap_or_default()
     }
@@ -326,7 +341,11 @@ impl FlowContext {
     }
 
     pub fn label(&self) -> String {
-        format!("{} → {}", self.source_device.name, self.dest_device.name)
+        format!(
+            "{} → {}",
+            self.source.resolved_task_name(&self.source_device),
+            self.destination.resolved_task_name(&self.dest_device)
+        )
     }
 }
 

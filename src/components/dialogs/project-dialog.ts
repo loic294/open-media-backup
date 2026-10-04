@@ -5,6 +5,8 @@ import type { DialogRequest } from "../../state/dialogs";
 import { newProject } from "../../state/factories";
 import { nextProjectColor, PROJECT_COLORS } from "../../state/projects";
 import { deviceById, mappingFor, spaceDestinations } from "../../state/selectors";
+import { destinationTaskName } from "../../utils/names";
+import { configuredDestinationApp } from "../../utils/preview-apps";
 import { expandTemplate, previewVars } from "../../utils/template";
 import { DialogBase } from "./dialog-base";
 
@@ -243,7 +245,7 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
               const device = deviceById(snapshot, dest.device_id);
               const root = mappingFor(snapshot, dest.device_id)?.root_path ?? device?.name ?? "?";
               return html`<li class="truncate">
-                <span class="text-base-content/50">${device?.name}:</span>
+                <span class="text-base-content/50">${destinationTaskName(dest, device, configuredDestinationApp(snapshot.settings, dest.id))}:</span>
                 ${root}/${expandTemplate(dest.path_template, vars)}
               </li>`;
             })}

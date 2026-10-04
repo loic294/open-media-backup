@@ -59,12 +59,13 @@ impl AppCore {
 
     pub fn run_workspace_all(&self, context: &WorkspaceContext) -> Result<Vec<String>, String> {
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
+        let failures = self.failures.lock().clone();
         let status = workspace_status(
             &self.store,
             self.resolver.as_ref(),
             &catalog,
             context,
-            &self.failures.lock(),
+            &failures,
         )
         .map_err(|e| e.to_string())?;
         let mut runnable = Vec::new();
@@ -103,7 +104,7 @@ impl AppCore {
             .store
             .get(&source.device_id)
             .map_err(|e| e.to_string())?
-            .ok_or("device not found")?;
+            .ok_or("Select a device in source settings before wiping")?;
         let plan =
             crate::wipe::plan_wipe(&self.store, self.resolver.as_ref(), project_id, source_id)?;
         if let Some(reason) = plan.reason {

@@ -65,14 +65,28 @@ impl ThumbnailCache {
         let temp = self.temp_path(&key, preview);
         let created = match (kind, preview) {
             (MediaKind::Image | MediaKind::Raw, true) => {
-                image_thumb::create_image_preview(path, &temp)?
+                image_thumb::create_image_preview(path, &temp)
             }
             (MediaKind::Image | MediaKind::Raw, false) => {
-                image_thumb::create_image_thumbnail(path, &temp)?
+                image_thumb::create_image_thumbnail(path, &temp)
             }
-            (MediaKind::Video, true) => video::create_video_preview(path, &temp)?,
-            (MediaKind::Video, false) => video::create_video_thumbnail(path, &temp)?,
-            (MediaKind::Other, _) => false,
+            (MediaKind::Video, true) => video::create_video_preview(path, &temp),
+            (MediaKind::Video, false) => video::create_video_thumbnail(path, &temp),
+            (MediaKind::Other, _) => Ok(false),
+        };
+        let created = match created {
+            Ok(created) => created,
+            Err(error) => {
+                if let Err(cleanup) = fs::remove_file(&temp) {
+                    if cleanup.kind() != std::io::ErrorKind::NotFound {
+                        log::warn!(
+                            "could not remove failed thumbnail {}: {cleanup}",
+                            temp.display()
+                        );
+                    }
+                }
+                return Err(error);
+            }
         };
 
         if !created {
@@ -129,6 +143,20 @@ pub enum ThumbnailError {
     },
     #[error("ffmpeg timed out while creating thumbnail")]
     FfmpegTimeout,
+    #[error("failed to wait for ffmpeg: {source}")]
+    FfmpegWait {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to read ffmpeg diagnostics: {source}")]
+    FfmpegDiagnostics {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("ffmpeg failed ({status}): {stderr}")]
+    FfmpegFailed { status: String, stderr: String },
+    #[error("ffmpeg produced no video frame at either seek position")]
+    FfmpegNoFrame,
 }
 
 #[cfg(test)]

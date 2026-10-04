@@ -92,20 +92,18 @@ fn raw_file_uses_largest_embedded_jpeg() {
 }
 
 #[test]
-fn video_thumbnail_is_skipped_when_ffmpeg_missing_or_input_invalid() {
-    if std::process::Command::new("which")
-        .arg("ffmpeg")
-        .output()
-        .map(|o| !o.status.success())
-        .unwrap_or(true)
-    {
+fn invalid_video_reports_ffmpeg_failure_and_leaves_no_cache_files() {
+    if super::video::ffmpeg_path().is_none() {
         return;
     }
     let dir = tempdir();
     let src = dir.path().join("clip.mp4");
     fs::write(&src, b"not a video").expect("write");
-    let cache = ThumbnailCache::new(dir.path().join("cache"));
-    assert!(cache.get_or_create(&src).expect("thumbnail").is_none());
+    let cache_dir = dir.path().join("cache");
+    let cache = ThumbnailCache::new(cache_dir.clone());
+    let error = cache.get_or_create(&src).expect_err("invalid video");
+    assert!(matches!(error, ThumbnailError::FfmpegFailed { .. }));
+    assert!(fs::read_dir(cache_dir).unwrap().next().is_none());
 }
 
 #[test]
@@ -113,13 +111,6 @@ fn video_media_preview_contains_a_large_frame_when_ffmpeg_is_available() {
     let Some(ffmpeg) = super::video::ffmpeg_path() else {
         return;
     };
-    if !std::process::Command::new(&ffmpeg)
-        .arg("-version")
-        .output()
-        .is_ok_and(|result| result.status.success())
-    {
-        return;
-    }
     let dir = tempdir();
     let src = dir.path().join("clip.mp4");
     let generated = std::process::Command::new(ffmpeg)
@@ -129,7 +120,7 @@ fn video_media_preview_contains_a_large_frame_when_ffmpeg_is_available() {
             "-f",
             "lavfi",
             "-i",
-            "color=size=640x480:rate=1:duration=1",
+            "color=size=640x480:rate=10:duration=0.2",
             "-c:v",
             "mpeg4",
             "-y",
@@ -144,10 +135,35 @@ fn video_media_preview_contains_a_large_frame_when_ffmpeg_is_available() {
     );
 
     let cache = ThumbnailCache::new(dir.path().join("cache"));
+    let thumbnail = cache
+        .get_or_create(&src)
+        .expect("thumbnail")
+        .expect("video frame");
+    assert_eq!(image::open(&thumbnail).unwrap().dimensions(), (360, 270));
+    assert_eq!(cache.get_or_create(&src).unwrap().unwrap(), thumbnail);
     let preview = cache
         .get_or_create_preview(&src)
         .expect("preview")
         .expect("video frame");
     let image = image::open(preview).expect("JPEG preview");
     assert_eq!(image.dimensions(), (2560, 1920));
+}
+
+#[test]
+fn video_thumbnail_can_extract_a_frame_from_reported_clip() {
+    let Some(path) = std::env::var_os("OMB_TEST_VIDEO") else {
+        return;
+    };
+    assert!(super::video::ffmpeg_path().is_some(), "FFmpeg required");
+    let dir = tempdir();
+    let cache = ThumbnailCache::new(dir.path().join("cache"));
+    let src = Path::new(&path);
+    let thumbnail = cache.get_or_create(src).unwrap().expect("thumbnail");
+    let decoded = image::open(&thumbnail).expect("JPEG thumbnail");
+    assert_eq!(decoded.width(), 360);
+    assert!(decoded.height() > 0);
+    assert_eq!(cache.get_or_create(src).unwrap().unwrap(), thumbnail);
+    let preview = cache.get_or_create_preview(src).unwrap().expect("preview");
+    assert_ne!(thumbnail, preview);
+    assert_eq!(image::open(preview).unwrap().width(), 2560);
 }

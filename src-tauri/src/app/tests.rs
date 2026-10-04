@@ -41,15 +41,215 @@ fn snapshot_and_settings_round_trip() {
 }
 
 #[test]
-fn delete_cascades_and_guards_devices() {
+fn status_io_does_not_hold_the_transfer_failures_mutex() {
+    use crate::plan::RootResolver;
+    use std::sync::mpsc;
+    struct BlockingResolver {
+        roots: MapResolver,
+        entered: mpsc::Sender<()>,
+        resume: std::sync::Mutex<mpsc::Receiver<()>>,
+        first: std::sync::atomic::AtomicBool,
+    }
+    impl RootResolver for BlockingResolver {
+        fn device_root(&self, id: &str) -> Option<std::path::PathBuf> {
+            if self.first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                self.entered.send(()).unwrap();
+                self.resume.lock().unwrap().recv().unwrap();
+            }
+            self.roots.device_root(id)
+        }
+    }
+    let fx = Fixture::new();
+    let thumbs = tempfile::tempdir().unwrap();
+    let (entered, observe) = mpsc::channel();
+    let (resume, wait) = mpsc::channel();
+    let core = Arc::new(AppCore::new(
+        fx.store.clone(),
+        Arc::new(BlockingResolver {
+            roots: MapResolver(parking_lot::Mutex::new(fx.resolver.0.lock().clone())),
+            entered,
+            resume: std::sync::Mutex::new(wait),
+            first: std::sync::atomic::AtomicBool::new(true),
+        }),
+        thumbs.path().into(),
+        |_| {},
+    ));
+    let worker = core.clone();
+    let running = std::thread::spawn(move || worker.project_status("project"));
+    observe.recv_timeout(Duration::from_secs(5)).unwrap();
+    let lock_available = core.failures.try_lock().is_some();
+    resume.send(()).unwrap();
+    running.join().unwrap().unwrap();
+    assert!(
+        lock_available,
+        "Status disk I/O must not serialize all other status, preview and transfer work"
+    );
+}
+
+#[test]
+fn delete_cascades_and_detaches_devices() {
     let fx = Fixture::new();
     let (core, _t) = core(&fx);
-    assert!(core.delete_entity("device", "card").is_err());
+    core.delete_entity("device", "card").unwrap();
+    assert!(fx
+        .store
+        .get::<Source>("src")
+        .unwrap()
+        .unwrap()
+        .device_id
+        .is_empty());
+    assert_eq!(fx.store.list::<Flow>().unwrap(), vec![fx.flow.clone()]);
     core.delete_entity("source", "src").unwrap();
     assert!(fx.store.list::<Flow>().unwrap().is_empty());
     core.delete_entity("space", "space").unwrap();
     assert!(core.snapshot().unwrap().destinations.is_empty());
     core.delete_entity("device", "card").unwrap();
+}
+
+#[test]
+fn deleted_device_blocks_its_tasks_without_breaking_other_flows_and_can_be_reassigned() {
+    use crate::domain::{Device, DeviceRole};
+    use crate::plan::{FlowState, WorkspaceContext};
+    let fx = Fixture::new();
+    let file = fx.write_card_file("DCIM/A.JPG", b"photo");
+    let replacement = Device {
+        id: "replacement".into(),
+        name: "Replacement card".into(),
+        role: DeviceRole::Original,
+        ..Default::default()
+    };
+    fx.store.put(&replacement).unwrap();
+    fx.resolver
+        .0
+        .lock()
+        .insert(replacement.id.clone(), fx.card_dir.path().into());
+    let mut other_source = fx.source.clone();
+    other_source.id = "other-source".into();
+    other_source.device_id = replacement.id.clone();
+    fx.store.put(&other_source).unwrap();
+    let mut other_flow = fx.flow.clone();
+    other_flow.id = "other-flow".into();
+    other_flow.source_id = other_source.id;
+    fx.store.put(&other_flow).unwrap();
+    let (core, _t) = core(&fx);
+    core.delete_entity("device", "card").unwrap();
+    let context = WorkspaceContext {
+        space_id: fx.space.id.clone(),
+        project_id: None,
+    };
+    for status in [
+        core.workspace_status(&context).unwrap().flows,
+        core.project_status("project").unwrap().flows,
+    ] {
+        let affected = status.iter().find(|f| f.flow_id == "flow").unwrap();
+        assert_eq!(affected.state, FlowState::Unavailable);
+        assert!(!affected.runnable);
+        assert!(affected.error.as_ref().unwrap().contains("source settings"));
+        assert!(
+            status
+                .iter()
+                .find(|f| f.flow_id == "other-flow")
+                .unwrap()
+                .runnable
+        );
+    }
+    let source_status = core
+        .project_status("project")
+        .unwrap()
+        .sources
+        .into_iter()
+        .find(|s| s.source_id == "src")
+        .unwrap();
+    assert!(!source_status.available);
+    assert!(!source_status.wipe_eligible);
+    assert!(core
+        .run_flow("project", "flow")
+        .unwrap_err()
+        .contains("source"));
+    assert!(core
+        .list_files(&ListFilesRequest {
+            project_id: "project".into(),
+            flow_id: "flow".into(),
+            category: Category::ToTransfer,
+            offset: 0,
+            limit: 50,
+            filter: None,
+            directory: None,
+        })
+        .unwrap_err()
+        .contains("source"));
+    assert!(core
+        .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
+        .is_err());
+    assert!(file.exists());
+    assert_eq!(core.run_all("project").unwrap().len(), 1);
+    wait_idle(&core);
+    let mut source = fx.store.get::<Source>("src").unwrap().unwrap();
+    source.device_id = replacement.id;
+    core.save_entity("source", serde_json::to_value(&source).unwrap())
+        .unwrap();
+    assert!(
+        core.project_status("project")
+            .unwrap()
+            .sources
+            .iter()
+            .find(|s| s.source_id == "src")
+            .unwrap()
+            .available
+    );
+}
+
+#[test]
+fn deleted_destination_keeps_flows_and_app_destinations_do_not_need_devices() {
+    use crate::plan::FlowState;
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"photo");
+    let mut app = fx.destination.clone();
+    app.id = "app-dest".into();
+    app.kind = DestinationKind::App;
+    app.device_id.clear();
+    app.app_name = Some("Photo editor".into());
+    fx.store.put(&app).unwrap();
+    let mut flow = fx.flow.clone();
+    flow.id = "app-flow".into();
+    flow.destination_id = app.id;
+    fx.store.put(&flow).unwrap();
+    let (core, _t) = core(&fx);
+    core.delete_entity("device", "nas").unwrap();
+    let status = core.project_status("project").unwrap();
+    let folder = status
+        .destinations
+        .iter()
+        .find(|d| d.destination_id == "dst")
+        .unwrap();
+    assert!(!folder.available);
+    assert!(folder
+        .last_error
+        .as_ref()
+        .unwrap()
+        .contains("destination settings"));
+    assert_eq!(
+        status
+            .flows
+            .iter()
+            .find(|f| f.flow_id == "flow")
+            .unwrap()
+            .state,
+        FlowState::Unavailable
+    );
+    assert!(
+        status
+            .flows
+            .iter()
+            .find(|f| f.flow_id == "app-flow")
+            .unwrap()
+            .runnable
+    );
+    assert_eq!(fx.store.list::<Flow>().unwrap().len(), 2);
+    assert!(core
+        .run_flow("project", "flow")
+        .unwrap_err()
+        .contains("destination"));
 }
 
 #[test]
@@ -82,6 +282,7 @@ fn run_all_then_list_files() {
         offset,
         limit,
         filter: None,
+        directory: None,
     };
     let page = core.list_files(&req(Category::ToTransfer, 1, 1)).unwrap();
     assert_eq!((page.total, page.total_bytes, page.items.len()), (3, 4, 1));
@@ -107,6 +308,111 @@ fn run_all_then_list_files() {
 }
 
 #[test]
+fn folder_preview_summarizes_all_routes_before_directory_pagination() {
+    let fx = Fixture::new();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "backup".into();
+    destination.subfolder_per_source = false;
+    destination.rules = vec![crate::domain::FileRule::path(
+        crate::domain::RuleAction::Exclude,
+        crate::domain::RuleSyntax::Glob,
+        "*.THM",
+    )];
+    fx.store.put(&destination).unwrap();
+    for index in 0..130 {
+        fx.write_card_file(&format!("DCIM/100/A{index:03}.JPG"), b"x");
+    }
+    fx.write_card_file("DCIM/999/nested/B.JPG", b"bb");
+    fx.write_card_file("DCIM/excluded/A.THM", b"x");
+    let (core, _t) = core(&fx);
+    let mut req: ListFilesRequest = serde_json::from_value(json!({
+        "projectId": "project", "flowId": "flow", "category": "to_transfer",
+        "offset": 0, "limit": 120
+    }))
+    .unwrap();
+    let flat = core.list_files(&req).unwrap();
+    assert_eq!(
+        (flat.total, flat.items.len(), flat.total_bytes),
+        (131, 120, 132)
+    );
+    assert!(flat
+        .directories
+        .iter()
+        .any(|directory| directory.path == "backup/999/nested" && directory.total == 1));
+    assert!(!flat
+        .directories
+        .iter()
+        .any(|directory| directory.path.contains("excluded")));
+    req.directory = Some(
+        serde_json::from_value(json!({ "kind": "destination", "path": "backup/100" })).unwrap(),
+    );
+    let first = core.list_files(&req).unwrap();
+    assert_eq!((first.total, first.items.len()), (130, 120));
+    let root = first
+        .directories
+        .iter()
+        .find(|directory| directory.path.is_empty())
+        .unwrap();
+    assert_eq!(
+        (root.total, root.total_bytes, root.direct_files),
+        (131, 132, 0)
+    );
+    req.offset = 120;
+    let last = core.list_files(&req).unwrap();
+    assert_eq!(last.items.len(), 10);
+    assert!(last.items.iter().all(|file| file
+        .target_path
+        .as_deref()
+        .unwrap()
+        .starts_with("backup/100/")));
+    req.offset = 0;
+    req.directory = None;
+    req.filter = Some("backup/999".into());
+    let filtered = core.list_files(&req).unwrap();
+    assert_eq!(filtered.total, 1);
+    assert!(!filtered
+        .directories
+        .iter()
+        .any(|directory| directory.path == "backup/100"));
+    req.filter = None;
+    req.category = Category::Ignored;
+    let ignored = core.list_files(&req).unwrap();
+    assert_eq!(ignored.total, 1);
+    assert!(ignored
+        .directories
+        .iter()
+        .all(|directory| matches!(directory.kind, super::files::DirectoryKind::Source)));
+}
+
+#[test]
+fn folder_preview_retains_destination_hierarchy_from_offline_catalog() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/100/nested/A.JPG", b"photo");
+    let (online, _t) = core(&fx);
+    online.run_all("project").unwrap();
+    wait_idle(&online);
+    fx.unmount("card");
+    let (offline, _t) = core(&fx);
+    let req: ListFilesRequest = serde_json::from_value(json!({
+        "projectId": "project", "flowId": "flow", "category": "transferred",
+        "offset": 0, "limit": 120,
+        "directory": { "kind": "destination", "path": "photo/Trip/Camera A Card 1/100/nested" }
+    }))
+    .unwrap();
+    let page = offline.list_files(&req).unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].rel_path, "100/nested/A.JPG");
+    assert!(page.items[0].abs_path.is_none());
+    assert_eq!(
+        page.items[0].target_path.as_deref(),
+        Some("photo/Trip/Camera A Card 1/100/nested/A.JPG")
+    );
+    assert!(page.directories.iter().any(|directory| directory.path
+        == "photo/Trip/Camera A Card 1/100/nested"
+        && directory.direct_files == 1));
+}
+
+#[test]
 fn project_free_transfers_preview_verify_and_record_copies_without_enabling_wipe() {
     let fx = Fixture::new();
     fx.store
@@ -125,6 +431,7 @@ fn project_free_transfers_preview_verify_and_record_copies_without_enabling_wipe
         offset: 0,
         limit: 50,
         filter: None,
+        directory: None,
     };
     let pending = core
         .list_workspace_files(&req(Category::ToTransfer))
@@ -256,6 +563,13 @@ fn project_free_app_imports_are_manual_and_confirmations_are_context_bound() {
     assert_eq!(
         core.workspace_status(&context).unwrap().sources[0].safe_copies,
         0
+    );
+    destination.counts_as_safe_copy = true;
+    core.save_entity("destination", serde_json::to_value(&destination).unwrap())
+        .unwrap();
+    assert_eq!(
+        core.workspace_status(&context).unwrap().sources[0].safe_copies,
+        1
     );
     assert!(core
         .confirm_workspace_app_import(&context, "flow", &prepared.token)
@@ -398,6 +712,7 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
             offset: 0,
             limit: 50,
             filter: None,
+            directory: None,
         })
         .unwrap()
         .total,

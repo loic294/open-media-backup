@@ -28,6 +28,10 @@ pub struct Source {
     pub id: String,
     pub space_id: String,
     pub device_id: String,
+    /// Display-only label for this source task.
+    pub task_name: String,
+    /// Name used by `{source_name}` and per-source backup subfolders.
+    pub backup_name: String,
     /// Folder relative to the device root; may contain `{variables}`.
     pub path_template: String,
     pub offer_wipe: bool,
@@ -37,6 +41,24 @@ pub struct Source {
 impl_entity!(Source, Source);
 
 impl Source {
+    pub fn resolved_task_name<'a>(&'a self, device: &'a super::Device) -> &'a str {
+        let name = self.task_name.trim();
+        if name.is_empty() {
+            &device.name
+        } else {
+            name
+        }
+    }
+
+    pub fn resolved_backup_name<'a>(&'a self, device: &'a super::Device) -> &'a str {
+        let name = self.backup_name.trim();
+        if name.is_empty() {
+            &device.name
+        } else {
+            name
+        }
+    }
+
     pub fn validate_projects(&self, projects: &[super::Project]) -> Result<(), String> {
         if let ProjectScope::Selected { project_ids } = &self.project_scope {
             if project_ids.iter().any(|id| {
