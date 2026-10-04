@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 fn handle() -> JobHandle {
     JobHandle::new(
         TransferJob {
+            analysis: None,
             id: "j".into(),
             flow_id: "flow".into(),
             label: String::new(),
@@ -368,7 +369,7 @@ fn manager_runs_pauses_and_reports() {
     let id = manager.enqueue(JobSpec {
         key: "k".into(),
         label: "test".into(),
-        devices: vec!["d".into()],
+        resources: vec![],
         kind: JobKind::Transfer,
         queue: None,
         work: Box::new(|h| {
@@ -383,7 +384,7 @@ fn manager_runs_pauses_and_reports() {
         manager.enqueue(JobSpec {
             key: "k".into(),
             label: String::new(),
-            devices: vec![],
+            resources: vec![],
             kind: JobKind::Transfer,
             queue: None,
             work: Box::new(|_| Ok(()))
@@ -404,29 +405,42 @@ fn manager_runs_pauses_and_reports() {
 }
 
 #[test]
-fn manager_serialises_jobs_sharing_a_device() {
+fn manager_runs_jobs_sharing_a_device_concurrently() {
     let manager = TransferManager::new(|_| {});
-    let order = Arc::new(Mutex::new(Vec::new()));
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let mut releases = Vec::new();
     for n in 0..2 {
-        let order = order.clone();
+        let started = started_tx.clone();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        releases.push(release_tx);
         manager.enqueue(JobSpec {
             key: format!("job{n}"),
             label: String::new(),
-            devices: vec!["shared".into()],
+            resources: vec![ResourceClaim::shared("device:shared")],
             kind: JobKind::Transfer,
             queue: None,
             work: Box::new(move |_| {
-                order.lock().push(format!("start{n}"));
-                std::thread::sleep(Duration::from_millis(50));
-                order.lock().push(format!("end{n}"));
+                started.send(n).map_err(|e| e.to_string())?;
+                release_rx.recv().map_err(|e| e.to_string())?;
                 Ok(())
             }),
         });
     }
-    while manager.is_busy() {
+    drop(started_tx);
+    let mut started = vec![
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+    ];
+    started.sort_unstable();
+    assert_eq!(started, vec![0, 1]);
+    for release in releases {
+        release.send(()).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while manager.is_busy() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert_eq!(*order.lock(), vec!["start0", "end0", "start1", "end1"]);
+    assert!(!manager.is_busy());
 }
 
 #[test]
@@ -439,9 +453,9 @@ fn manager_caps_parallel_jobs_at_three_and_reuses_finished_slots() {
     for (n, kind) in [
         JobKind::Transfer,
         JobKind::Check,
-        JobKind::Wipe,
         JobKind::Transfer,
         JobKind::Check,
+        JobKind::Transfer,
     ]
     .into_iter()
     .enumerate()
@@ -452,7 +466,11 @@ fn manager_caps_parallel_jobs_at_three_and_reuses_finished_slots() {
         manager.enqueue(JobSpec {
             key: format!("job{n}"),
             label: String::new(),
-            devices: vec![format!("device{n}")],
+            resources: vec![
+                ResourceClaim::shared(format!("device:source{n}")),
+                ResourceClaim::shared("device:destination"),
+                ResourceClaim::exclusive(format!("destination-path:{n}")),
+            ],
             kind,
             queue: None,
             work: Box::new(move |_| {
@@ -493,4 +511,82 @@ fn manager_caps_parallel_jobs_at_three_and_reuses_finished_slots() {
     }
     assert!(!manager.is_busy());
     assert!(manager.jobs().iter().all(|job| job.state == JobState::Done));
+}
+
+#[test]
+fn manager_serialises_same_destination_path_and_excludes_wipes() {
+    use std::sync::mpsc;
+
+    let manager = TransferManager::new(|_| {});
+    let (started_tx, started_rx) = mpsc::channel();
+    let mut releases = Vec::new();
+    for (n, resources) in [
+        vec![
+            ResourceClaim::shared("device:source-a"),
+            ResourceClaim::shared("device:nas"),
+            ResourceClaim::exclusive("destination-path:nas:photos"),
+        ],
+        vec![
+            ResourceClaim::shared("device:source-b"),
+            ResourceClaim::shared("device:nas"),
+            ResourceClaim::exclusive("destination-path:nas:photos"),
+        ],
+        vec![ResourceClaim::exclusive("device:nas")],
+        vec![
+            ResourceClaim::shared("device:source-c"),
+            ResourceClaim::shared("device:nas"),
+            ResourceClaim::exclusive("destination-path:nas:videos"),
+        ],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let started = started_tx.clone();
+        let (release_tx, release_rx) = mpsc::channel();
+        releases.push(release_tx);
+        manager.enqueue(JobSpec {
+            key: format!("job{n}"),
+            label: String::new(),
+            resources,
+            kind: if n == 2 {
+                JobKind::Wipe
+            } else {
+                JobKind::Transfer
+            },
+            queue: None,
+            work: Box::new(move |_| {
+                started.send(n).map_err(|e| e.to_string())?;
+                release_rx.recv().map_err(|e| e.to_string())?;
+                Ok(())
+            }),
+        });
+    }
+    drop(started_tx);
+
+    let mut initially_started = vec![
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+    ];
+    initially_started.sort_unstable();
+    assert_eq!(initially_started, vec![0, 3]);
+    assert!(matches!(
+        started_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+
+    releases[0].send(()).unwrap();
+    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
+    releases[1].send(()).unwrap();
+    assert!(matches!(
+        started_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    releases[3].send(()).unwrap();
+    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 2);
+    releases[2].send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while manager.is_busy() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!manager.is_busy());
 }

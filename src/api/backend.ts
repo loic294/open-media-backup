@@ -1,4 +1,8 @@
 import type {
+  AnalysisFilter,
+  AnalysisJobPage,
+  AnalysisJobsRequest,
+  AnalysisSummary,
   AppSettings,
   ConflictDecision,
   Destination,
@@ -44,6 +48,7 @@ export interface BackendEvents {
   "snapshot-changed": void;
   "status-changed": void;
   transfers: TransferJob[];
+  "transfer-power-warning": string;
   "sync-status": SyncStatus;
   "volumes-changed": Volume[];
   "update://progress": UpdateProgress;
@@ -97,6 +102,8 @@ export interface Backend {
   setAllPaused(paused: boolean): Promise<void>;
   cancelTransfer(jobId: string): Promise<void>;
   listTransfers(): Promise<TransferJob[]>;
+  getSpeedAnalysis(req: AnalysisFilter): Promise<AnalysisSummary>;
+  listSpeedAnalysisJobs(req: AnalysisJobsRequest): Promise<AnalysisJobPage>;
 
   listVolumes(): Promise<Volume[]>;
   registerDevice(mountPath: string, device: Device): Promise<void>;

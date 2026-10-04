@@ -32,6 +32,19 @@ describe("AppStore with the mock backend", () => {
     expect(document.documentElement.dataset.theme).toMatch(/^omb-/);
   });
 
+  it("initializes the Active jobs window without loading workspace status or dialogs", async () => {
+    const backend = createMockBackend({ seedRunningTransfer: true, tickMs: 5 });
+    const getWorkspaceStatus = vi.spyOn(backend, "getWorkspaceStatus");
+    store = new AppStore(backend);
+    await store.initActiveJobs();
+
+    expect(store.snapshot).not.toBeNull();
+    expect(store.transfers.length).toBeGreaterThan(0);
+    expect(store.status).toBeNull();
+    expect(store.dialogs).toEqual([]);
+    expect(getWorkspaceStatus).not.toHaveBeenCalled();
+  });
+
   describe("project-free workspace state", () => {
     let store: AppStore;
     afterEach(() => {
@@ -178,7 +191,10 @@ describe("AppStore with the mock backend", () => {
       const status = await backend.getWorkspaceStatus(store.context!);
       let finish!: (value: WorkspaceStatus) => void;
       const request = vi.spyOn(backend, "getWorkspaceStatus").mockImplementationOnce(
-        () => new Promise((resolve) => { finish = resolve; }),
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
       );
       const pending = store.retryStatus();
       for (let n = 0; n < 4; n++) {
@@ -239,6 +255,24 @@ describe("AppStore with the mock backend", () => {
     store.close();
     expect(store.dialogs).toEqual([]);
   });
+
+  it.each(["init", "initActiveJobs"] as const)(
+    "shows native sleep-prevention warnings without changing transfer results in %s",
+    async (init) => {
+      const backend = createMockBackend();
+      const on = vi.spyOn(backend, "on");
+      store = new AppStore(backend);
+      await store[init]();
+      const before = structuredClone(store.transfers);
+      const message = "Could not keep this computer awake. Transfers will continue.";
+      const subscription = on.mock.calls.find(([event]) => event === "transfer-power-warning");
+      expect(subscription).toBeDefined();
+      subscription![1](message);
+      expect(store.toasts.at(-1)).toMatchObject({ kind: "warning", message });
+      expect(store.transfers).toEqual(before);
+      expect(store.error).toBeNull();
+    },
+  );
 
   it("toggles source selection", async () => {
     await setup();

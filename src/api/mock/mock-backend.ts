@@ -1,5 +1,6 @@
 import type { Backend } from "../backend";
 import type {
+  AnalysisJob,
   ConflictDecision,
   DestinationCheckItem,
   DestinationCheckResults,
@@ -16,6 +17,7 @@ import { Emitter } from "./emitter";
 import { mockFiles } from "./files";
 import { mockStatus, mockWorkspaceStatus, type Counts } from "./status";
 import { demoSync } from "./sync";
+import { MockAnalysis } from "./analysis";
 import { validateProjectConfiguration } from "../../state/projects";
 import { flowLabel } from "../../state/selectors";
 import { sanitizeBackupName, sourceBackupName } from "../../utils/names";
@@ -51,6 +53,7 @@ export function createMockBackend(
     demoUpdate?: boolean;
     /** Simulated existing same-name files with different hashes, for demo/UI tests. */
     conflicts?: Record<string, number>;
+    analysisHistory?: AnalysisJob[];
   } = {},
 ): Backend {
   const snapshot = demoSnapshot();
@@ -58,6 +61,7 @@ export function createMockBackend(
   const offline = new Set(demoOffline);
   const events = new Emitter();
   const jobs: TransferJob[] = [];
+  const analysis = new MockAnalysis(snapshot, options.analysisHistory);
   const paused = new Set<string>();
   const queueByJob = new Map<string, string>();
   const queueDecisions = new Map<string, ConflictDecision>();
@@ -83,6 +87,12 @@ export function createMockBackend(
 
   const decide = (job: TransferJob, decision: ConflictDecision) => {
     if (decision === "skip") skippedJobs.add(job.id);
+    analysis.observe(job);
+    if (decision === "skip") {
+      if (job.analysis) job.analysis.metrics.skipped_files++;
+    } else {
+      analysis.recordWork(job, AVG_FILE, 0, job.analysis?.context.verify_mode === "reread" ? AVG_FILE : 0, 1);
+    }
     const c = counts[job.flow_id];
     if (decision !== "skip" && c) {
       c[0]++;
@@ -93,6 +103,7 @@ export function createMockBackend(
     conflictsRemaining.set(job.id, Math.max(0, (conflictsRemaining.get(job.id) ?? 0) - 1));
     job.pending_conflict = null;
     job.state = paused.has(job.id) ? "paused" : "running";
+    analysis.observe(job);
   };
 
   const tick = () => {
@@ -115,11 +126,27 @@ export function createMockBackend(
           };
           job.current_file = name;
           job.state = "awaiting_decision";
+          analysis.observe(job);
           continue;
         }
       }
       const step = Math.max(1, Math.ceil(job.files_total / 12));
       const n = Math.min(step, job.files_total - job.files_done);
+      if (job.kind === "check") {
+        const checked = (checkItemsByJob.get(job.id) ?? []).slice(job.files_done, job.files_done + n);
+        const read =
+          checked.filter((item) => item.outcome === "matched" || item.outcome === "conflict").length *
+          AVG_FILE;
+        analysis.recordWork(job, 0, read, read, n);
+      } else {
+        analysis.recordWork(
+          job,
+          n * AVG_FILE,
+          0,
+          job.analysis?.context.verify_mode === "reread" ? n * AVG_FILE : 0,
+          n,
+        );
+      }
       job.files_done += n;
       job.bytes_done = job.files_done * AVG_FILE;
       if (job.kind === "check")
@@ -147,6 +174,7 @@ export function createMockBackend(
         }
         skippedJobs.delete(job.id);
       }
+      analysis.observe(job);
       for (const [jobId, queue] of queueByJob) {
         if (
           !jobs.some(
@@ -159,6 +187,7 @@ export function createMockBackend(
         }
       }
     }
+    for (const job of jobs) analysis.observe(job);
     events.emit("transfers", structuredClone(jobs));
     events.emit("status-changed");
     if (!jobs.some((j) => ["running", "queued", "paused", "awaiting_decision"].includes(j.state))) {
@@ -208,6 +237,7 @@ export function createMockBackend(
       pending_conflict: null,
       check_results: null,
     });
+    analysis.begin(jobs[jobs.length - 1], flowId);
     queueByJob.set(id, queue);
     conflictsRemaining.set(id, Math.min(c[1], options.conflicts?.[flowId] ?? 0));
     timer ??= setInterval(tick, options.tickMs ?? 400);
@@ -591,6 +621,7 @@ export function createMockBackend(
           pending_conflict: null,
           check_results: checkSummary([]),
         });
+        analysis.begin(jobs[jobs.length - 1], flow.id);
         checkItemsByJob.set(id, items);
         ids.push(id);
       }
@@ -623,6 +654,7 @@ export function createMockBackend(
       else paused.delete(jobId);
       if (job.state === "running" || job.state === "paused" || job.state === "queued")
         if (!job.pending_conflict) job.state = isPaused ? "paused" : "running";
+      analysis.observe(job);
       events.emit("transfers", structuredClone(jobs));
     },
     setAllPaused: async (isPaused) => {
@@ -631,6 +663,7 @@ export function createMockBackend(
         if (isPaused) paused.add(job.id);
         else paused.delete(job.id);
         job.state = isPaused ? "paused" : "running";
+        analysis.observe(job);
       }
       events.emit("transfers", structuredClone(jobs));
     },
@@ -644,10 +677,16 @@ export function createMockBackend(
           job.check_results = checkSummary((checkItemsByJob.get(job.id) ?? []).slice(0, job.files_done));
           checkItemsByJob.delete(job.id);
         }
+        analysis.observe(job);
       }
       events.emit("transfers", structuredClone(jobs));
     },
-    listTransfers: async () => structuredClone(jobs),
+    listTransfers: async () => {
+      for (const job of jobs) analysis.observe(job);
+      return structuredClone(jobs);
+    },
+    getSpeedAnalysis: async (req) => analysis.summary(req),
+    listSpeedAnalysisJobs: async (req) => analysis.list(req),
     listVolumes: async (): Promise<Volume[]> =>
       [
         {

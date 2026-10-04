@@ -56,6 +56,8 @@ export const tauriBackend: Backend = {
   setAllPaused: (paused) => invoke("set_all_paused", { paused }),
   cancelTransfer: (jobId) => invoke("cancel_transfer", { jobId }),
   listTransfers: () => invoke("list_transfers"),
+  getSpeedAnalysis: (req) => invoke("get_speed_analysis", { req }),
+  listSpeedAnalysisJobs: (req) => invoke("list_speed_analysis_jobs", { req }),
 
   listVolumes: () => invoke("list_volumes"),
   registerDevice: (mountPath, device) => invoke("register_device", { mountPath, device }),

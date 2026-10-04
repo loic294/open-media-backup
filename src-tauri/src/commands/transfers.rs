@@ -1,5 +1,8 @@
 use super::{blocking, CmdResult, Shared};
 use crate::plan::WorkspaceContext;
+use crate::store::analysis::{
+    AnalysisFilter, AnalysisJobPage, AnalysisJobsRequest, AnalysisSummary,
+};
 use crate::transfer::{ConflictDecision, TransferJob};
 use crate::wipe::{WipeMethod, WipePlan};
 use tauri::State;
@@ -95,6 +98,40 @@ pub fn cancel_transfer(state: State<'_, Shared>, job_id: String) {
 #[tauri::command]
 pub fn list_transfers(state: State<'_, Shared>) -> Vec<TransferJob> {
     state.core.transfers.jobs()
+}
+
+#[tauri::command]
+pub async fn get_speed_analysis(
+    state: State<'_, Shared>,
+    req: AnalysisFilter,
+) -> CmdResult<AnalysisSummary> {
+    blocking(&state, move |s| {
+        if let Some(error) = s.core.transfers.analysis_storage_error() {
+            return Err(error);
+        }
+        s.core
+            .store
+            .get_speed_analysis(&req)
+            .map_err(|error| error.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_speed_analysis_jobs(
+    state: State<'_, Shared>,
+    req: AnalysisJobsRequest,
+) -> CmdResult<AnalysisJobPage> {
+    blocking(&state, move |s| {
+        if let Some(error) = s.core.transfers.analysis_storage_error() {
+            return Err(error);
+        }
+        s.core
+            .store
+            .list_speed_analysis_jobs(&req)
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]

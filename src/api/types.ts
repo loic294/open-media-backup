@@ -155,6 +155,8 @@ export interface AppSettings {
   preview_apps?: PreviewAppSettings;
   /** Missing in older snapshots means mounted devices appear first in device lists. */
   show_mounted_devices_first?: boolean;
+  /** Local sleep prevention during active transfers. Missing on older snapshots means enabled. */
+  keep_awake_during_transfers?: boolean;
   /** Local per-computer app paths for App destinations, keyed by destination id. */
   app_destinations?: Record<string, string>;
   /** Learned transfer throughput in bytes/sec, keyed by destination device id. `_global` is the fallback. */
@@ -303,6 +305,7 @@ export interface FileEntry {
   abs_path: string | null;
   target_path: string | null;
   category: FileCategory;
+  ignore_reason?: string | null;
   error: string | null;
   /** Embedded capture timestamp only (Unix milliseconds), never filesystem mtime. */
   capture_time?: number | null;
@@ -400,6 +403,96 @@ export interface TransferJob {
   kind?: "transfer" | "check" | "wipe";
   pending_conflict?: TransferConflict | null;
   check_results?: DestinationCheckResults | null;
+  analysis?: AnalysisJob | null;
+}
+
+export type AnalysisPhase =
+  | "queued"
+  | "other"
+  | "copy"
+  | "source_check"
+  | "destination_check"
+  | "paused"
+  | "awaiting_decision"
+  | "finished";
+
+export interface AnalysisContext {
+  pair_id: string;
+  space_id: string;
+  space_name: string;
+  source_id: string;
+  destination_id: string;
+  source_device_id: string;
+  destination_device_id: string;
+  source_name: string;
+  destination_name: string;
+  source_device_name: string;
+  destination_device_name: string;
+  hash_algo: HashAlgo;
+  verify_mode: VerifyMode;
+}
+
+export interface AnalysisMetrics {
+  queued_secs: number;
+  other_secs: number;
+  copy_secs: number;
+  source_check_secs: number;
+  destination_check_secs: number;
+  paused_secs: number;
+  decision_secs: number;
+  /** Physical writes, including retries; independent of UI progress budgets. */
+  copy_bytes: number;
+  committed_bytes: number;
+  source_check_bytes: number;
+  destination_check_bytes: number;
+  transferred_files: number;
+  adopted_files: number;
+  skipped_files: number;
+}
+
+export interface AnalysisJob {
+  id: string;
+  context: AnalysisContext;
+  kind: "transfer" | "check";
+  state: TransferState | "interrupted";
+  phase: AnalysisPhase;
+  created_at: number;
+  updated_at: number;
+  finished_at: number | null;
+  metrics: AnalysisMetrics;
+  error_count: number;
+}
+
+export interface AnalysisTotals {
+  metrics: AnalysisMetrics;
+  completed_transfer_jobs: number;
+  completed_check_jobs: number;
+  failed_jobs: number;
+  cancelled_jobs: number;
+  interrupted_jobs: number;
+  avg_copy_bps: number | null;
+  effective_bps: number | null;
+}
+
+export interface AnalysisSummary {
+  pairs: { context: AnalysisContext; totals: AnalysisTotals }[];
+  totals: AnalysisTotals;
+}
+
+export interface AnalysisFilter {
+  space_id: string | null;
+  since: number | null;
+  pair_id: string | null;
+}
+
+export interface AnalysisJobsRequest extends AnalysisFilter {
+  offset: number;
+  limit: number;
+}
+
+export interface AnalysisJobPage {
+  jobs: AnalysisJob[];
+  total: number;
 }
 
 export type VolumeMatch = "hw_serial" | "marker" | "volume_uuid" | "mapping";

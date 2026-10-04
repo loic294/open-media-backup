@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1120" height="1044" viewBox="0 0 1120 1044">
+  <g>
+    <rect width="1120" height="1044" rx="12" ry="12" fill="#242832" stroke="#434954" stroke-width="1"/>
+    <g>
+      <g transform="translate(24, 17)">
+        <rect width="36" height="36" rx="9" ry="9" fill="#1E222B"/>
+        <g transform="translate(11.5, 4.5)">
+          <text x="0" y="19" font-family="Inter" font-size="19" font-weight="700" fill="#FFC700">S</text>
+        </g>
+      </g>
+      <g transform="translate(72, 21.5)">
+        <text x="0" y="19" font-family="Inter" font-size="19" font-weight="600" fill="#ECEEF3">Settings</text>
+      </g>
+      <g transform="translate(1024, 21)">
+        <text x="0" y="20" font-family="Inter" font-size="20" fill="#AEB6C4">x</text>
+      </g>
+    </g>
+    <g transform="translate(0, 70)">
+      <rect width="1120" height="46" fill="#1E222B"/>
+      <g transform="translate(24, 13.5)">
+        <text x="0" y="13" font-family="Inter" font-size="13" fill="#AEB6C4">General</text>
+      </g>
+      <g transform="translate(114, 13.5)">
+        <text x="0" y="13" font-family="Inter" font-size="13" fill="#AEB6C4">Devices</text>
+      </g>
+      <g transform="translate(204, 8)">
+        <g>
+          <text x="0" y="13" font-family="Inter" font-size="13" font-weight="600" fill="#FFC700">Speed Analysis</text>
+        </g>
+        <g transform="translate(0, 27)">
+          <rect width="118" height="3" fill="#FFC700"/>
+        </g>
+      </g>
+    </g>
+    <g transform="translate(0, 116)">
+      <g transform="translate(24, 24)">
+        <text x="0" y="20" font-family="Inter" font-size="20" font-weight="600" fill="#ECEEF3">Before the first recorded job</text>
+      </g>
+      <g transform="translate(24, 68)">
+        <rect width="1072" height="145" rx="10" ry="10" fill="#1E222B" stroke="#434954" stroke-width="1"/>
+        <g transform="translate(28, 28)">
+          <text x="0" y="21" font-family="Inter" font-size="21" font-weight="600" fill="#ECEEF3">No speed history yet</text>
+        </g>
+        <g transform="translate(28, 70)">
+          <text x="0" y="13" font-family="Inter" font-size="13" fill="#AEB6C4">Run a transfer or a destination check to start collecting statistics.</text>
+        </g>
+        <g transform="translate(28, 101)">
+          <text x="0" y="11" font-family="Inter" font-size="11" fill="#AEB6C4">Existing device speed estimates cannot provide historical phase timings.</text>
+        </g>
+      </g>
+      <g transform="translate(24, 229)">
+        <text x="0" y="17" font-family="Inter" font-size="17" font-weight="600" fill="#ECEEF3">Other states</text>
+      </g>
+      <g transform="translate(24, 269)">
+        <rect width="1072" height="79" rx="8" ry="8" fill="#1E222B"/>
+        <g transform="translate(16, 16)">
+          <text x="0" y="13" font-family="Inter" font-size="13" fill="#ECEEF3">Loading history...</text>
+        </g>
+        <g transform="translate(16, 47)">
+          <text x="0" y="11" font-family="Inter" font-size="11" fill="#AEB6C4">Live jobs remain visible while recorded statistics load.</text>
+        </g>
+      </g>
+      <g transform="translate(24, 364)">
+        <rect width="1072" height="79" rx="8" ry="8" fill="#1E222B"/>
+        <g transform="translate(16, 16)">
+          <text x="0" y="13" font-family="Inter" font-size="13" font-weight="600" fill="#F78B9B">Could not load speed history</text>
+        </g>
+        <g transform="translate(16, 47)">
+          <text x="0" y="11" font-family="Inter" font-size="11" fill="#AEB6C4">Show the error and a Retry button; do not replace failed loads with zero statistics.</text>
+        </g>
+      </g>
+      <g transform="translate(24, 459)">
+        <rect width="1072" height="79" rx="8" ry="8" fill="#1E222B"/>
+        <g transform="translate(16, 16)">
+          <text x="0" y="13" font-family="Inter" font-size="13" fill="#ECEEF3">No copied bytes: average copy speed is Not applicable</text>
+        </g>
+        <g transform="translate(16, 47)">
+          <text x="0" y="11" font-family="Inter" font-size="11" fill="#AEB6C4">Source / destination check durations, bytes read, and completed check jobs still appear.</text>
+        </g>
+      </g>
+      <g transform="translate(24, 554)">
+        <rect width="1072" height="79" rx="8" ry="8" fill="#1E222B"/>
+        <g transform="translate(16, 16)">
+          <text x="0" y="13" font-family="Inter" font-size="13" fill="#ECEEF3">Failed / cancelled / interrupted jobs remain in job history</text>
+        </g>
+        <g transform="translate(16, 47)">
+          <text x="0" y="11" font-family="Inter" font-size="11" fill="#AEB6C4">Show partial bytes and timings; exclude them from successful-transfer averages.</text>
+        </g>
+      </g>
+      <g transform="translate(24, 649)">
+        <text x="0" y="17" font-family="Inter" font-size="17" font-weight="600" fill="#ECEEF3">Measurement contract</text>
+      </g>
+      <g transform="translate(24, 689)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">Average copy speed = sum(actual copied bytes) / sum(active copy seconds). Never average job speeds.</text>
+      </g>
+      <g transform="translate(24, 722)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">Hash time = source check reads + destination verification reads. Inline hashing is part of copying.</text>
+      </g>
+      <g transform="translate(24, 755)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">Track planning / finalization, queueing, pauses, and conflict waits separately. Do not overlap phase totals.</text>
+      </g>
+      <g transform="translate(24, 788)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">Pair identity uses stable source + destination IDs and device IDs, not display names. Preserve name snapshots.</text>
+      </g>
+      <g transform="translate(24, 821)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">All recorded history is retained locally across restarts. No peer sync, no file paths or hashes in telemetry.</text>
+      </g>
+      <g transform="translate(24, 854)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">Last 7 days / Last 30 days / All recorded; filter by space and pair. Completed check jobs have their own count.</text>
+      </g>
+      <g transform="translate(24, 887)">
+        <text x="0" y="12" font-family="Inter" font-size="12" fill="#AEB6C4">Narrow windows: stack stats and details; keep tables scrollable. Respect light / dark theme and keyboard tabs.</text>
+      </g>
+    </g>
+  </g>
+</svg>

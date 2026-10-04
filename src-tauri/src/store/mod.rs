@@ -1,5 +1,6 @@
 //! SQLite-backed document store. Every synced change is recorded as an [`Op`]
 //! stamped with a hybrid logical clock and merged last-writer-wins per field.
+pub mod analysis;
 mod apply;
 mod clock;
 mod entities;
@@ -30,6 +31,7 @@ pub struct Store {
     clock: HlcClock,
     computer_id: String,
     changes: broadcast::Sender<ChangeEvent>,
+    analysis_recovery_error: Option<String>,
 }
 
 impl Store {
@@ -43,6 +45,11 @@ impl Store {
 
     fn from_connection(conn: Connection) -> StoreResult<Self> {
         schema::migrate(&conn)?;
+        let analysis_recovery_error = analysis::recover_interrupted(&conn).err().map(|error| {
+            let message = format!("Could not recover interrupted speed analysis: {error}");
+            log::error!("{message}");
+            message
+        });
         let computer_id = local::computer_id(&conn)?;
         let (changes, _) = broadcast::channel(64);
         Ok(Self {
@@ -50,6 +57,7 @@ impl Store {
             conn: Mutex::new(conn),
             computer_id,
             changes,
+            analysis_recovery_error,
         })
     }
 

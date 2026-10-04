@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE entities (
   kind TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -33,7 +34,22 @@ CREATE TABLE peers (
   last_seen INTEGER,
   last_error TEXT
 );
-"#];
+"#,
+    r#"
+CREATE TABLE speed_analysis (
+  id TEXT PRIMARY KEY,
+  pair_id TEXT NOT NULL,
+  space_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  data TEXT NOT NULL
+);
+CREATE INDEX speed_analysis_time ON speed_analysis (created_at DESC, id);
+CREATE INDEX speed_analysis_pair_time ON speed_analysis (pair_id, created_at DESC, id);
+CREATE INDEX speed_analysis_space_time ON speed_analysis (space_id, created_at DESC, id);
+CREATE INDEX speed_analysis_space_pair_time ON speed_analysis (space_id, pair_id, created_at DESC, id);
+"#,
+];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "journal_mode", "WAL")?;

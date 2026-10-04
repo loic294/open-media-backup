@@ -64,6 +64,7 @@ export class AppStore extends EventTarget {
   #statusRefreshPending = false;
   #shownCheckResults = new Set<string>();
   #transfersSeq = 0;
+  #activeJobsOnly = false;
 
   constructor(readonly backend: Backend) {
     super();
@@ -84,12 +85,14 @@ export class AppStore extends EventTarget {
 
   async init(): Promise<void> {
     this.#disposed = false;
+    this.#activeJobsOnly = false;
     try {
       const b = this.backend;
       this.#unlisten = await Promise.all([
         b.on("snapshot-changed", () => void this.reloadSnapshot()),
         b.on("status-changed", () => this.refreshStatus()),
         b.on("transfers", (jobs) => this.#receiveTransfers(jobs)),
+        b.on("transfer-power-warning", (message) => this.toast("warning", message, 10000)),
         b.on("sync-status", (sync) => this.#set({ sync })),
         b.on("volumes-changed", (volumes) => this.#set({ volumes })),
       ]);
@@ -106,6 +109,26 @@ export class AppStore extends EventTarget {
       this.#unlisten.push(await connectDesktopMenu(this));
       await this.#loadStatus();
       void checkForUpdateOnLaunch(this);
+    } catch (e) {
+      console.error("init failed", e);
+      this.#set({ error: String(e) });
+    }
+  }
+
+  async initActiveJobs(): Promise<void> {
+    this.#disposed = false;
+    this.#activeJobsOnly = true;
+    try {
+      const b = this.backend;
+      this.#unlisten = await Promise.all([
+        b.on("transfers", (jobs) => this.#receiveTransfers(jobs)),
+        b.on("transfer-power-warning", (message) => this.toast("warning", message, 10000)),
+      ]);
+      const transfersSeq = this.#transfersSeq;
+      const [snapshot, transfers] = await Promise.all([b.getSnapshot(), b.listTransfers()]);
+      this.#set({ snapshot });
+      if (transfersSeq === this.#transfersSeq) this.#receiveTransfers(transfers);
+      applyTheme(snapshot.settings.theme);
     } catch (e) {
       console.error("init failed", e);
       this.#set({ error: String(e) });
@@ -291,6 +314,10 @@ export class AppStore extends EventTarget {
 
   #receiveTransfers(jobs: TransferJob[]): void {
     this.#transfersSeq++;
+    if (this.#activeJobsOnly) {
+      this.#set({ transfers: jobs });
+      return;
+    }
     const dialogs = this.dialogs.filter(
       (dialog) =>
         dialog.type !== "transfer-conflict" ||

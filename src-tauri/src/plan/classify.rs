@@ -24,6 +24,7 @@ pub struct PlannedFile {
     pub modified_ms: Option<i64>,
     pub file_id: Option<String>,
     pub category: Category,
+    pub ignore_reason: Option<String>,
     pub error: Option<String>,
     /// Unix milliseconds from embedded metadata, never filesystem modification time.
     pub capture_time: Option<i64>,
@@ -172,7 +173,9 @@ pub fn classify_files_with_capture_times(
                 .map(|project| {
                     let target = ctx.target_for_project(&file.rel_path, project);
                     let rule_vars = ctx.rule_vars_for_project(project);
+                    let rule_ignore_reason = ctx.rules.ignore_reason(&file.rel_path, &rule_vars);
                     let configuration_failed = ctx.config_error.is_some() || target.is_err();
+                    let missing_target = matches!(&target, Ok(None));
                     let error = ctx
                         .config_error
                         .clone()
@@ -189,7 +192,11 @@ pub fn classify_files_with_capture_times(
                                 .cloned()
                         });
                     let target_path = target.ok().flatten();
-                    let category = if !ctx.rules.allows_with_vars(&file.rel_path, &rule_vars) {
+                    let ignore_reason = rule_ignore_reason.or_else(|| {
+                        (missing_target && !configuration_failed && error.is_none())
+                            .then(|| "No matching project to build the destination path".into())
+                    });
+                    let category = if ignore_reason.is_some() {
                         Category::Ignored
                     } else if configuration_failed {
                         Category::Error
@@ -221,6 +228,7 @@ pub fn classify_files_with_capture_times(
                         modified_ms: file.modified_ms,
                         file_id: file_id.clone(),
                         category,
+                        ignore_reason,
                         capture_time,
                         project_id: project.map(|p| p.id.clone()),
                         target_path: (category != Category::Ignored)
@@ -242,7 +250,7 @@ fn inherit_sidecar_capture_times(
     files: &[ScannedFile],
     capture_times: &HashMap<String, i64>,
 ) -> HashMap<String, Vec<i64>> {
-    let mut media_times: HashMap<(String, String), Vec<i64>> = HashMap::new();
+    let mut media_times: HashMap<String, HashMap<String, Vec<i64>>> = HashMap::new();
     for file in files {
         if media_kind(Path::new(&file.rel_path)) == MediaKind::Other {
             continue;
@@ -250,15 +258,15 @@ fn inherit_sidecar_capture_times(
         let Some(time) = capture_times.get(&file.rel_path).copied() else {
             continue;
         };
-        let Some(key) = sidecar_key(&file.rel_path) else {
+        let Some((parent, stem)) = file_stem_key(&file.rel_path) else {
             continue;
         };
-        media_times.entry(key).or_default().push(time);
-    }
-
-    for times in media_times.values_mut() {
-        times.sort_unstable();
-        times.dedup();
+        media_times
+            .entry(parent)
+            .or_default()
+            .entry(stem)
+            .or_default()
+            .push(time);
     }
 
     let mut inherited: HashMap<_, _> = capture_times
@@ -271,21 +279,60 @@ fn inherit_sidecar_capture_times(
         {
             continue;
         }
-        let Some(key) = sidecar_key(&file.rel_path) else {
+        let path = Path::new(&file.rel_path);
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name().and_then(|s| s.to_str()))
+        else {
             continue;
         };
-        if let Some(times) = media_times.get(&key) {
-            inherited.insert(file.rel_path.clone(), times.clone());
+        let Some(stems) = media_times.get(parent.to_string_lossy().as_ref()) else {
+            continue;
+        };
+        let name = name.to_lowercase();
+        let mut times: Vec<_> = stems
+            .iter()
+            .filter(|(stem, _)| name.contains(stem.as_str()))
+            .flat_map(|(_, times)| times.iter().copied())
+            .collect();
+        times.sort_unstable();
+        times.dedup();
+        if !times.is_empty() {
+            inherited.insert(file.rel_path.clone(), times);
         }
     }
     inherited
 }
 
-fn sidecar_key(rel_path: &str) -> Option<(String, String)> {
+fn file_stem_key(rel_path: &str) -> Option<(String, String)> {
     let path = Path::new(rel_path);
     let parent = path.parent()?.to_string_lossy().into_owned();
     let stem = path.file_stem()?.to_str()?.to_lowercase();
     (!stem.is_empty()).then_some((parent, stem))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contained_sidecar_capture_times_are_sorted_and_deduplicated() {
+        let files: Vec<_> = ["C700.MP4", "C7000.MP4", "C7000.MOV", "C7000M01.XML"]
+            .into_iter()
+            .map(|name| ScannedFile {
+                rel_path: name.into(),
+                abs_path: name.into(),
+                size: 0,
+                modified_ms: None,
+            })
+            .collect();
+        let captures = HashMap::from([
+            ("C700.MP4".into(), 2),
+            ("C7000.MP4".into(), 1),
+            ("C7000.MOV".into(), 2),
+        ]);
+        let inherited = inherit_sidecar_capture_times(&files, &captures);
+        assert_eq!(inherited["C7000M01.XML"], vec![1, 2]);
+        assert_eq!(inherited["C7000.MP4"], vec![1]);
+    }
 }
 
 fn offline_files(folder_rel: &str, device_id: &str, catalog: &Catalog) -> Vec<ScannedFile> {

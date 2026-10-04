@@ -70,6 +70,8 @@ macro_rules! omb_handlers {
             $crate::commands::transfers::set_all_paused,
             $crate::commands::transfers::cancel_transfer,
             $crate::commands::transfers::list_transfers,
+            $crate::commands::transfers::get_speed_analysis,
+            $crate::commands::transfers::list_speed_analysis_jobs,
             $crate::commands::transfers::plan_wipe,
             $crate::commands::transfers::wipe,
             $crate::commands::devices::list_volumes,

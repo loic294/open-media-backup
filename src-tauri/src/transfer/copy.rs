@@ -1,4 +1,5 @@
 use super::handle::{Cancelled, ConflictDecision, ConflictInfo, JobHandle};
+use super::AnalysisPhase;
 use crate::domain::{HashAlgo, VerifyMode};
 use crate::hashing::{hash_file, hasher, BUFFER_SIZE};
 use std::fs::{self, File, OpenOptions};
@@ -56,8 +57,8 @@ pub fn compare_files(
     handle: &JobHandle,
     source_hash: &mut Option<String>,
 ) -> Result<Comparison, CopyError> {
-    compare_files_using(src, dst, handle, source_hash, &mut |path, _| {
-        hash_checked(path, algo, handle)
+    compare_files_using(src, dst, handle, source_hash, &mut |path, source| {
+        hash_checked_side(path, algo, handle, source)
     })
 }
 
@@ -70,7 +71,7 @@ pub(super) fn compare_files_with_progress(
     mut on_bytes: impl FnMut(bool, u64, u64),
 ) -> Result<Comparison, CopyError> {
     compare_files_using(src, dst, handle, source_hash, &mut |path, source| {
-        hash_checked_with_progress(path, algo, handle, |bytes, total| {
+        hash_checked_with_progress(path, algo, handle, source, |bytes, total| {
             on_bytes(source, bytes, total);
         })
     })
@@ -145,7 +146,17 @@ pub fn copy_resolving(
     decide: Decider<'_>,
 ) -> Result<CopyOutcome, CopyError> {
     let partial = partial_path(dst);
+    let _phase = handle.analysis_phase(AnalysisPhase::Other);
     let result = resolve_and_copy(src, dst, &partial, algo, verify, known_hash, handle, decide);
+    if let Ok(outcome) = &result {
+        handle.analysis_metrics(|metrics| {
+            if outcome.adopted {
+                metrics.adopted_files += 1;
+            } else if outcome.skipped {
+                metrics.skipped_files += 1;
+            }
+        });
+    }
     // After a successful commit the partial no longer exists.
     let _ = fs::remove_file(&partial);
     result
@@ -165,7 +176,7 @@ fn resolve_and_copy(
     let mut target = dst.to_path_buf();
     let mut keep_both = false;
     let mut source_hash: Option<String> = None;
-    let mut staged: Option<String> = None;
+    let mut staged: Option<(String, u64)> = None;
     loop {
         handle.checkpoint()?;
         if keep_both && target.exists() {
@@ -183,11 +194,16 @@ fn resolve_and_copy(
                 })
             }
             Comparison::Missing => {
-                let hash = stage(src, partial, algo, verify, known_hash, handle, &mut staged)?;
+                let (hash, bytes) =
+                    stage(src, partial, algo, verify, known_hash, handle, &mut staged)?;
                 if let Some(parent) = target.parent() {
                     fs::create_dir_all(parent)?;
                 }
                 if commit_new(partial, &target)? {
+                    handle.analysis_metrics(|metrics| {
+                        metrics.committed_bytes += bytes;
+                        metrics.transferred_files += 1;
+                    });
                     return Ok(CopyOutcome {
                         hash,
                         final_path: target,
@@ -224,11 +240,16 @@ fn resolve_and_copy(
                     }
                     ConflictDecision::Replace => {}
                 }
-                let hash = stage(src, partial, algo, verify, known_hash, handle, &mut staged)?;
+                let (hash, bytes) =
+                    stage(src, partial, algo, verify, known_hash, handle, &mut staged)?;
                 // The old file may have changed while the copy was staged or the user decided.
                 match hash_checked(&target, algo, handle) {
                     Ok(now) if now == destination_hash => {
                         fs::rename(partial, &target)?;
+                        handle.analysis_metrics(|metrics| {
+                            metrics.committed_bytes += bytes;
+                            metrics.transferred_files += 1;
+                        });
                         return Ok(CopyOutcome {
                             hash,
                             final_path: target,
@@ -254,15 +275,15 @@ fn stage(
     verify: VerifyMode,
     known_hash: Option<&str>,
     handle: &JobHandle,
-    staged: &mut Option<String>,
-) -> Result<String, CopyError> {
+    staged: &mut Option<(String, u64)>,
+) -> Result<(String, u64), CopyError> {
     if let Some(hash) = staged {
         return Ok(hash.clone());
     }
     if let Some(parent) = partial.parent() {
         fs::create_dir_all(parent)?;
     }
-    let hash = stream_copy(src, partial, algo, handle)?;
+    let (hash, bytes) = stream_copy(src, partial, algo, handle)?;
     if known_hash.is_some_and(|k| k != hash) {
         return Err(CopyError::SourceChanged);
     }
@@ -281,8 +302,8 @@ fn stage(
             });
         }
     }
-    *staged = Some(hash.clone());
-    Ok(hash)
+    *staged = Some((hash.clone(), bytes));
+    Ok((hash, bytes))
 }
 
 /// Moves the staged file to a target that must not exist. `Ok(false)` means somebody
@@ -316,7 +337,8 @@ fn stream_copy(
     partial: &Path,
     algo: HashAlgo,
     handle: &JobHandle,
-) -> Result<String, CopyError> {
+) -> Result<(String, u64), CopyError> {
+    let _phase = handle.analysis_phase(AnalysisPhase::Copy);
     let mut input = File::open(src)?;
     let mut output = OpenOptions::new()
         .write(true)
@@ -325,6 +347,7 @@ fn stream_copy(
         .open(partial)?;
     let mut state = hasher(algo);
     let mut buf = vec![0u8; BUFFER_SIZE];
+    let mut copied = 0;
     loop {
         handle.checkpoint()?;
         let n = input.read(&mut buf)?;
@@ -332,11 +355,31 @@ fn stream_copy(
             break;
         }
         state.update(&buf[..n]);
-        output.write_all(&buf[..n])?;
+        copied += write_counted(&mut output, &buf[..n], handle)?;
         handle.add_bytes(n as u64);
     }
     output.sync_all()?;
-    Ok(state.finish_hex())
+    Ok((state.finish_hex(), copied))
+}
+
+fn write_counted(
+    output: &mut impl Write,
+    bytes: &[u8],
+    handle: &JobHandle,
+) -> std::io::Result<u64> {
+    let mut written = 0;
+    while written < bytes.len() {
+        match output.write(&bytes[written..]) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(count) => {
+                written += count;
+                handle.analysis_metrics(|metrics| metrics.copy_bytes += count as u64);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(written as u64)
 }
 
 pub(super) fn hash_checked(
@@ -344,28 +387,52 @@ pub(super) fn hash_checked(
     algo: HashAlgo,
     handle: &JobHandle,
 ) -> Result<String, CopyError> {
-    hash_checked_reporting(path, algo, handle, |_| {})
+    hash_checked_side(path, algo, handle, false)
+}
+
+fn hash_checked_side(
+    path: &Path,
+    algo: HashAlgo,
+    handle: &JobHandle,
+    source: bool,
+) -> Result<String, CopyError> {
+    hash_checked_reporting(path, algo, handle, source, |_| {})
 }
 
 pub(super) fn hash_checked_with_progress(
     path: &Path,
     algo: HashAlgo,
     handle: &JobHandle,
+    source: bool,
     mut on_bytes: impl FnMut(u64, u64),
 ) -> Result<String, CopyError> {
     handle.checkpoint()?;
     let total = fs::metadata(path)?.len();
-    hash_checked_reporting(path, algo, handle, |bytes| on_bytes(bytes, total))
+    hash_checked_reporting(path, algo, handle, source, |bytes| on_bytes(bytes, total))
 }
 
 fn hash_checked_reporting(
     path: &Path,
     algo: HashAlgo,
     handle: &JobHandle,
+    source: bool,
     mut on_bytes: impl FnMut(u64),
 ) -> Result<String, CopyError> {
     handle.checkpoint()?;
+    let _phase = handle.analysis_phase(if source {
+        AnalysisPhase::SourceCheck
+    } else {
+        AnalysisPhase::DestinationCheck
+    });
     hash_file(path, algo, |bytes| {
+        // The callback is after the read: count it even if this checkpoint cancels.
+        handle.analysis_metrics(|metrics| {
+            if source {
+                metrics.source_check_bytes += bytes;
+            } else {
+                metrics.destination_check_bytes += bytes;
+            }
+        });
         if handle.checkpoint().is_err() {
             return false;
         }
@@ -565,5 +632,49 @@ mod tests {
         fs::create_dir(&d).unwrap();
         assert!(copy(&s, &d, None, |_| ConflictDecision::Replace).is_err());
         assert!(d.is_dir());
+    }
+
+    #[test]
+    fn analysis_short_writes_count_actual_io_including_failed_attempts() {
+        struct ShortWriter {
+            written: usize,
+            fail_after: Option<usize>,
+            interrupted: bool,
+        }
+        impl Write for ShortWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.interrupted {
+                    self.interrupted = false;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                if self.fail_after.is_some_and(|limit| self.written >= limit) {
+                    return Err(std::io::ErrorKind::BrokenPipe.into());
+                }
+                let count = bytes.len().min(3);
+                self.written += count;
+                Ok(count)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let h = handle().with_analysis(Some(crate::transfer::metrics::tests::context()), None);
+        h.start_work();
+        let mut failed = ShortWriter {
+            written: 0,
+            fail_after: Some(3),
+            interrupted: true,
+        };
+        assert!(write_counted(&mut failed, b"0123456789", &h).is_err());
+        assert_eq!(h.snapshot().analysis.unwrap().metrics.copy_bytes, 3);
+        let mut retry = ShortWriter {
+            written: 0,
+            fail_after: None,
+            interrupted: true,
+        };
+        assert_eq!(write_counted(&mut retry, b"0123456789", &h).unwrap(), 10);
+        let snapshot = h.snapshot();
+        assert_eq!(snapshot.analysis.unwrap().metrics.copy_bytes, 13);
+        assert_eq!(snapshot.bytes_done, 0);
     }
 }

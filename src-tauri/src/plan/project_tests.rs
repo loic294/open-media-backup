@@ -177,6 +177,10 @@ fn routes_each_matching_project_using_its_values_not_the_selection() {
     assert_eq!(unassigned.len(), 1);
     assert_eq!(unassigned[0].project_id, None);
     assert_eq!(unassigned[0].category, Category::Ignored);
+    assert_eq!(
+        unassigned[0].ignore_reason.as_deref(),
+        Some("No matching project to build the destination path")
+    );
 
     let mut source = fx.source.clone();
     source.project_scope = ProjectScope::Selected {
@@ -226,6 +230,15 @@ fn condition_rules_filter_each_project_route_during_classification() {
             .unwrap()
             .category,
         Category::ToTransfer
+    );
+    assert_eq!(
+        planned
+            .iter()
+            .find(|file| file.project_id.as_deref() == Some("b"))
+            .unwrap()
+            .ignore_reason
+            .as_deref(),
+        Some("Condition not met: client = \" acme \"")
     );
     assert_eq!(
         planned
@@ -371,6 +384,115 @@ fn same_stem_sidecars_inherit_the_media_capture_time_for_project_matching() {
         assert_eq!(file.project_id, None);
         assert_eq!(file.category, Category::Ignored);
     }
+}
+
+#[test]
+fn contained_stem_sidecars_inherit_capture_times_in_the_same_directory() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/C7000.MP4", b"video");
+    let matching = [
+        "C7000M01.XML",
+        "prefix_c7000_metadata.xml",
+        "C7000.MP4.xmp",
+        "C7000.XML",
+    ];
+    let unrelated = ["C7001M01.XML", "Nested/C7000M01.XML", "notes.xml"];
+    for name in matching.into_iter().chain(unrelated) {
+        fx.write_card_file(&format!("DCIM/{name}"), b"sidecar");
+    }
+    let mut p = fx.project.clone();
+    p.start_time = Some(time("2026-01-01T00:00:00Z"));
+    p.end_time = p.start_time;
+    p.granularity = ProjectGranularity::Day;
+    fx.store.put(&p).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    fx.store.put(&destination).unwrap();
+
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let files = source_files(ctx.source_root.as_deref(), "DCIM", "card", &catalog);
+    let media_time = time("2026-01-01T12:30:00Z");
+    let captures = HashMap::from([("C7000.MP4".into(), media_time)]);
+    let planned = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
+    for name in matching {
+        let sidecar = planned.iter().find(|f| f.rel_path == name).unwrap();
+        assert_eq!(sidecar.capture_time, Some(media_time), "{name}");
+        assert_eq!(sidecar.project_id.as_deref(), Some("project"), "{name}");
+        assert_eq!(sidecar.category, Category::ToTransfer, "{name}");
+        assert!(sidecar.target_path.is_some(), "{name}");
+    }
+    for name in unrelated {
+        let sidecar = planned.iter().find(|f| f.rel_path == name).unwrap();
+        assert_eq!(sidecar.capture_time, None, "{name}");
+        assert_eq!(sidecar.project_id, None, "{name}");
+        assert_eq!(sidecar.category, Category::Ignored, "{name}");
+    }
+}
+
+#[test]
+fn contained_stem_sidecars_follow_all_matching_projects_but_preserve_explicit_times() {
+    let fx = Fixture::new();
+    for name in [
+        "C700.MP4",
+        "C7000.MP4",
+        "C7000.MOV",
+        "C7000M01.XML",
+        "C7000.XMP",
+    ] {
+        fx.write_card_file(&format!("DCIM/{name}"), b"file");
+    }
+    let a = project(
+        "a",
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z",
+        ProjectGranularity::Day,
+    );
+    let b = project(
+        "b",
+        "2026-01-02T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+        ProjectGranularity::Day,
+    );
+    fx.store.put_all(&[a, b]).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    fx.store.put(&destination).unwrap();
+
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let files = source_files(ctx.source_root.as_deref(), "DCIM", "card", &catalog);
+    let first = time("2026-01-01T12:30:00Z");
+    let second = time("2026-01-02T12:30:00Z");
+    let captures = HashMap::from([
+        ("C700.MP4".into(), first),
+        ("C7000.MP4".into(), second),
+        ("C7000.MOV".into(), second),
+        ("C7000.XMP".into(), second),
+    ]);
+    let planned = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
+    let sidecars: Vec<_> = planned
+        .iter()
+        .filter(|f| f.rel_path == "C7000M01.XML")
+        .collect();
+    assert_eq!(sidecars.len(), 2);
+    for id in ["a", "b"] {
+        let sidecar = sidecars
+            .iter()
+            .find(|f| f.project_id.as_deref() == Some(id))
+            .unwrap();
+        assert_eq!(sidecar.category, Category::ToTransfer);
+        assert_eq!(sidecar.capture_time, Some(first));
+        assert!(sidecar.target_path.is_some());
+    }
+    let explicit: Vec<_> = planned
+        .iter()
+        .filter(|f| f.rel_path == "C7000.XMP")
+        .collect();
+    assert_eq!(explicit.len(), 1);
+    assert_eq!(explicit[0].project_id.as_deref(), Some("b"));
+    assert_eq!(explicit[0].capture_time, Some(second));
+    assert_eq!(explicit[0].category, Category::ToTransfer);
 }
 
 #[test]

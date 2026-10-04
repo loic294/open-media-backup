@@ -1,6 +1,7 @@
 import { html } from "lit";
 import { customElement } from "lit/decorators.js";
 import { DEMO, inDesktopShell } from "../../api";
+import "../footer/active-jobs-panel";
 import { installDropdownDismiss } from "../ui/dropdown";
 import { OmbElement } from "../ui/omb-element";
 import "../top-bar/omb-top-bar";
@@ -9,13 +10,17 @@ import "../footer/omb-footer";
 import "../dialogs/omb-dialog-host";
 import "./omb-toasts";
 
+const activeJobsWindow = () => new URLSearchParams(window.location.search).get("ombWindow") === "active-jobs";
+
 @customElement("omb-app")
 export class OmbApp extends OmbElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.classList.add("flex", "flex-col", "h-screen", "bg-base-200", "text-base-content");
     installDropdownDismiss();
-    if (DEMO || inDesktopShell()) void this.store.init();
+    if (DEMO || inDesktopShell()) {
+      void (activeJobsWindow() ? this.store.initActiveJobs() : this.store.init());
+    }
   }
 
   override disconnectedCallback(): void {
@@ -40,6 +45,14 @@ export class OmbApp extends OmbElement {
       </div>`;
     }
     if (!snapshot) return html`<span class="m-auto loading loading-spinner loading-lg text-primary"></span>`;
+    if (activeJobsWindow()) {
+      return html`
+        <main class="h-screen bg-base-200 text-base-content">
+          <omb-active-jobs-panel data-omb-block standalone></omb-active-jobs-panel>
+          <omb-toasts></omb-toasts>
+        </main>
+      `;
+    }
     return html`
       <omb-top-bar></omb-top-bar>
       <omb-workspace class="flex-1 min-h-0"></omb-workspace>

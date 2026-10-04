@@ -114,6 +114,36 @@ describe("transfer folder preview", () => {
     expect(list.mock.calls.at(-1)![0].directory).toBeUndefined();
   });
 
+  it("shows each ignored file's reason only in list view", async () => {
+    const reason = 'Excluded by destination rule "*.THM"';
+    const ignored = {
+      ...file("skipped/notes.THM", null),
+      category: "ignored" as const,
+      ignore_reason: reason,
+    };
+    vi.spyOn(store, "listWorkspaceFiles").mockImplementation(async (req) =>
+      listing(req.category === "ignored" ? [ignored] : [file("100/A.JPG")], req),
+    );
+    const element = await preview();
+    element.querySelector<HTMLButtonElement>('button[title="List"]')!.click();
+    await until(() => !!element.querySelector("table"));
+    [...element.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      .find((button) => button.textContent?.includes("Ignored"))!
+      .click();
+    await until(() => element.textContent?.includes("notes.THM") ?? false);
+    expect(element.querySelector("table")?.textContent).toContain(reason);
+
+    element.querySelector<HTMLButtonElement>('button[title="Thumbnails"]')!.click();
+    await until(() => !!element.querySelector("omb-thumbnail"));
+    expect(element.textContent).not.toContain(reason);
+
+    element.querySelector<HTMLButtonElement>('button[title="Folder structure"]')!.click();
+    await until(() => !!element.querySelector('summary[title="skipped"]'));
+    await expand(element, "skipped");
+    await until(() => element.textContent?.includes("notes.THM") ?? false);
+    expect(element.textContent).not.toContain(reason);
+  });
+
   it("retains file exclusion actions in the tree", async () => {
     vi.spyOn(store, "listWorkspaceFiles").mockImplementation(async (req) =>
       listing([file("A.JPG", "A.JPG")], req),

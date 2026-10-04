@@ -43,6 +43,7 @@ export function mockFiles(
           ? null
           : [target, ...(preserveFileStructure ? [folder] : []), name].filter(Boolean).join("/"),
       category,
+      ignore_reason: category === "ignored" ? "Excluded by destination rules" : null,
       error: configError ?? (category === "error" ? "hash mismatch after copy" : null),
       capture_time: Date.UTC(2026, 0, 14, 9, (i * 7) % 60),
     };

@@ -326,6 +326,7 @@ fn transfer_creates_backup_marker_and_task_rename_keeps_existing_catalog_and_fil
     let run = || {
         let handle = JobHandle::new(
             TransferJob {
+                analysis: None,
                 id: "job".into(),
                 flow_id: fx.flow.id.clone(),
                 label: String::new(),

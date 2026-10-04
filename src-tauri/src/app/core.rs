@@ -9,7 +9,7 @@ use crate::plan::{
 };
 use crate::store::Store;
 use crate::thumbnails::ThumbnailCache;
-use crate::transfer::{TransferJob, TransferManager};
+use crate::transfer::{PowerController, TransferJob, TransferManager};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +28,7 @@ pub struct AppCore {
     pub thumbnails: ThumbnailCache,
     preview_paths: Mutex<HashSet<PathBuf>>,
     app_imports: Mutex<HashMap<String, AppImportSession>>,
+    settings_save: Mutex<()>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -59,14 +60,31 @@ impl AppCore {
         thumbnail_dir: PathBuf,
         on_transfers: impl Fn(Vec<TransferJob>) + Send + Sync + 'static,
     ) -> Self {
+        Self::with_power_warning(store, resolver, thumbnail_dir, on_transfers, |warning| {
+            log::warn!("{warning}");
+        })
+    }
+
+    pub(crate) fn with_power_warning(
+        store: Arc<Store>,
+        resolver: Resolver,
+        thumbnail_dir: PathBuf,
+        on_transfers: impl Fn(Vec<TransferJob>) + Send + Sync + 'static,
+        on_power_warning: impl Fn(String) + Send + Sync + 'static,
+    ) -> Self {
+        let power = PowerController::new(
+            AppSettings::load(&store).keep_awake_during_transfers,
+            on_power_warning,
+        );
         Self {
-            store,
+            store: store.clone(),
             resolver,
-            transfers: TransferManager::new(on_transfers),
+            transfers: TransferManager::with_history(on_transfers, power, Some(store)),
             failures: Arc::default(),
             thumbnails: ThumbnailCache::new(thumbnail_dir),
             preview_paths: Mutex::default(),
             app_imports: Mutex::default(),
+            settings_save: Mutex::default(),
         }
     }
 
@@ -101,10 +119,14 @@ impl AppCore {
     }
 
     pub fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        let _save = self.settings_save.lock();
         let current = AppSettings::load(&self.store);
         let mut settings = settings.clone();
         super::app_paths::normalize_app_settings(&mut settings, &current)?;
-        settings.save(&self.store).map_err(|e| e.to_string())
+        settings.save(&self.store).map_err(|e| e.to_string())?;
+        self.transfers
+            .set_keep_awake(settings.keep_awake_during_transfers);
+        Ok(())
     }
 
     pub fn project_status(&self, project_id: &str) -> Result<ProjectStatus, String> {

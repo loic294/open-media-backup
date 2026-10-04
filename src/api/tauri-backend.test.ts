@@ -33,9 +33,22 @@ describe("destination job command adapters", () => {
       decision: "keep_both",
       applyToRemaining: true,
     });
+
     vi.mocked(invoke).mockRejectedValue(new Error("request expired"));
     await expect(tauriBackend.resolveTransferConflict("job", "request", "replace", false)).rejects.toThrow(
       "request expired",
     );
+  });
+
+  it("passes analysis filters and pagination intact and propagates query failures", async () => {
+    const req = { space_id: "space", since: 1000, pair_id: "pair" };
+    vi.mocked(invoke).mockResolvedValue({});
+    await tauriBackend.getSpeedAnalysis(req);
+    expect(invoke).toHaveBeenLastCalledWith("get_speed_analysis", { req });
+    const page = { ...req, offset: 5, limit: 25 };
+    await tauriBackend.listSpeedAnalysisJobs(page);
+    expect(invoke).toHaveBeenLastCalledWith("list_speed_analysis_jobs", { req: page });
+    vi.mocked(invoke).mockRejectedValue(new Error("history unavailable"));
+    await expect(tauriBackend.getSpeedAnalysis(req)).rejects.toThrow("history unavailable");
   });
 });

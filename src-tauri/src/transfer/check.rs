@@ -42,6 +42,7 @@ pub fn run_workspace_check(
 
     let mut results = CheckResults::default();
     for file in broken {
+        handle.analysis_error();
         results.add(CheckItem {
             source_path: file.rel_path.clone(),
             destination_path: file.target_path.clone().unwrap_or_default(),
@@ -63,12 +64,15 @@ pub fn run_workspace_check(
         match check_one(&ctx, &catalog, file, handle, &mut writer) {
             Ok(item) => results.add(item),
             Err(CopyError::Cancelled) => break,
-            Err(error) => results.add(CheckItem {
-                source_path: file.rel_path.clone(),
-                destination_path: file.target_path.clone().unwrap_or_default(),
-                outcome: CheckOutcome::Error,
-                error: Some(error.to_string()),
-            }),
+            Err(error) => {
+                handle.analysis_error();
+                results.add(CheckItem {
+                    source_path: file.rel_path.clone(),
+                    destination_path: file.target_path.clone().unwrap_or_default(),
+                    outcome: CheckOutcome::Error,
+                    error: Some(error.to_string()),
+                })
+            }
         }
         handle.update(|j| {
             j.files_done += 1;
@@ -136,7 +140,7 @@ fn check_one(
             }
             if let Some(claim) = source_claim {
                 let mut progress = HashProgress::new(handle, before, file.size);
-                let hash = hash_checked_with_progress(src, algo, handle, |bytes, total| {
+                let hash = hash_checked_with_progress(src, algo, handle, true, |bytes, total| {
                     progress.add(bytes, total);
                 })?;
                 if differs(catalog, claim, algo, &hash) {

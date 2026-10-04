@@ -24,7 +24,11 @@ fn transfer_job(fx: &Fixture, manager: &TransferManager, queue: &Arc<ConflictQue
     manager.enqueue(JobSpec {
         key: format!("flow-{}", Arc::strong_count(queue)),
         label: String::new(),
-        devices: vec![nas, card],
+        resources: vec![
+            ResourceClaim::shared(format!("device:{card}")),
+            ResourceClaim::shared(format!("device:{nas}")),
+            ResourceClaim::exclusive(format!("destination-path:{nas}:photo/Trip/Camera A Card 1")),
+        ],
         kind: JobKind::Transfer,
         queue: Some(queue.clone()),
         work: Box::new(move |h| {
@@ -140,7 +144,7 @@ fn apply_to_remaining_answers_other_waiting_jobs_of_the_queue() {
         ids.push(manager.enqueue(JobSpec {
             key: format!("k{n}"),
             label: String::new(),
-            devices: vec![format!("dev{n}")],
+            resources: vec![],
             kind: JobKind::Transfer,
             queue: Some(q),
             work: Box::new(|h| {
@@ -171,7 +175,7 @@ fn apply_to_remaining_answers_other_waiting_jobs_of_the_queue() {
         manager.enqueue(JobSpec {
             key: "unrelated".into(),
             label: String::new(),
-            devices: vec!["dev9".into()],
+            resources: vec![],
             kind: JobKind::Transfer,
             queue: Some(o),
             work: Box::new(|h| {
@@ -214,7 +218,13 @@ fn cancelling_a_waiting_job_unblocks_the_device() {
     let queued = manager.enqueue(JobSpec {
         key: "later".into(),
         label: String::new(),
-        devices: vec![fx.nas.id.clone()],
+        resources: vec![
+            ResourceClaim::shared(format!("device:{}", fx.nas.id)),
+            ResourceClaim::exclusive(format!(
+                "destination-path:{}:photo/Trip/Camera A Card 1",
+                fx.nas.id
+            )),
+        ],
         kind: JobKind::Transfer,
         queue: None,
         work: Box::new(|_| Ok(())),

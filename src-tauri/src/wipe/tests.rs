@@ -9,6 +9,7 @@ use std::sync::Arc;
 fn handle() -> JobHandle {
     JobHandle::new(
         TransferJob {
+            analysis: None,
             id: "w".into(),
             flow_id: "wipe".into(),
             label: String::new(),

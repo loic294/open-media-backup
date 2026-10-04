@@ -40,12 +40,18 @@ pub fn init<R: Runtime>(
     let handle = handle.clone();
 
     let emitter = handle.clone();
-    let core = AppCore::new(
+    let power_emitter = handle.clone();
+    let core = AppCore::with_power_warning(
         store.clone(),
         Arc::new(DeviceResolver(store.clone())),
         data_dir.join("thumbnails"),
         move |jobs| {
             let _ = emitter.emit("transfers", jobs);
+        },
+        move |warning| {
+            if let Err(error) = power_emitter.emit("transfer-power-warning", warning) {
+                log::error!("Could not show sleep prevention warning: {error}");
+            }
         },
     );
     core.register_computer()?;

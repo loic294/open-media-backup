@@ -5,6 +5,7 @@ import type { DialogRequest } from "../../state/dialogs";
 import { previewAppChoiceLabel, previewApps } from "../../utils/preview-apps";
 import { DialogBase } from "./dialog-base";
 import "../settings/devices-settings";
+import "../settings/speed-analysis";
 
 const THEMES: [ThemePreference, string, string][] = [
   ["system", "System", "monitor"],
@@ -15,15 +16,16 @@ const THEMES: [ThemePreference, string, string][] = [
 @customElement("omb-app-settings-dialog")
 export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { type: "app-settings" }>> {
   @state() private checkingForUpdate = false;
-  @state() private tab: "general" | "devices" = "general";
+  @state() private tab: "general" | "devices" | "speed-analysis" = "general";
 
   #tabKeydown(event: KeyboardEvent) {
-    const tabs = ["general", "devices"] as const;
+    const tabs = ["general", "devices", "speed-analysis"] as const;
     const index = tabs.indexOf(this.tab);
     let next: number;
-    if (event.key === "ArrowRight" || event.key === "ArrowLeft") next = 1 - index;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length;
     else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = 1;
+    else if (event.key === "End") next = tabs.length - 1;
     else return;
     event.preventDefault();
     this.tab = tabs[next];
@@ -88,6 +90,27 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
                 </button>`,
             )}
           </div>
+        </section>
+        <section class="flex flex-col gap-2">
+          <h4 class="font-medium">Transfers</h4>
+          <label class="flex items-center gap-3">
+            <input
+              type="checkbox"
+              class="toggle"
+              aria-describedby="keep-awake-description"
+              .checked=${s.keep_awake_during_transfers ?? true}
+              @change=${(e: Event) =>
+                this.store.saveSettings({
+                  keep_awake_during_transfers: (e.target as HTMLInputElement).checked,
+                })}
+            />
+            <span class="text-sm">Keep computer awake during transfers</span>
+          </label>
+          <p id="keep-awake-description" class="text-xs text-base-content/60">
+            Prevents automatic sleep while copying or verifying. The screen can turn off. Pausing or waiting
+            for a conflict decision allows sleep again. Does not prevent manual sleep or sleep when closing
+            the lid. Applies only to this computer.
+          </p>
         </section>
         <section class="flex flex-col gap-2">
           <h4 class="font-medium">Sync</h4>
@@ -183,13 +206,13 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
       </div>
     `;
     return html`<omb-modal
-      size="lg"
+      size=${this.tab === "speed-analysis" ? "xl" : "lg"}
       heading="Settings"
       icon="settings"
       @close=${this.onClosed}
       .body=${html`
         <div role="tablist" aria-label="Settings pages" class="tabs tabs-border mb-5">
-          ${(["general", "devices"] as const).map(
+          ${(["general", "devices", "speed-analysis"] as const).map(
             (tab) =>
               html` <button
                 type="button"
@@ -202,12 +225,12 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
                 @click=${() => (this.tab = tab)}
                 @keydown=${(event: KeyboardEvent) => this.#tabKeydown(event)}
               >
-                ${tab === "general" ? "General" : "Devices"}
+                ${tab === "general" ? "General" : tab === "devices" ? "Devices" : "Speed Analysis"}
               </button>`,
           )}
         </div>
         <div role="tabpanel" id="settings-panel" aria-labelledby=${`settings-tab-${this.tab}`}>
-          ${this.tab === "general" ? body : html`<omb-devices-settings></omb-devices-settings>`}
+          ${this.tab === "general" ? body : this.tab === "devices" ? html`<omb-devices-settings></omb-devices-settings>` : html`<omb-speed-analysis></omb-speed-analysis>`}
         </div>
       `}
     ></omb-modal>`;

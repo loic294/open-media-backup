@@ -38,6 +38,7 @@ jpeg-decoder = { version = "0.3", default-features = false }
 kamadak-exif = "0.6"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+keepawake = "0.6.1"
 
 [dev-dependencies]
 tempfile = "3"

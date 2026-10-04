@@ -2,7 +2,8 @@ use super::AppCore;
 use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
 use crate::plan::{resolve_workspace_flow, workspace_status, Catalog, FlowState, WorkspaceContext};
 use crate::transfer::{
-    run_workspace_check, run_workspace_transfer, ConflictQueue, JobKind, JobSpec,
+    run_workspace_check, run_workspace_transfer, AnalysisContext, ConflictQueue, JobKind, JobSpec,
+    ResourceClaim,
 };
 use crate::wipe::{wipe, WipeMethod};
 use std::sync::Arc;
@@ -45,23 +46,35 @@ impl AppCore {
             self.failures.clone(),
         );
         let (context, flow) = (context.clone(), flow_id.to_string());
-        Ok(self.transfers.enqueue(JobSpec {
-            key: flow_id.to_string(),
-            label: ctx.label(),
-            devices: vec![ctx.source_device.id.clone(), ctx.dest_device.id.clone()],
-            kind: JobKind::Transfer,
-            queue: Some(queue),
-            work: Box::new(move |handle| {
-                run_workspace_transfer(
-                    &store,
-                    resolver.as_ref(),
-                    &context,
-                    &flow,
-                    handle,
-                    &failures,
-                )
-            }),
-        }))
+        let destination_path = format!(
+            "destination-path:{}:{}",
+            ctx.dest_device.id, ctx.dest_folder_rel
+        );
+        let analysis = AnalysisContext::from_flow(&ctx);
+        Ok(self.transfers.enqueue_with_analysis(
+            JobSpec {
+                key: flow_id.to_string(),
+                label: ctx.label(),
+                resources: vec![
+                    ResourceClaim::shared(format!("device:{}", ctx.source_device.id)),
+                    ResourceClaim::shared(format!("device:{}", ctx.dest_device.id)),
+                    ResourceClaim::exclusive(destination_path),
+                ],
+                kind: JobKind::Transfer,
+                queue: Some(queue),
+                work: Box::new(move |handle| {
+                    run_workspace_transfer(
+                        &store,
+                        resolver.as_ref(),
+                        &context,
+                        &flow,
+                        handle,
+                        &failures,
+                    )
+                }),
+            },
+            Some(analysis),
+        ))
     }
 
     /// Queues every flow of the project that has something to copy (or to retry).
@@ -177,16 +190,28 @@ impl AppCore {
             }
             let (store, resolver) = (self.store.clone(), self.resolver.clone());
             let (context, flow_id) = (context.clone(), flow.id.clone());
-            ids.push(self.transfers.enqueue(JobSpec {
-                key: format!("check:{}", flow.id),
-                label: ctx.label(),
-                devices: vec![ctx.source_device.id.clone(), ctx.dest_device.id.clone()],
-                kind: JobKind::Check,
-                queue: None,
-                work: Box::new(move |handle| {
-                    run_workspace_check(&store, resolver.as_ref(), &context, &flow_id, handle)
-                }),
-            }));
+            let destination_path = format!(
+                "destination-path:{}:{}",
+                ctx.dest_device.id, ctx.dest_folder_rel
+            );
+            let analysis = AnalysisContext::from_flow(&ctx);
+            ids.push(self.transfers.enqueue_with_analysis(
+                JobSpec {
+                    key: format!("check:{}", flow.id),
+                    label: ctx.label(),
+                    resources: vec![
+                        ResourceClaim::shared(format!("device:{}", ctx.source_device.id)),
+                        ResourceClaim::shared(format!("device:{}", ctx.dest_device.id)),
+                        ResourceClaim::shared(destination_path),
+                    ],
+                    kind: JobKind::Check,
+                    queue: None,
+                    work: Box::new(move |handle| {
+                        run_workspace_check(&store, resolver.as_ref(), &context, &flow_id, handle)
+                    }),
+                },
+                Some(analysis),
+            ));
         }
         if ids.is_empty() {
             return Err("Connect the source and destination devices to check".into());
@@ -220,7 +245,7 @@ impl AppCore {
         Ok(self.transfers.enqueue(JobSpec {
             key: format!("wipe:{source_id}"),
             label: format!("Wipe {}", device.name),
-            devices: vec![device.id],
+            resources: vec![ResourceClaim::exclusive(format!("device:{}", device.id))],
             kind: JobKind::Wipe,
             queue: None,
             work: Box::new(move |handle| {

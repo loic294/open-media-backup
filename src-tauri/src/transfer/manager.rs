@@ -1,7 +1,10 @@
 use super::handle::{ConflictDecision, ConflictQueue, JobHandle, JobKind, JobState, TransferJob};
+use super::history::HistoryRecorder;
+use super::power::PowerController;
+use super::AnalysisContext;
 use crate::domain::new_id;
+use crate::store::Store;
 use parking_lot::Mutex;
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -12,11 +15,34 @@ const MAX_CONCURRENT_JOBS: usize = 3;
 
 pub type Work = Box<dyn FnOnce(&JobHandle) -> Result<(), String> + Send>;
 
-/// A unit of background work. Jobs touching the same device never run concurrently.
+/// A resource that can be shared by concurrent jobs or exclusively claimed by one job.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceClaim {
+    key: String,
+    exclusive: bool,
+}
+
+impl ResourceClaim {
+    pub fn shared(key: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            exclusive: false,
+        }
+    }
+
+    pub fn exclusive(key: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            exclusive: true,
+        }
+    }
+}
+
+/// A unit of background work with resource claims used to prevent unsafe overlap.
 pub struct JobSpec {
     pub key: String,
     pub label: String,
-    pub devices: Vec<String>,
+    pub resources: Vec<ResourceClaim>,
     pub work: Work,
     pub kind: JobKind,
     /// Conflict decisions are shared by all jobs of one queue.
@@ -25,14 +51,17 @@ pub struct JobSpec {
 
 struct Entry {
     handle: Arc<JobHandle>,
-    devices: Vec<String>,
+    resources: Vec<ResourceClaim>,
     work: Option<Work>,
+    ready: bool,
 }
 
 struct Inner {
     entries: Mutex<Vec<Entry>>,
     dirty: AtomicBool,
     on_change: Box<dyn Fn(Vec<TransferJob>) + Send + Sync>,
+    power: PowerController,
+    history: Option<HistoryRecorder>,
 }
 
 #[derive(Clone)]
@@ -42,17 +71,45 @@ pub struct TransferManager {
 
 impl TransferManager {
     pub fn new(on_change: impl Fn(Vec<TransferJob>) + Send + Sync + 'static) -> Self {
+        Self::with_power_controller(
+            on_change,
+            PowerController::new(true, |warning| log::warn!("{warning}")),
+        )
+    }
+
+    pub(crate) fn with_power_controller(
+        on_change: impl Fn(Vec<TransferJob>) + Send + Sync + 'static,
+        power: PowerController,
+    ) -> Self {
+        Self::with_history(on_change, power, None)
+    }
+
+    pub(crate) fn with_history(
+        on_change: impl Fn(Vec<TransferJob>) + Send + Sync + 'static,
+        power: PowerController,
+        store: Option<Arc<Store>>,
+    ) -> Self {
         let inner = Arc::new(Inner {
             entries: Mutex::new(vec![]),
             dirty: AtomicBool::new(false),
             on_change: Box::new(on_change),
+            power,
+            history: store.map(HistoryRecorder::new),
         });
         spawn_emitter(Arc::downgrade(&inner));
         Self { inner }
     }
 
+    pub(crate) fn set_keep_awake(&self, enabled: bool) {
+        self.inner.power.set_enabled(enabled);
+    }
+
     /// Queues a job, or returns the id of the unfinished job with the same key.
     pub fn enqueue(&self, spec: JobSpec) -> String {
+        self.enqueue_with_analysis(spec, None)
+    }
+
+    pub fn enqueue_with_analysis(&self, spec: JobSpec, context: Option<AnalysisContext>) -> String {
         let mut entries = self.inner.entries.lock();
         if let Some(existing) = entries.iter().find(|e| {
             let job = e.handle.snapshot();
@@ -68,20 +125,38 @@ impl TransferManager {
                 inner.dirty.store(true, Ordering::SeqCst);
             }
         });
-        let handle = Arc::new(JobHandle::new(job, notify));
+        let handle = Arc::new(
+            JobHandle::with_power(job, notify, self.inner.power.clone())
+                .with_analysis(context, self.inner.history.clone()),
+        );
         if let Some(queue) = &spec.queue {
             queue.join(&handle);
         }
         entries.push(Entry {
-            handle,
-            devices: spec.devices,
+            handle: handle.clone(),
+            resources: spec.resources,
             work: Some(spec.work),
+            ready: false,
         });
         prune(&mut entries);
         drop(entries);
+        handle.record_enqueue();
+        if let Some(entry) = self
+            .inner
+            .entries
+            .lock()
+            .iter_mut()
+            .find(|entry| Arc::ptr_eq(&entry.handle, &handle))
+        {
+            entry.ready = true;
+        }
         self.schedule();
         self.inner.dirty.store(true, Ordering::SeqCst);
         id
+    }
+
+    pub fn analysis_storage_error(&self) -> Option<String> {
+        self.inner.history.as_ref().and_then(HistoryRecorder::error)
     }
 
     pub fn jobs(&self) -> Vec<TransferJob> {
@@ -102,21 +177,33 @@ impl TransferManager {
     }
 
     pub fn set_all_paused(&self, paused: bool) {
-        for entry in self.inner.entries.lock().iter() {
-            entry.handle.set_paused(paused);
+        let handles: Vec<_> = self
+            .inner
+            .entries
+            .lock()
+            .iter()
+            .map(|e| e.handle.clone())
+            .collect();
+        for handle in handles {
+            handle.set_paused(paused);
         }
     }
 
     pub fn cancel(&self, id: &str) {
         self.with_handle(id, |h| h.cancel());
-        let mut entries = self.inner.entries.lock();
-        if let Some(entry) = entries
-            .iter_mut()
-            .find(|e| e.handle.snapshot().id == id && e.work.is_some())
-        {
-            entry.work = None;
-            entry.handle.leave_queue();
-            entry.handle.update(|j| j.state = JobState::Cancelled);
+        let handle = {
+            let mut entries = self.inner.entries.lock();
+            entries
+                .iter_mut()
+                .find(|e| e.handle.snapshot().id == id && e.work.is_some())
+                .map(|entry| {
+                    entry.work = None;
+                    entry.handle.clone()
+                })
+        };
+        if let Some(handle) = handle {
+            handle.leave_queue();
+            handle.update(|j| j.state = JobState::Cancelled);
         }
     }
 
@@ -148,10 +235,10 @@ impl TransferManager {
     }
 
     pub fn clear_finished(&self) {
-        self.inner
-            .entries
-            .lock()
-            .retain(|e| !e.handle.snapshot().state.is_finished());
+        self.inner.entries.lock().retain(|e| {
+            !e.handle.snapshot().state.is_finished()
+                || !e.handle.final_recorded.load(Ordering::SeqCst)
+        });
         self.inner.dirty.store(true, Ordering::SeqCst);
     }
 
@@ -168,13 +255,13 @@ impl TransferManager {
         }
     }
 
-    /// Starts eligible queued jobs while respecting the worker and device limits.
+    /// Starts queued jobs while respecting the worker limit and resource claims.
     fn schedule(&self) {
         let mut entries = self.inner.entries.lock();
-        let mut busy: HashSet<String> = entries
+        let mut active_resources: Vec<ResourceClaim> = entries
             .iter()
             .filter(|e| e.work.is_none() && !e.handle.snapshot().state.is_finished())
-            .flat_map(|e| e.devices.clone())
+            .flat_map(|e| e.resources.iter().cloned())
             .collect();
         let mut active = entries
             .iter()
@@ -184,19 +271,33 @@ impl TransferManager {
             if active >= MAX_CONCURRENT_JOBS {
                 break;
             }
-            if entry.work.is_none() || entry.devices.iter().any(|d| busy.contains(d)) {
+            if !entry.ready
+                || entry.work.is_none()
+                || entry
+                    .resources
+                    .iter()
+                    .any(|claim| conflicts_with_active(claim, &active_resources))
+            {
                 continue;
             }
-            busy.extend(entry.devices.iter().cloned());
+            active_resources.extend(entry.resources.iter().cloned());
             active += 1;
             let work = entry.work.take().expect("checked");
             let handle = entry.handle.clone();
             let manager = self.clone();
             std::thread::spawn(move || {
-                if !handle.is_paused() {
-                    handle.update(|j| j.state = JobState::Running);
-                }
-                let result = work(&handle);
+                handle.start_work();
+                let result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&handle)))
+                        .unwrap_or_else(|panic| {
+                            let message = panic
+                                .downcast_ref::<String>()
+                                .map(String::as_str)
+                                .or_else(|| panic.downcast_ref::<&str>().copied())
+                                .unwrap_or("unknown panic");
+                            log::error!("Background transfer job panicked: {message}");
+                            Err(format!("Background job panicked: {message}"))
+                        });
                 let cancelled = handle.is_cancelled();
                 handle.update(|j| {
                     j.current_file = None;
@@ -217,6 +318,13 @@ impl TransferManager {
     }
 }
 
+fn conflicts_with_active(claim: &ResourceClaim, active: &[ResourceClaim]) -> bool {
+    (claim.exclusive && active.iter().any(|other| other.key == claim.key))
+        || active
+            .iter()
+            .any(|other| other.exclusive && other.key == claim.key)
+}
+
 fn prune(entries: &mut Vec<Entry>) {
     let finished = entries
         .iter()
@@ -224,7 +332,10 @@ fn prune(entries: &mut Vec<Entry>) {
         .count();
     let mut excess = finished.saturating_sub(KEEP_FINISHED);
     entries.retain(|e| {
-        if excess > 0 && e.handle.snapshot().state.is_finished() {
+        if excess > 0
+            && e.handle.snapshot().state.is_finished()
+            && e.handle.final_recorded.load(Ordering::SeqCst)
+        {
             excess -= 1;
             return false;
         }
@@ -236,13 +347,24 @@ fn spawn_emitter(weak: Weak<Inner>) {
     std::thread::spawn(move || loop {
         std::thread::sleep(EMIT_INTERVAL);
         let Some(inner) = weak.upgrade() else { return };
-        if inner.dirty.swap(false, Ordering::SeqCst) {
-            let jobs = inner
-                .entries
-                .lock()
+        let dirty = inner.dirty.swap(false, Ordering::SeqCst);
+        let jobs: Vec<_> = inner
+            .entries
+            .lock()
+            .iter()
+            .map(|e| {
+                if dirty {
+                    e.handle.snapshot()
+                } else {
+                    e.handle.telemetry_snapshot()
+                }
+            })
+            .collect();
+        if dirty
+            || jobs
                 .iter()
-                .map(|e| e.handle.snapshot())
-                .collect();
+                .any(|job| job.analysis.is_some() && !job.state.is_finished())
+        {
             (inner.on_change)(jobs);
         }
     });

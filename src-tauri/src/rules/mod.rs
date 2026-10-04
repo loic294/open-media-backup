@@ -23,7 +23,7 @@ pub struct RuleError {
 }
 
 pub struct RuleSet {
-    rules: Vec<(RuleAction, Matcher)>,
+    rules: Vec<(RuleAction, String, Matcher)>,
     conditions: Vec<RuleExpr>,
     default_included: bool,
 }
@@ -40,13 +40,15 @@ impl RuleSet {
         let compiled = rules
             .iter()
             .filter_map(|rule| match rule {
-                FileRule::Path(path) if !path.pattern.trim().is_empty() => {
-                    Some(Matcher::new(path).map(|matcher| (path.action, matcher)))
-                }
+                FileRule::Path(path) if !path.pattern.trim().is_empty() => Some(
+                    Matcher::new(path).map(|matcher| (path.action, path.pattern.clone(), matcher)),
+                ),
                 FileRule::Path(_) | FileRule::Condition { .. } => None,
             })
             .collect::<Result<Vec<_>, RuleError>>()?;
-        let default_included = !compiled.iter().any(|(a, _)| *a == RuleAction::Include);
+        let default_included = !compiled
+            .iter()
+            .any(|(action, _, _)| *action == RuleAction::Include);
         Ok(Self {
             rules: compiled,
             conditions,
@@ -62,22 +64,83 @@ impl RuleSet {
     /// `vars` are the template/project variables for this file's matching project.
     /// Missing projects should pass an empty map; missing variables compare as "".
     pub fn allows_with_vars(&self, rel_path: &str, vars: &TemplateVars) -> bool {
+        self.ignore_reason(rel_path, vars).is_none()
+    }
+
+    pub fn ignore_reason(&self, rel_path: &str, vars: &TemplateVars) -> Option<String> {
         let parts: Vec<&str> = rel_path.split('/').filter(|p| !p.is_empty()).collect();
         let Some((file, folders)) = parts.split_last() else {
-            return false;
+            return Some("The file has no relative path".into());
         };
-        let path_included =
-            self.rules
-                .iter()
-                .fold(self.default_included, |included, (action, matcher)| {
-                    if matcher.matches(rel_path, folders, file) {
-                        *action == RuleAction::Include
-                    } else {
-                        included
-                    }
-                });
-        path_included && self.conditions.iter().all(|expr| expr.eval(vars))
+        let mut path_included = self.default_included;
+        let mut matching_rule = None;
+        for (action, pattern, matcher) in &self.rules {
+            if matcher.matches(rel_path, folders, file) {
+                path_included = *action == RuleAction::Include;
+                matching_rule = Some((*action, pattern));
+            }
+        }
+        if !path_included {
+            return Some(match matching_rule {
+                Some((RuleAction::Exclude, pattern)) => {
+                    format!("Excluded by destination rule \"{pattern}\"")
+                }
+                _ => "No include rule matched".into(),
+            });
+        }
+        self.conditions
+            .iter()
+            .find_map(|expr| describe_failure(expr, vars))
+            .map(|reason| format!("Condition not met: {reason}"))
     }
+}
+
+fn describe_failure(expr: &RuleExpr, vars: &TemplateVars) -> Option<String> {
+    match expr {
+        RuleExpr::Eq { .. } | RuleExpr::Ne { .. } if !expr.eval(vars) => Some(describe_expr(expr)),
+        RuleExpr::Not { item } if item.eval(vars) => Some(describe_expr(expr)),
+        RuleExpr::And { items } => {
+            let failures: Vec<_> = items
+                .iter()
+                .filter_map(|item| describe_failure(item, vars))
+                .collect();
+            (!failures.is_empty()).then(|| failures.join(" AND "))
+        }
+        RuleExpr::Or { items } if !expr.eval(vars) => Some(format!(
+            "No alternative matched: {}",
+            items
+                .iter()
+                .map(describe_expr)
+                .collect::<Vec<_>>()
+                .join(" OR ")
+        )),
+        _ => None,
+    }
+}
+
+fn describe_expr(expr: &RuleExpr) -> String {
+    match expr {
+        RuleExpr::Eq { var, value } => format!("{var} = {}", quote_value(value)),
+        RuleExpr::Ne { var, value } => format!("{var} != {}", quote_value(value)),
+        RuleExpr::Not { item } => format!("NOT ({})", describe_expr(item)),
+        RuleExpr::And { items } => describe_expr_group(items, " AND "),
+        RuleExpr::Or { items } => describe_expr_group(items, " OR "),
+    }
+}
+
+fn describe_expr_group(items: &[RuleExpr], joiner: &str) -> String {
+    format!(
+        "({})",
+        items
+            .iter()
+            .map(describe_expr)
+            .collect::<Vec<_>>()
+            .join(joiner)
+    )
+}
+
+fn quote_value(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 #[cfg(test)]
@@ -177,6 +240,58 @@ mod tests {
         assert!(set.allows_with_vars("DCIM/A.JPG", &vars));
         assert!(!set.allows_with_vars("DCIM/A.ARW", &vars));
         assert!(!set.allows_with_vars("DCIM/A.JPG", &TemplateVars::new()));
+    }
+
+    #[test]
+    fn ignore_reason_identifies_the_effective_path_rule_and_condition() {
+        let path_rule = RuleSet::compile(&[
+            rule(Include, Glob, "DCIM/*.jpg"),
+            rule(Exclude, Glob, "DCIM/"),
+            rule(Include, Glob, "DCIM/KEEP.JPG"),
+        ])
+        .unwrap();
+        assert_eq!(
+            path_rule.ignore_reason("DCIM/SKIP.JPG", &TemplateVars::new()),
+            Some("Excluded by destination rule \"DCIM/\"".into())
+        );
+        assert_eq!(
+            path_rule.ignore_reason("OTHER/KEEP.JPG", &TemplateVars::new()),
+            Some("No include rule matched".into())
+        );
+
+        let condition = RuleSet::compile(&[FileRule::condition(RuleExpr::Eq {
+            var: "client".into(),
+            value: "Acme".into(),
+        })])
+        .unwrap();
+        assert_eq!(
+            condition.ignore_reason("DCIM/A.JPG", &TemplateVars::new()),
+            Some("Condition not met: client = \"Acme\"".into())
+        );
+
+        let compound = RuleSet::compile(&[FileRule::condition(RuleExpr::And {
+            items: vec![
+                RuleExpr::Eq {
+                    var: "client".into(),
+                    value: "Acme".into(),
+                },
+                RuleExpr::Eq {
+                    var: "status".into(),
+                    value: "Ready".into(),
+                },
+            ],
+        })])
+        .unwrap();
+        assert_eq!(
+            compound.ignore_reason(
+                "DCIM/A.JPG",
+                &TemplateVars::from([
+                    ("client".into(), "Other".into()),
+                    ("status".into(), "Ready".into())
+                ])
+            ),
+            Some("Condition not met: client = \"Acme\"".into())
+        );
     }
 
     #[test]

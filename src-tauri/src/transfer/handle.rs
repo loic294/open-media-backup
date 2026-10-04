@@ -1,8 +1,12 @@
+use super::history::HistoryRecorder;
+use super::metrics::{AnalysisContext, AnalysisMetrics, AnalysisPhase, PhaseTracker};
+use super::power::PowerController;
 use super::speed::SpeedSmoother;
+use super::AnalysisJob;
 use crate::domain::new_id;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
@@ -106,6 +110,7 @@ pub struct TransferJob {
     pub kind: JobKind,
     pub pending_conflict: Option<PendingConflict>,
     pub check_results: Option<CheckResults>,
+    pub analysis: Option<AnalysisJob>,
 }
 
 impl TransferJob {
@@ -127,6 +132,7 @@ impl TransferJob {
             kind,
             pending_conflict: None,
             check_results: None,
+            analysis: None,
         }
     }
 }
@@ -174,16 +180,36 @@ struct PendingSlot {
     answer: Option<ConflictDecision>,
 }
 
+struct JobPower {
+    controller: PowerController,
+    id: String,
+    active: bool,
+}
+
+impl Drop for JobPower {
+    fn drop(&mut self) {
+        if self.active {
+            self.controller.set_active(&self.id, false);
+        }
+    }
+}
+
 /// Shared between a running job and the manager.
 pub struct JobHandle {
     pub(super) job: Mutex<TransferJob>,
     paused: AtomicBool,
     cancelled: AtomicBool,
+    worker_started: AtomicBool,
     started: Mutex<Option<Instant>>,
     speed: Mutex<SpeedSmoother>,
     notify: Arc<dyn Fn() + Send + Sync>,
     queue: Mutex<Option<Arc<ConflictQueue>>>,
     pending: Mutex<Option<PendingSlot>>,
+    power: Option<Mutex<JobPower>>,
+    analysis: Mutex<Option<PhaseTracker>>,
+    analysis_errors: AtomicU64,
+    history: Option<HistoryRecorder>,
+    pub(super) final_recorded: AtomicBool,
 }
 
 impl JobHandle {
@@ -192,11 +218,93 @@ impl JobHandle {
             job: Mutex::new(job),
             paused: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
+            worker_started: AtomicBool::new(false),
             started: Mutex::new(None),
             speed: Mutex::new(SpeedSmoother::default()),
             notify,
             queue: Mutex::new(None),
             pending: Mutex::new(None),
+            power: None,
+            analysis: Mutex::new(None),
+            analysis_errors: AtomicU64::new(0),
+            history: None,
+            final_recorded: AtomicBool::new(true),
+        }
+    }
+
+    pub(super) fn with_analysis(
+        mut self,
+        context: Option<AnalysisContext>,
+        history: Option<HistoryRecorder>,
+    ) -> Self {
+        if let Some(context) = context {
+            let mut job = self.job.lock();
+            if job.kind != JobKind::Wipe {
+                let tracker = PhaseTracker::new(job.id.clone(), context, job.kind);
+                job.analysis = Some(tracker.job.clone());
+                *self.analysis.lock() = Some(tracker);
+                self.final_recorded.store(false, Ordering::SeqCst);
+            }
+        }
+        self.history = history;
+        self
+    }
+
+    pub(super) fn record_enqueue(&self) {
+        let receiver = {
+            let mut job = self.job.lock();
+            self.refresh_analysis(&mut job);
+            match (&self.history, &job.analysis) {
+                (Some(history), Some(analysis)) => history.record(analysis.clone(), true),
+                _ => None,
+            }
+        };
+        if let Some(receiver) = receiver {
+            if let Err(error) = receiver.recv() {
+                log::error!("Speed analysis enqueue acknowledgement failed: {error}");
+            }
+        }
+    }
+
+    pub(super) fn with_power(
+        job: TransferJob,
+        notify: Arc<dyn Fn() + Send + Sync>,
+        controller: PowerController,
+    ) -> Self {
+        let power = (job.kind == JobKind::Transfer).then(|| {
+            Mutex::new(JobPower {
+                controller,
+                id: job.id.clone(),
+                active: false,
+            })
+        });
+        Self {
+            power,
+            ..Self::new(job, notify)
+        }
+    }
+
+    pub(super) fn start_work(&self) {
+        self.update(|job| {
+            self.worker_started.store(true, Ordering::SeqCst);
+            job.state = if self.is_paused() {
+                JobState::Paused
+            } else {
+                JobState::Running
+            };
+        });
+    }
+
+    fn update_power(&self, job: &TransferJob) {
+        if let Some(power) = &self.power {
+            let mut power = power.lock();
+            let active = self.worker_started.load(Ordering::SeqCst)
+                && !self.is_paused()
+                && matches!(job.state, JobState::Running | JobState::Verifying);
+            if power.active != active {
+                power.controller.set_active(&power.id, active);
+                power.active = active;
+            }
         }
     }
 
@@ -265,11 +373,10 @@ impl JobHandle {
             std::thread::sleep(Duration::from_millis(40));
         };
         *self.pending.lock() = None;
-        let paused = self.is_paused();
         self.update(|j| {
             j.pending_conflict = None;
-            if j.state == JobState::AwaitingDecision {
-                j.state = if paused {
+            if j.state == JobState::AwaitingDecision && !self.is_cancelled() {
+                j.state = if self.is_paused() {
                     JobState::Paused
                 } else {
                     JobState::Running
@@ -282,28 +389,38 @@ impl JobHandle {
     pub fn snapshot(&self) -> TransferJob {
         let mut job = self.job.lock();
         self.refresh_speed(&mut job);
+        self.refresh_analysis(&mut job);
+        self.record_if_due(&job);
+        job.clone()
+    }
+
+    pub(super) fn telemetry_snapshot(&self) -> TransferJob {
+        let mut job = self.job.lock();
+        self.refresh_analysis(&mut job);
+        self.record_if_due(&job);
         job.clone()
     }
 
     pub fn set_paused(&self, paused: bool) {
-        self.paused.store(paused, Ordering::SeqCst);
-        let mut job = self.job.lock();
-        if paused
-            && matches!(
-                job.state,
-                JobState::Running | JobState::Verifying | JobState::Queued
-            )
-        {
-            job.state = JobState::Paused;
-        } else if !paused && job.state == JobState::Paused {
-            job.state = if self.started.lock().is_some() {
-                JobState::Running
-            } else {
-                JobState::Queued
-            };
-        }
-        drop(job);
-        (self.notify)();
+        self.update(|job| {
+            self.paused.store(paused, Ordering::SeqCst);
+            if paused
+                && matches!(
+                    job.state,
+                    JobState::Running | JobState::Verifying | JobState::Queued
+                )
+            {
+                job.state = JobState::Paused;
+            } else if !paused && job.state == JobState::Paused {
+                job.state = if self.worker_started.load(Ordering::SeqCst)
+                    || self.started.lock().is_some()
+                {
+                    JobState::Running
+                } else {
+                    JobState::Queued
+                };
+            }
+        });
     }
 
     pub fn cancel(&self) {
@@ -331,17 +448,115 @@ impl JobHandle {
     }
 
     pub fn update(&self, change: impl FnOnce(&mut TransferJob)) {
-        {
+        let acknowledgement = {
             let mut job = self.job.lock();
+            self.refresh_analysis(&mut job);
             change(&mut job);
+            if self.is_paused() && matches!(job.state, JobState::Running | JobState::Verifying) {
+                job.state = JobState::Paused;
+            }
             let mut started = self.started.lock();
             if job.state == JobState::Running && started.is_none() {
                 *started = Some(Instant::now());
             }
             drop(started);
             self.refresh_speed(&mut job);
+            self.update_power(&job);
+            self.refresh_analysis(&mut job);
+            self.record_if_due(&job)
+        };
+        if let Some(receiver) = acknowledgement {
+            if let Err(error) = receiver.recv() {
+                log::error!("Speed analysis terminal acknowledgement failed: {error}");
+            }
+            self.final_recorded.store(true, Ordering::SeqCst);
+        } else if self.history.is_none() {
+            self.final_recorded.store(true, Ordering::SeqCst);
         }
         (self.notify)();
+    }
+
+    fn refresh_analysis(&self, job: &mut TransferJob) {
+        if let Some(tracker) = self.analysis.lock().as_mut() {
+            let errors = job.errors.len() as u64
+                + self.analysis_errors.load(Ordering::SeqCst).max(
+                    job.check_results
+                        .as_ref()
+                        .map_or(0, |results| results.errors as u64),
+                );
+            tracker.refresh(job.state, errors);
+            job.analysis = Some(tracker.job.clone());
+        }
+    }
+
+    pub(crate) fn analysis_error(&self) {
+        self.analysis_errors.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_analysis_clock(self, clock: Arc<dyn super::metrics::AnalysisClock>) -> Self {
+        {
+            let mut job = self.job.lock();
+            if let Some(analysis) = &job.analysis {
+                let tracker = PhaseTracker::with_clock(
+                    job.id.clone(),
+                    analysis.context.clone(),
+                    job.kind,
+                    clock,
+                );
+                job.analysis = Some(tracker.job.clone());
+                *self.analysis.lock() = Some(tracker);
+            }
+        }
+        self
+    }
+
+    fn record_if_due(&self, job: &TransferJob) -> Option<std::sync::mpsc::Receiver<()>> {
+        let mut analysis = self.analysis.lock();
+        let tracker = analysis.as_mut()?;
+        if !tracker.persistence_due() {
+            return None;
+        }
+        self.history
+            .as_ref()
+            .and_then(|history| history.record(tracker.job.clone(), job.state.is_finished()))
+    }
+
+    pub(crate) fn analysis_metrics(&self, change: impl FnOnce(&mut AnalysisMetrics)) {
+        let mut job = self.job.lock();
+        self.refresh_analysis(&mut job);
+        if let Some(metrics) = self
+            .analysis
+            .lock()
+            .as_mut()
+            .and_then(PhaseTracker::metrics)
+        {
+            change(metrics);
+        }
+        self.refresh_analysis(&mut job);
+        // The emitter persists at most every five seconds; chunks never touch SQLite.
+    }
+
+    pub(crate) fn analysis_phase(&self, phase: AnalysisPhase) -> PhaseGuard<'_> {
+        PhaseGuard {
+            handle: self,
+            previous: self.set_analysis_phase(phase),
+        }
+    }
+
+    fn set_analysis_phase(&self, phase: AnalysisPhase) -> Option<AnalysisPhase> {
+        let mut job = self.job.lock();
+        let errors = job
+            .analysis
+            .as_ref()
+            .map_or(0, |analysis| analysis.error_count);
+        let previous = self
+            .analysis
+            .lock()
+            .as_mut()
+            .map(|tracker| tracker.set_operation(phase, job.state, errors));
+        self.refresh_analysis(&mut job);
+        previous
     }
 
     pub fn elapsed(&self) -> Option<Duration> {
@@ -363,5 +578,18 @@ impl JobHandle {
 
     pub fn add_bytes(&self, bytes: u64) {
         self.update(|j| j.bytes_done += bytes);
+    }
+}
+
+pub(crate) struct PhaseGuard<'a> {
+    handle: &'a JobHandle,
+    previous: Option<AnalysisPhase>,
+}
+
+impl Drop for PhaseGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous {
+            self.handle.set_analysis_phase(previous);
+        }
     }
 }

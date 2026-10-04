@@ -378,6 +378,10 @@ fn folder_preview_summarizes_all_routes_before_directory_pagination() {
     req.category = Category::Ignored;
     let ignored = core.list_files(&req).unwrap();
     assert_eq!(ignored.total, 1);
+    assert_eq!(
+        ignored.items[0].ignore_reason.as_deref(),
+        Some("Excluded by destination rule \"*.THM\"")
+    );
     assert!(ignored
         .directories
         .iter()

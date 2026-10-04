@@ -325,7 +325,9 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
           <tr>
             <th>File</th>
             <th>Size</th>
-            <th>${this.category === "error" ? "Problem" : "Destination"}</th>
+            <th>
+              ${this.category === "error" ? "Problem" : this.category === "ignored" ? "Reason" : "Destination"}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -334,8 +336,8 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
               html`<tr @contextmenu=${(e: MouseEvent) => this.#openMenu(e, f)}>
                 <td class="font-mono">${f.rel_path}</td>
                 <td class="whitespace-nowrap">${formatBytes(f.size)}</td>
-                <td class="font-mono text-base-content/60 ${f.error ? "text-error" : ""}">
-                  ${f.error ?? f.target_path ?? "—"}
+                <td class="text-base-content/60 ${f.error ? "text-error" : ""}">
+                  ${this.category === "ignored" ? (f.ignore_reason ?? "Reason unavailable") : (f.error ?? f.target_path ?? "—")}
                 </td>
               </tr>`,
           )}

@@ -21,6 +21,7 @@ pub struct AppSettings {
     pub active_project_by_space: HashMap<String, String>,
     pub preview_apps: PreviewAppSettings,
     pub show_mounted_devices_first: bool,
+    pub keep_awake_during_transfers: bool,
     pub app_destinations: HashMap<String, String>,
     pub transfer_speeds: HashMap<String, u64>,
 }
@@ -43,6 +44,7 @@ impl Default for AppSettings {
             active_project_by_space: HashMap::new(),
             preview_apps: PreviewAppSettings::default(),
             show_mounted_devices_first: true,
+            keep_awake_during_transfers: true,
             app_destinations: HashMap::new(),
             transfer_speeds: HashMap::new(),
         }
@@ -111,6 +113,19 @@ mod tests {
     fn missing_mounted_device_preference_defaults_to_enabled() {
         let settings: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert!(settings.show_mounted_devices_first);
+    }
+
+    #[test]
+    fn keep_awake_defaults_to_enabled_and_persists_disabled() {
+        let settings: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(settings.keep_awake_during_transfers);
+        let fx = crate::testing::Fixture::new();
+        let settings = AppSettings {
+            keep_awake_during_transfers: false,
+            ..AppSettings::default()
+        };
+        settings.save(&fx.store).unwrap();
+        assert!(!AppSettings::load(&fx.store).keep_awake_during_transfers);
     }
 
     #[test]

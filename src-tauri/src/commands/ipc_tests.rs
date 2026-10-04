@@ -86,6 +86,115 @@ fn write(root: &std::path::Path, rel: &str, bytes: &[u8]) {
 }
 
 #[test]
+fn speed_analysis_ipc_exact_snake_case_contract_and_validation() {
+    use crate::transfer::metrics::{AnalysisKind, AnalysisState};
+    use crate::transfer::{AnalysisJob, AnalysisMetrics, AnalysisPhase};
+    use tauri::Manager;
+
+    let ui = Ui::start();
+    let filter = json!({"space_id": null, "since": null, "pair_id": null});
+    let empty = ui.ok("get_speed_analysis", json!({"req": filter}));
+    assert_eq!(empty["pairs"], json!([]));
+    assert!(empty["totals"]["avg_copy_bps"].is_null());
+    assert!(empty["totals"]["effective_bps"].is_null());
+    let context = crate::transfer::metrics::tests::context();
+    let job = AnalysisJob {
+        id: "analysis-ipc".into(),
+        context: context.clone(),
+        kind: AnalysisKind::Transfer,
+        state: AnalysisState::Done,
+        phase: AnalysisPhase::Finished,
+        created_at: 1000,
+        updated_at: 5000,
+        finished_at: Some(5000),
+        metrics: AnalysisMetrics {
+            copy_secs: 2.0,
+            other_secs: 1.0,
+            destination_check_secs: 1.0,
+            copy_bytes: 10,
+            committed_bytes: 8,
+            transferred_files: 1,
+            ..Default::default()
+        },
+        error_count: 0,
+    };
+    ui.webview
+        .state::<super::Shared>()
+        .core
+        .store
+        .save_analysis_job(&job)
+        .unwrap();
+    let summary = ui.ok("get_speed_analysis", json!({"req": filter}));
+    assert_eq!(summary["totals"]["completed_transfer_jobs"], 1);
+    assert_eq!(summary["totals"]["avg_copy_bps"], 5.0);
+    assert_eq!(summary["totals"]["effective_bps"], 2.0);
+    assert_eq!(
+        summary["pairs"][0]["context"],
+        serde_json::to_value(context).unwrap()
+    );
+    let page = ui.ok("list_speed_analysis_jobs", json!({
+        "req": {"space_id": "s", "since": 1000, "pair_id": job.context.pair_id, "offset": 0, "limit": 100}
+    }));
+    assert_eq!(page["total"], 1);
+    assert_eq!(page["jobs"][0], serde_json::to_value(job).unwrap());
+    let keys: Vec<_> = page["jobs"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "context",
+            "created_at",
+            "error_count",
+            "finished_at",
+            "id",
+            "kind",
+            "metrics",
+            "phase",
+            "state",
+            "updated_at"
+        ]
+    );
+    let metrics = page["jobs"][0]["metrics"].as_object().unwrap();
+    assert_eq!(metrics.len(), 14);
+    for key in [
+        "queued_secs",
+        "other_secs",
+        "copy_secs",
+        "source_check_secs",
+        "destination_check_secs",
+        "paused_secs",
+        "decision_secs",
+    ] {
+        assert!(metrics[key].is_f64(), "{key} is not a JSON double");
+    }
+    for req in [
+        json!({"space_id": null, "since": null, "pair_id": null, "offset": -1, "limit": 10}),
+        json!({"space_id": null, "since": null, "pair_id": null, "offset": 0, "limit": -1}),
+        json!({"space_id": null, "since": null, "pair_id": null, "offset": 0, "limit": 101}),
+        json!({"space_id": null, "since": -1, "pair_id": null, "offset": 0, "limit": 10}),
+    ] {
+        assert!(ui
+            .call("list_speed_analysis_jobs", json!({"req": req}))
+            .is_err());
+    }
+    assert!(ui
+        .call(
+            "get_speed_analysis",
+            json!({"req": {"space_id": null, "since": null, "pair_id": "invalid"}})
+        )
+        .is_err());
+    let zero = ui.ok(
+        "list_speed_analysis_jobs",
+        json!({"req": {"space_id": null, "since": null, "pair_id": null, "offset": 0, "limit": 0}}),
+    );
+    assert_eq!(zero, json!({"jobs": [], "total": 1}));
+}
+
+#[test]
 fn metadata_command_reports_missing_media_path() {
     let ui = Ui::start();
     let missing = ui._data.path().join("missing.jpg");
