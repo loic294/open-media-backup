@@ -93,4 +93,12 @@ describe("derived", () => {
     expect(failureLabel(1, "hash mismatch")).toBe("1 hash mismatch");
     expect(failureLabel(1200, "disk full")).toBe("1,200 errors");
   });
+
+  it("keeps waiting jobs active without counting stale speed or running workers", () => {
+    const totals = transferTotals([job({ state: "awaiting_decision", speed_bps: 500 })]);
+    expect(totals.active).toHaveLength(1);
+    expect(totals.running).toBe(0);
+    expect(totals.bytesPerSec).toBeNull();
+    expect(totals.etaSeconds).toBeNull();
+  });
 });

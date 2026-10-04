@@ -1,6 +1,6 @@
 import type { IconName } from "../ui/icons";
 
-export type CardContextMenuAction = "browse" | "run" | "edit" | "reveal";
+export type CardContextMenuAction = "browse" | "run" | "check" | "edit" | "reveal";
 
 export interface CardContextMenuItemSpec {
   action: CardContextMenuAction;
@@ -17,6 +17,8 @@ export interface CardContextMenuState {
   hasFilesystemPath: boolean;
   isAppDestination?: boolean;
   browseDisabled?: boolean;
+  checkDisabled?: boolean;
+  runDisabled?: boolean;
 }
 
 export function revealLabel(fileManager: CardContextMenuState["fileManagerName"]): string {
@@ -39,7 +41,7 @@ export function buildCardContextMenuItems(state: CardContextMenuState): CardCont
       action: "run",
       label: runFlowsLabel(state.runnableCount),
       icon: "play",
-      disabled: state.offline || state.runnableCount === 0,
+      disabled: state.offline || state.runnableCount === 0 || state.runDisabled,
     },
     {
       action: "edit",
@@ -47,6 +49,14 @@ export function buildCardContextMenuItems(state: CardContextMenuState): CardCont
       icon: "pencil",
     },
   ];
+  if (!state.isAppDestination && state.checkDisabled !== undefined) {
+    items.splice(1, 0, {
+      action: "check",
+      label: "Check destination",
+      icon: "fingerprint",
+      disabled: state.offline || state.checkDisabled,
+    });
+  }
   if (!state.isAppDestination && state.hasFilesystemPath) {
     items.push({
       action: "reveal",

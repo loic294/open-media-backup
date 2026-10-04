@@ -1,5 +1,8 @@
 import type { Backend } from "../backend";
 import type {
+  ConflictDecision,
+  DestinationCheckItem,
+  DestinationCheckResults,
   EntityKind,
   MediaMetadata,
   Snapshot,
@@ -30,9 +33,25 @@ const COLLECTION: Record<EntityKind, keyof Snapshot> = {
 };
 const AVG_FILE = 39_000_000;
 
+function checkSummary(items: DestinationCheckItem[]): DestinationCheckResults {
+  return {
+    matched: items.filter((item) => item.outcome === "matched").length,
+    missing: items.filter((item) => item.outcome === "missing").length,
+    conflicts: items.filter((item) => item.outcome === "conflict").length,
+    errors: items.filter((item) => item.outcome === "error").length,
+    items: items.filter((item) => item.outcome !== "matched"),
+  };
+}
+
 /** In-memory backend used in a plain browser (and in UI tests). Simulates transfers. */
 export function createMockBackend(
-  options: { tickMs?: number; seedRunningTransfer?: boolean; demoUpdate?: boolean } = {},
+  options: {
+    tickMs?: number;
+    seedRunningTransfer?: boolean;
+    demoUpdate?: boolean;
+    /** Simulated existing same-name files with different hashes, for demo/UI tests. */
+    conflicts?: Record<string, number>;
+  } = {},
 ): Backend {
   const snapshot = demoSnapshot();
   const counts: Counts = structuredClone(demoCounts);
@@ -40,6 +59,11 @@ export function createMockBackend(
   const events = new Emitter();
   const jobs: TransferJob[] = [];
   const paused = new Set<string>();
+  const queueByJob = new Map<string, string>();
+  const queueDecisions = new Map<string, ConflictDecision>();
+  const conflictsRemaining = new Map<string, number>();
+  const checkItemsByJob = new Map<string, DestinationCheckItem[]>();
+  const skippedJobs = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let pendingUpdate: UpdateInfo | null = options.demoUpdate
     ? {
@@ -57,20 +81,55 @@ export function createMockBackend(
     events.emit("status-changed");
   };
 
+  const decide = (job: TransferJob, decision: ConflictDecision) => {
+    if (decision === "skip") skippedJobs.add(job.id);
+    const c = counts[job.flow_id];
+    if (decision !== "skip" && c) {
+      c[0]++;
+      c[1] = Math.max(0, c[1] - 1);
+    }
+    job.files_done++;
+    job.bytes_done = job.files_done * AVG_FILE;
+    conflictsRemaining.set(job.id, Math.max(0, (conflictsRemaining.get(job.id) ?? 0) - 1));
+    job.pending_conflict = null;
+    job.state = paused.has(job.id) ? "paused" : "running";
+  };
+
   const tick = () => {
     for (const job of jobs.filter((j) => j.state === "running" || j.state === "queued")) {
       if (paused.has(job.id)) continue;
       job.state = "running";
+      if (job.kind !== "check" && (conflictsRemaining.get(job.id) ?? 0) > 0) {
+        const preference = queueDecisions.get(queueByJob.get(job.id)!);
+        if (preference) {
+          decide(job, preference);
+          if (job.files_done < job.files_total) continue;
+        } else {
+          const name = `IMG_${7412 + job.files_done}.ARW`;
+          job.pending_conflict = {
+            request_id: crypto.randomUUID(),
+            source_path: `Source/${name}`,
+            destination_path: `Destination/${name}`,
+            source_hash: "demo-source-hash",
+            destination_hash: "demo-different-destination-hash",
+          };
+          job.current_file = name;
+          job.state = "awaiting_decision";
+          continue;
+        }
+      }
       const step = Math.max(1, Math.ceil(job.files_total / 12));
       const n = Math.min(step, job.files_total - job.files_done);
       job.files_done += n;
       job.bytes_done = job.files_done * AVG_FILE;
+      if (job.kind === "check")
+        job.check_results = checkSummary((checkItemsByJob.get(job.id) ?? []).slice(0, job.files_done));
       job.bytes_per_sec = 180_000_000;
       job.speed_bps = job.bytes_per_sec;
       job.eta_secs = Math.ceil((job.bytes_total - job.bytes_done) / job.bytes_per_sec);
       job.current_file = `IMG_${7412 + job.files_done}.ARW`;
       const c = counts[job.flow_id];
-      if (c) {
+      if (c && job.kind !== "check") {
         c[0] += n;
         c[1] = Math.max(0, c[1] - n);
       }
@@ -78,24 +137,37 @@ export function createMockBackend(
         job.state = "done";
         job.current_file = null;
         job.eta_secs = 0;
+        checkItemsByJob.delete(job.id);
         const flow = snapshot.flows.find((f) => f.id === job.flow_id);
         const dst = snapshot.destinations.find((d) => d.id === flow?.destination_id);
-        if (dst?.device_id && job.bytes_total > 0) {
+        if (job.kind !== "check" && !skippedJobs.has(job.id) && dst?.device_id && job.bytes_total > 0) {
           snapshot.settings.transfer_speeds ??= {};
           snapshot.settings.transfer_speeds[dst.device_id] = job.bytes_per_sec ?? job.speed_bps;
           snapshot.settings.transfer_speeds._global = job.bytes_per_sec ?? job.speed_bps;
+        }
+        skippedJobs.delete(job.id);
+      }
+      for (const [jobId, queue] of queueByJob) {
+        if (
+          !jobs.some(
+            (job) => queueByJob.get(job.id) === queue && !["done", "failed", "cancelled"].includes(job.state),
+          )
+        ) {
+          queueDecisions.delete(queue);
+          queueByJob.delete(jobId);
+          conflictsRemaining.delete(jobId);
         }
       }
     }
     events.emit("transfers", structuredClone(jobs));
     events.emit("status-changed");
-    if (!jobs.some((j) => j.state === "running" || j.state === "queued")) {
+    if (!jobs.some((j) => ["running", "queued", "paused", "awaiting_decision"].includes(j.state))) {
       clearInterval(timer);
       timer = undefined;
     }
   };
 
-  const startFlow = (flowId: string) => {
+  const startFlow = (flowId: string, queue = crypto.randomUUID()): string | undefined => {
     const c = counts[flowId] ?? (counts[flowId] = [0, 25, 0, 0]);
     if (c[3]) {
       c[1] += c[3];
@@ -113,9 +185,13 @@ export function createMockBackend(
     if (offline.has(src.device_id) || offline.has(dst?.device_id ?? ""))
       throw new Error("Connect the source and destination devices to run");
     if (!c[1]) return;
-    if (jobs.some((j) => j.flow_id === flowId && !["done", "failed", "cancelled"].includes(j.state))) return;
+    const existing = jobs.find(
+      (j) => j.flow_id === flowId && !["done", "failed", "cancelled"].includes(j.state),
+    );
+    if (existing) return existing.id;
+    const id = crypto.randomUUID();
     jobs.push({
-      id: crypto.randomUUID(),
+      id,
       flow_id: flowId,
       label: flow ? flowLabel(snapshot, flow) : "?",
       state: "queued",
@@ -128,8 +204,15 @@ export function createMockBackend(
       bytes_per_sec: null,
       eta_secs: null,
       errors: [],
+      kind: "transfer",
+      pending_conflict: null,
+      check_results: null,
     });
+    queueByJob.set(id, queue);
+    conflictsRemaining.set(id, Math.min(c[1], options.conflicts?.[flowId] ?? 0));
     timer ??= setInterval(tick, options.tickMs ?? 400);
+    events.emit("transfers", structuredClone(jobs));
+    return id;
   };
 
   if (options.seedRunningTransfer) {
@@ -281,6 +364,7 @@ export function createMockBackend(
         req.directory,
         destination.kind === "app",
         configError,
+        destination.kind === "app" || destination.preserve_file_structure !== false,
       );
       for (const file of page.items) {
         file.project_id = project?.id ?? null;
@@ -386,13 +470,14 @@ export function createMockBackend(
     },
     runAll: async (projectId) => {
       const status = mockStatus(snapshot, projectId, counts, offline);
+      const queue = crypto.randomUUID();
       status.flows
         .filter((f) => f.runnable)
         .filter((f) => {
           const flow = snapshot.flows.find((flow) => flow.id === f.flow_id);
           return snapshot.destinations.find((d) => d.id === flow?.destination_id)?.kind !== "app";
         })
-        .forEach((f) => startFlow(f.flow_id));
+        .forEach((f) => startFlow(f.flow_id, queue));
     },
     runWorkspaceFlow: async (context, flowId) => {
       const { status } = workspaceFlow(context, flowId);
@@ -401,11 +486,135 @@ export function createMockBackend(
       startFlow(flowId);
     },
     runWorkspaceAll: async (context) => {
+      const queue = crypto.randomUUID();
       for (const st of workspaceStatus(context).flows.filter((f) => f.runnable)) {
         const flow = snapshot.flows.find((f) => f.id === st.flow_id)!;
         if (snapshot.destinations.find((d) => d.id === flow.destination_id)?.kind !== "app")
-          startFlow(st.flow_id);
+          startFlow(st.flow_id, queue);
       }
+    },
+    runWorkspaceDestination: async (context, destinationId) => {
+      const destination = snapshot.destinations.find(
+        (d) => d.id === destinationId && d.space_id === context.spaceId,
+      );
+      if (!destination || destination.kind === "app") throw new Error("Select a folder destination");
+      const status = workspaceStatus(context);
+      const queue = crypto.randomUUID();
+      const ids: string[] = [];
+      for (const st of status.flows.filter((f) => f.runnable)) {
+        if (snapshot.flows.find((f) => f.id === st.flow_id)?.destination_id !== destinationId) continue;
+        const id = startFlow(st.flow_id, queue);
+        if (id) ids.push(id);
+      }
+      if (!ids.length) throw new Error("No connected, runnable flows for this destination");
+      return ids;
+    },
+    checkWorkspaceDestination: async (context, destinationId) => {
+      const destination = snapshot.destinations.find(
+        (d) => d.id === destinationId && d.space_id === context.spaceId,
+      );
+      if (!destination || destination.kind === "app") throw new Error("Select a folder destination");
+      const status = workspaceStatus(context);
+      if (!status.destinations.find((d) => d.destination_id === destinationId)?.available)
+        throw new Error("Connect the destination device to check");
+      const ids: string[] = [];
+      for (const flow of snapshot.flows.filter(
+        (f) => f.space_id === context.spaceId && f.destination_id === destinationId,
+      )) {
+        const st = status.flows.find((f) => f.flow_id === flow.id)!;
+        if (
+          !status.sources.find((s) => s.source_id === flow.source_id)?.available ||
+          st.state === "unavailable" ||
+          (st.state === "error" && !st.runnable)
+        )
+          continue;
+        const total = st.transferred + st.to_transfer + st.failed;
+        if (!total) continue;
+        const key = `check:${flow.id}`;
+        const existing = jobs.find(
+          (j) => j.flow_id === key && !["done", "failed", "cancelled"].includes(j.state),
+        );
+        if (existing) {
+          ids.push(existing.id);
+          continue;
+        }
+        const items: DestinationCheckItem[] = [];
+        for (const [category, outcome] of [
+          ["transferred", "matched"],
+          ["to_transfer", "missing"],
+          ["error", "conflict"],
+        ] as const) {
+          const page = await backend.listWorkspaceFiles({
+            context,
+            flowId: flow.id,
+            category,
+            offset: 0,
+            limit: 1000,
+          });
+          for (let offset = 0; offset < page.total; offset += 1000) {
+            const rows =
+              offset === 0
+                ? page
+                : await backend.listWorkspaceFiles({
+                    context,
+                    flowId: flow.id,
+                    category,
+                    offset,
+                    limit: 1000,
+                  });
+            items.push(
+              ...rows.items.map((file) => ({
+                source_path: file.rel_path,
+                destination_path: file.target_path ?? file.rel_path,
+                outcome,
+                error: null,
+              })),
+            );
+          }
+        }
+        const id = crypto.randomUUID();
+        jobs.push({
+          id,
+          flow_id: key,
+          label: `Check ${flowLabel(snapshot, flow)}`,
+          kind: "check",
+          state: "queued",
+          files_done: 0,
+          files_total: items.length,
+          bytes_done: 0,
+          bytes_total: items.length * AVG_FILE,
+          current_file: null,
+          speed_bps: 0,
+          bytes_per_sec: null,
+          eta_secs: null,
+          errors: [],
+          pending_conflict: null,
+          check_results: checkSummary([]),
+        });
+        checkItemsByJob.set(id, items);
+        ids.push(id);
+      }
+      if (!ids.length) throw new Error("No connected, eligible files for this destination");
+      timer ??= setInterval(tick, options.tickMs ?? 400);
+      events.emit("transfers", structuredClone(jobs));
+      return ids;
+    },
+    resolveTransferConflict: async (jobId, requestId, decision, applyToRemaining) => {
+      const job = jobs.find((j) => j.id === jobId);
+      if (
+        !job?.pending_conflict ||
+        job.pending_conflict.request_id !== requestId ||
+        ["done", "failed", "cancelled"].includes(job.state)
+      )
+        throw new Error("This conflict request is no longer pending");
+      const queue = queueByJob.get(jobId)!;
+      if (applyToRemaining) {
+        queueDecisions.set(queue, decision);
+        for (const waiting of jobs.filter((j) => queueByJob.get(j.id) === queue && j.pending_conflict))
+          decide(waiting, decision);
+      } else decide(job, decision);
+      timer ??= setInterval(tick, options.tickMs ?? 400);
+      events.emit("transfers", structuredClone(jobs));
     },
     setTransferPaused: async (jobId, isPaused) => {
       const job = jobs.find((j) => j.id === jobId);
@@ -413,7 +622,7 @@ export function createMockBackend(
       if (isPaused) paused.add(jobId);
       else paused.delete(jobId);
       if (job.state === "running" || job.state === "paused" || job.state === "queued")
-        job.state = isPaused ? "paused" : "running";
+        if (!job.pending_conflict) job.state = isPaused ? "paused" : "running";
       events.emit("transfers", structuredClone(jobs));
     },
     setAllPaused: async (isPaused) => {
@@ -427,7 +636,15 @@ export function createMockBackend(
     },
     cancelTransfer: async (jobId) => {
       const job = jobs.find((j) => j.id === jobId);
-      if (job) job.state = "cancelled";
+      if (job) {
+        job.state = "cancelled";
+        job.pending_conflict = null;
+        skippedJobs.delete(job.id);
+        if (job.kind === "check" && job.check_results) {
+          job.check_results = checkSummary((checkItemsByJob.get(job.id) ?? []).slice(0, job.files_done));
+          checkItemsByJob.delete(job.id);
+        }
+      }
       events.emit("transfers", structuredClone(jobs));
     },
     listTransfers: async () => structuredClone(jobs),

@@ -58,6 +58,7 @@ const destination = (
   path_template,
   app_name: null,
   subfolder_per_source: true,
+  preserve_file_structure: true,
   counts_as_safe_copy: true,
   use_backup_marker: false,
   rules:
@@ -93,6 +94,7 @@ const appDestination = (id: string, appName: string, position: number): Destinat
   path_template: "",
   app_name: appName,
   subfolder_per_source: false,
+  preserve_file_structure: true,
   counts_as_safe_copy: false,
   use_backup_marker: false,
   rules: [

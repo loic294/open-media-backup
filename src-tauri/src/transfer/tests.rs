@@ -22,6 +22,9 @@ fn handle() -> JobHandle {
             bytes_per_sec: None,
             eta_secs: None,
             errors: vec![],
+            kind: crate::transfer::JobKind::Transfer,
+            pending_conflict: None,
+            check_results: None,
         },
         Arc::new(|| {}),
     )
@@ -366,6 +369,8 @@ fn manager_runs_pauses_and_reports() {
         key: "k".into(),
         label: "test".into(),
         devices: vec!["d".into()],
+        kind: JobKind::Transfer,
+        queue: None,
         work: Box::new(|h| {
             for _ in 0..5 {
                 h.checkpoint().map_err(|_| "cancelled".to_string())?;
@@ -379,6 +384,8 @@ fn manager_runs_pauses_and_reports() {
             key: "k".into(),
             label: String::new(),
             devices: vec![],
+            kind: JobKind::Transfer,
+            queue: None,
             work: Box::new(|_| Ok(()))
         }),
         id
@@ -406,6 +413,8 @@ fn manager_serialises_jobs_sharing_a_device() {
             key: format!("job{n}"),
             label: String::new(),
             devices: vec!["shared".into()],
+            kind: JobKind::Transfer,
+            queue: None,
             work: Box::new(move |_| {
                 order.lock().push(format!("start{n}"));
                 std::thread::sleep(Duration::from_millis(50));

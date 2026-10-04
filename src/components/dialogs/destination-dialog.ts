@@ -86,7 +86,7 @@ export class OmbDestinationDialog extends DialogBase<
   }
 
   #toggle(
-    key: "subfolder_per_source" | "counts_as_safe_copy" | "use_backup_marker",
+    key: "subfolder_per_source" | "preserve_file_structure" | "counts_as_safe_copy" | "use_backup_marker",
     title: string,
     text: string,
   ) {
@@ -243,6 +243,11 @@ export class OmbDestinationDialog extends DialogBase<
                         }
                         <div class="flex flex-col gap-3">
                           ${this.#toggle("subfolder_per_source", "Subfolder per source", "Copies go into a folder named after the source's device name for backup, or its physical device name when blank. Task names never affect folders.")}
+                          ${this.#toggle(
+                            "preserve_file_structure",
+                            "Preserve original file structure",
+                            "When off, files go directly into the destination folder instead of recreating their source subfolders. Destination and per-source folders still apply.",
+                          )}
                           ${this.#toggle(
                             "use_backup_marker",
                             "Full-card backup folder",

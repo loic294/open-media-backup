@@ -14,6 +14,7 @@ fn legacy_names_default_empty_and_fall_back_to_physical_names() {
     assert!(source.task_name.is_empty());
     assert!(source.backup_name.is_empty());
     assert!(destination.task_name.is_empty());
+    assert!(destination.preserve_file_structure);
     assert_eq!(source.resolved_task_name(&device), device.name);
     assert_eq!(source.resolved_backup_name(&device), device.name);
     assert_eq!(destination.resolved_task_name(&device), device.name);
@@ -114,6 +115,30 @@ fn task_renames_change_only_labels_not_paths_or_identity() {
         fx.card
     );
     assert_eq!(fx.store.get::<Device>(&fx.nas.id).unwrap().unwrap(), fx.nas);
+}
+
+#[test]
+fn destination_can_flatten_files_without_changing_destination_folders() {
+    let fx = Fixture::new();
+    let mut destination = fx.destination.clone();
+    destination.preserve_file_structure = false;
+    fx.store.put(&destination).unwrap();
+
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    assert_eq!(
+        ctx.target_for_project("100/nested/A.JPG", Some(&fx.project))
+            .unwrap(),
+        Some("photo/Trip/Camera A Card 1/A.JPG".into())
+    );
+
+    destination.preserve_file_structure = true;
+    fx.store.put(&destination).unwrap();
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    assert_eq!(
+        ctx.target_for_project("100/nested/A.JPG", Some(&fx.project))
+            .unwrap(),
+        Some("photo/Trip/Camera A Card 1/100/nested/A.JPG".into())
+    );
 }
 
 #[test]
@@ -314,6 +339,9 @@ fn transfer_creates_backup_marker_and_task_rename_keeps_existing_catalog_and_fil
                 bytes_per_sec: None,
                 eta_secs: None,
                 errors: vec![],
+                kind: crate::transfer::JobKind::Transfer,
+                pending_conflict: None,
+                check_results: None,
             },
             Arc::new(|| {}),
         );

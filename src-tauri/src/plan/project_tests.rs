@@ -321,6 +321,92 @@ fn mounted_image_without_embedded_capture_is_unassigned_despite_mtime() {
 }
 
 #[test]
+fn same_stem_sidecars_inherit_the_media_capture_time_for_project_matching() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/IMG_001.JPG", b"image");
+    fx.write_card_file("DCIM/IMG_001.XMP", b"sidecar");
+    fx.write_card_file("DCIM/CLIP.MP4", b"video");
+    fx.write_card_file("DCIM/CLIP.XML", b"video sidecar");
+    fx.write_card_file("DCIM/IMG_002.XMP", b"different stem");
+    fx.write_card_file("DCIM/Nested/IMG_001.TXT", b"different directory");
+    let mut project = fx.project.clone();
+    project.start_time = Some(time("2026-01-01T00:00:00Z"));
+    project.end_time = Some(time("2026-01-01T00:00:00Z"));
+    project.granularity = ProjectGranularity::Day;
+    fx.store.put(&project).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    fx.store.put(&destination).unwrap();
+
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let files = source_files(ctx.source_root.as_deref(), "DCIM", "card", &catalog);
+    let media_time = time("2026-01-01T12:30:00Z");
+    let captures = HashMap::from([
+        ("IMG_001.JPG".into(), media_time),
+        ("CLIP.MP4".into(), media_time),
+    ]);
+    let planned = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
+
+    let sidecar = planned
+        .iter()
+        .find(|file| file.rel_path == "IMG_001.XMP")
+        .unwrap();
+    assert_eq!(sidecar.capture_time, Some(media_time));
+    assert_eq!(sidecar.project_id.as_deref(), Some("project"));
+    assert_eq!(sidecar.category, Category::ToTransfer);
+    let video_sidecar = planned
+        .iter()
+        .find(|file| file.rel_path == "CLIP.XML")
+        .unwrap();
+    assert_eq!(video_sidecar.capture_time, Some(media_time));
+    assert_eq!(video_sidecar.project_id.as_deref(), Some("project"));
+    assert_eq!(video_sidecar.category, Category::ToTransfer);
+    for rel_path in ["IMG_002.XMP", "Nested/IMG_001.TXT"] {
+        let file = planned
+            .iter()
+            .find(|file| file.rel_path == rel_path)
+            .unwrap();
+        assert_eq!(file.capture_time, None);
+        assert_eq!(file.project_id, None);
+        assert_eq!(file.category, Category::Ignored);
+    }
+}
+
+#[test]
+fn sidecar_matches_projects_for_any_same_stem_media_capture_time() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/IMG_001.JPG", b"image");
+    fx.write_card_file("DCIM/IMG_001.ARW", b"raw");
+    fx.write_card_file("DCIM/IMG_001.XMP", b"sidecar");
+    let mut project = fx.project.clone();
+    project.start_time = Some(time("2026-01-01T00:00:00Z"));
+    project.end_time = Some(time("2026-01-01T00:00:00Z"));
+    project.granularity = ProjectGranularity::Day;
+    fx.store.put(&project).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    fx.store.put(&destination).unwrap();
+
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let files = source_files(ctx.source_root.as_deref(), "DCIM", "card", &catalog);
+    let captures = HashMap::from([
+        ("IMG_001.JPG".into(), time("2026-01-01T12:30:00Z")),
+        ("IMG_001.ARW".into(), time("2026-01-02T12:30:00Z")),
+    ]);
+    let planned = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
+    let sidecar = planned
+        .iter()
+        .find(|file| file.rel_path == "IMG_001.XMP")
+        .unwrap();
+
+    assert_eq!(sidecar.capture_time, Some(time("2026-01-01T12:30:00Z")));
+    assert_eq!(sidecar.project_id.as_deref(), Some("project"));
+    assert_eq!(sidecar.category, Category::ToTransfer);
+}
+
+#[test]
 fn each_project_requires_its_own_destination_path_but_safe_copies_remain_device_based() {
     use crate::domain::{FileCopy, FileRecord, HashAlgo};
     let fx = Fixture::new();

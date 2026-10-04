@@ -1,4 +1,5 @@
 import { html, type TemplateResult } from "lit";
+import { keyed } from "lit/directives/keyed.js";
 import { customElement } from "lit/decorators.js";
 import type { DialogRequest, DialogType } from "../../state/dialogs";
 import { OmbElement } from "../ui/omb-element";
@@ -14,6 +15,8 @@ import "./space-dialog";
 import "./sync-dialog";
 import "./update-dialog";
 import "./wipe-dialog";
+import "./transfer-conflict-dialog";
+import "./destination-check-results-dialog";
 import "../workspace/projects-page";
 
 type Renderer<T extends DialogType> = (r: Extract<DialogRequest, { type: T }>) => TemplateResult;
@@ -32,6 +35,13 @@ const RENDERERS: { [T in DialogType]: Renderer<T> } = {
   "wipe-card": (r) => html`<omb-wipe-dialog .request=${r}></omb-wipe-dialog>`,
   preview: (r) => html`<omb-preview-dialog .request=${r}></omb-preview-dialog>`,
   "media-browser": (r) => html`<omb-media-browser-dialog .request=${r}></omb-media-browser-dialog>`,
+  "transfer-conflict": (r) =>
+    html`${keyed(
+      r.requestId,
+      html`<omb-transfer-conflict-dialog .request=${r}></omb-transfer-conflict-dialog>`,
+    )}`,
+  "destination-check-results": (r) =>
+    html`<omb-destination-check-results-dialog .request=${r}></omb-destination-check-results-dialog>`,
 };
 
 /** Renders every open dialog (stacked) from store.dialogs. */

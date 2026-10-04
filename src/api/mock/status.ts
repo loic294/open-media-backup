@@ -8,7 +8,7 @@ import type {
   WorkspaceStatus,
 } from "../types";
 import { usesProjectVariables, validateProjectRanges, validateSourceDestination } from "../../state/projects";
-import { previewVars, templateVars } from "../../utils/template";
+import { expandTemplate, previewVars, templateVars } from "../../utils/template";
 import { sourceBackupName } from "../../utils/names";
 
 export type Counts = Record<string, [number, number, number, number]>;
@@ -149,30 +149,53 @@ export function mockWorkspaceStatus(
         0,
         ...outgoing.map((f) => (counts[f.id] ?? [0, 25, 0, 0]).reduce((a, b) => a + b, 0)),
       );
-      const safeCopyFlows = outgoing.filter((f) => {
+      const groupedSources = snapshot.sources.filter(
+        (source) => source.space_id === spaceId && source.device_id === s.device_id,
+      );
+      const groupedFlows = flows.filter((f) => groupedSources.some((source) => source.id === f.source_id));
+      const safeCopyFlows = groupedFlows.filter((f) => {
         const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
         if (!dest?.counts_as_safe_copy) return false;
         if ((dest.kind ?? "folder") === "app") return true;
         const deviceId = dest.device_id;
+        if (deviceId === s.device_id) return false;
         return finals.includes(deviceId) || (temporaryCopiesPerFinal > 0 && temporary.includes(deviceId));
       });
       const complete = (f: (typeof outgoing)[number]) =>
-        (counts[f.id]?.[1] ?? 1) === 0 && (counts[f.id]?.[3] ?? 0) === 0;
-      const finalSafe = safeCopyFlows.filter((f) => {
-        const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
-        return ((dest?.kind ?? "folder") === "app" || finals.includes(dest?.device_id ?? "")) && complete(f);
+        (counts[f.id]?.[1] ?? 1) === 0 &&
+        (counts[f.id]?.[3] ?? 0) === 0 &&
+        !flowStatuses.find((status) => status.flow_id === f.id)?.error;
+      const targets = new Map<string, { role: "final" | "temporary"; flows: typeof outgoing }>();
+      for (const flow of safeCopyFlows) {
+        const destination = snapshot.destinations.find((d) => d.id === flow.destination_id)!;
+        const isApp = destination.kind === "app";
+        const key = isApp ? `app:${destination.id}` : `device:${destination.device_id}`;
+        const target = targets.get(key) ?? {
+          role: isApp || finals.includes(destination.device_id) ? "final" : "temporary",
+          flows: [],
+        };
+        target.flows.push(flow);
+        targets.set(key, target);
+      }
+      const completeTargets = [...targets.values()].filter((target) => {
+        const hasRequiredFiles = target.flows.some((f) => (counts[f.id]?.[0] ?? 0) > 0);
+        return (
+          hasRequiredFiles &&
+          groupedSources.every((source) => {
+            const own = groupedFlows.filter((f) => f.source_id === source.id);
+            const empty = own.every((f) => (counts[f.id] ?? [0, 25, 0, 0]).every((n) => n === 0));
+            const coverage = target.flows.filter((f) => f.source_id === source.id);
+            return empty || (coverage.length > 0 && coverage.every(complete));
+          })
+        );
       });
-      const temporarySafe = safeCopyFlows.filter(
-        (f) =>
-          temporary.includes(snapshot.destinations.find((d) => d.id === f.destination_id)?.device_id ?? "") &&
-          complete(f),
-      ).length;
+      const finalSafe = completeTargets.filter((target) => target.role === "final").length;
+      const temporarySafe = completeTargets.filter((target) => target.role === "temporary").length;
       const safe =
-        finalSafe.length +
-        (temporaryCopiesPerFinal > 0 ? Math.floor(temporarySafe / temporaryCopiesPerFinal) : 0);
+        finalSafe + (temporaryCopiesPerFinal > 0 ? Math.floor(temporarySafe / temporaryCopiesPerFinal) : 0);
       const required = project?.final_copies_required ?? null;
       const missing = safeCopyFlows
-        .filter((f) => (counts[f.id]?.[1] ?? 1) > 0)
+        .filter((f) => !complete(f))
         .map((f) => {
           const dest = snapshot.destinations.find((d) => d.id === f.destination_id);
           if (dest?.kind === "app") {
@@ -181,17 +204,28 @@ export function mockWorkspaceStatus(
           const dev = deviceOf(dest?.device_id ?? "");
           return offline.has(dev?.id ?? "") ? `${dev?.name} offline` : `Needs ${dev?.name}`;
         });
-      const reason = offline.has(s.device_id)
-        ? `${sourceDevice.name} not mounted`
-        : required === null
-          ? "Create a project to set card-wiping safety requirements"
-          : sourceDevice?.role === "final"
-            ? "Final devices are never wiped"
-            : sourceDevice?.role === "temporary" && finalSafe.length === 0
-              ? "Needs a final destination"
-              : safe >= required
-                ? null
-                : (missing[0] ?? "No safe destination");
+      const unresolvedSource = groupedSources.find((source) => {
+        const vars = previewVars(space, project ?? null, sourceBackupName(source, sourceDevice));
+        return (
+          templateVars(source.path_template).some((name) => !vars[name]) ||
+          expandTemplate(source.path_template, vars).includes("{")
+        );
+      });
+      const reason = unresolvedSource
+        ? `Source ${unresolvedSource.id}: Source path cannot be resolved`
+        : offline.has(s.device_id)
+          ? `${sourceDevice.name} not mounted`
+          : required === null
+            ? "Create a project to set card-wiping safety requirements"
+            : total === 0
+              ? "No files"
+              : sourceDevice?.role === "final"
+                ? "Final devices are never wiped"
+                : sourceDevice?.role === "temporary" && finalSafe === 0
+                  ? "Needs a final destination"
+                  : safe >= required
+                    ? null
+                    : (missing[0] ?? "No safe destination");
       return {
         source_id: s.id,
         available: !offline.has(s.device_id),

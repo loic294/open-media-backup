@@ -40,6 +40,34 @@ describe("destination dialog app type", () => {
     expect(dialog.textContent).toContain("File rules");
   });
 
+  it("lets folder destinations flatten files without changing the default", async () => {
+    const snapshot = demoSnapshot();
+    store.snapshot = snapshot;
+    store.backend.saveEntity = vi.fn(async () => undefined);
+    dialog = new OmbDestinationDialog();
+    dialog.request = { type: "destination-settings", destinationId: "d1" };
+    document.body.append(dialog);
+    await dialog.updateComplete;
+    await dialog.querySelector("omb-modal")!.updateComplete;
+
+    const structureToggle = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+      (input) => input.parentElement?.textContent?.includes("Preserve original file structure"),
+    )!;
+    expect(structureToggle.checked).toBe(true);
+    structureToggle.click();
+    await dialog.updateComplete;
+    expect(structureToggle.checked).toBe(false);
+
+    [...dialog.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Save"))!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.backend.saveEntity).toHaveBeenCalledWith(
+      "destination",
+      expect.objectContaining({ id: "d1", preserve_file_structure: false }),
+    );
+  });
+
   it("stores the chosen app path in local settings and the display name on the destination", async () => {
     const snapshot = demoSnapshot();
     delete snapshot.settings.app_destinations?.d4;

@@ -1,4 +1,5 @@
 use super::{Catalog, FlowContext};
+use crate::media::{media_kind, MediaKind};
 use crate::paths::join_relative;
 use crate::scan::{scan_folder, ScannedFile};
 use serde::Serialize;
@@ -139,14 +140,28 @@ pub fn classify_files_with_capture_times(
     capture_times: &HashMap<String, i64>,
     failures: Option<&HashMap<String, String>>,
 ) -> Vec<PlannedFile> {
+    let capture_times = inherit_sidecar_capture_times(&files, capture_times);
     files
         .into_iter()
         .flat_map(|file| {
             let device_path = ctx.source_device_path(&file.rel_path);
             let known = catalog.file_at(&ctx.source_device.id, &device_path, Some(file.size));
             let file_id = known.map(|r| r.id.clone());
-            let capture_time = capture_times.get(&file.rel_path).copied();
-            let matches = ctx.matching_projects(capture_time);
+            let file_capture_times = capture_times
+                .get(&file.rel_path)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let capture_time = file_capture_times.first().copied();
+            let matches: Vec<_> = ctx
+                .projects
+                .iter()
+                .filter(|project| {
+                    ctx.source.project_scope.allows(&project.id)
+                        && file_capture_times
+                            .iter()
+                            .any(|time| project.matches_capture_time(Some(*time)))
+                })
+                .collect();
             let projects: Vec<_> = if matches.is_empty() {
                 vec![None]
             } else {
@@ -221,6 +236,56 @@ pub fn classify_files_with_capture_times(
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+fn inherit_sidecar_capture_times(
+    files: &[ScannedFile],
+    capture_times: &HashMap<String, i64>,
+) -> HashMap<String, Vec<i64>> {
+    let mut media_times: HashMap<(String, String), Vec<i64>> = HashMap::new();
+    for file in files {
+        if media_kind(Path::new(&file.rel_path)) == MediaKind::Other {
+            continue;
+        }
+        let Some(time) = capture_times.get(&file.rel_path).copied() else {
+            continue;
+        };
+        let Some(key) = sidecar_key(&file.rel_path) else {
+            continue;
+        };
+        media_times.entry(key).or_default().push(time);
+    }
+
+    for times in media_times.values_mut() {
+        times.sort_unstable();
+        times.dedup();
+    }
+
+    let mut inherited: HashMap<_, _> = capture_times
+        .iter()
+        .map(|(path, time)| (path.clone(), vec![*time]))
+        .collect();
+    for file in files {
+        if media_kind(Path::new(&file.rel_path)) != MediaKind::Other
+            || inherited.contains_key(&file.rel_path)
+        {
+            continue;
+        }
+        let Some(key) = sidecar_key(&file.rel_path) else {
+            continue;
+        };
+        if let Some(times) = media_times.get(&key) {
+            inherited.insert(file.rel_path.clone(), times.clone());
+        }
+    }
+    inherited
+}
+
+fn sidecar_key(rel_path: &str) -> Option<(String, String)> {
+    let path = Path::new(rel_path);
+    let parent = path.parent()?.to_string_lossy().into_owned();
+    let stem = path.file_stem()?.to_str()?.to_lowercase();
+    (!stem.is_empty()).then_some((parent, stem))
 }
 
 fn offline_files(folder_rel: &str, device_id: &str, catalog: &Catalog) -> Vec<ScannedFile> {

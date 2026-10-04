@@ -1,5 +1,5 @@
 //! Works out, per flow, which files are transferred, pending, ignored or failed,
-//! and how many safe copies each source has.
+//! and how many safe copies sources on the same device share.
 mod assess;
 mod catalog;
 mod classify;
@@ -8,7 +8,9 @@ mod safe_copies;
 mod status;
 mod vars;
 
-pub use assess::{assess_source, assess_workspace_source, FinalSet, SourceAssessment};
+pub use assess::{
+    assess_source, assess_workspace_device, assess_workspace_source, FinalSet, SourceAssessment,
+};
 pub use catalog::Catalog;
 pub use classify::{
     capture_time_ms, classify_files, classify_files_with_capture_times, classify_flow,
@@ -51,6 +53,8 @@ pub(crate) fn sanitize_segment(name: &str) -> String {
     cleaned.trim().trim_matches('.').to_string()
 }
 
+#[cfg(test)]
+mod device_copy_tests;
 #[cfg(test)]
 mod naming_tests;
 #[cfg(test)]

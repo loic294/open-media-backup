@@ -440,3 +440,122 @@ fn thumbnail_returns_jpeg_bytes_over_ipc() {
     assert_eq!((decoded.width(), decoded.height()), (360, 240));
     assert!(bytes(&notes).is_empty());
 }
+
+#[test]
+fn destination_check_and_interactive_conflicts_over_ipc() {
+    let ui = Ui::start();
+    let card = tempfile::tempdir().unwrap();
+    let nas = tempfile::tempdir().unwrap();
+    write(card.path(), "DCIM/A.JPG", b"card photo");
+    write(card.path(), "DCIM/B.JPG", b"second");
+    write(nas.path(), "Photos/A.JPG", b"other");
+    ui.save("space", json!({"id": "sp", "name": "Workspace"}));
+    for (id, root, role) in [
+        ("card", card.path(), "original"),
+        ("nas", nas.path(), "final"),
+    ] {
+        ui.ok(
+            "register_device",
+            json!({
+                "mountPath": root.display().to_string(),
+                "device": {"id": id, "name": id, "kind": "other", "role": role}
+            }),
+        );
+    }
+    ui.save("source", json!({
+        "id": "src", "space_id": "sp", "device_id": "card", "path_template": "DCIM", "offer_wipe": false
+    }));
+    ui.save(
+        "destination",
+        json!({
+            "id": "dst", "space_id": "sp", "device_id": "nas",
+            "path_template": "Photos", "subfolder_per_source": false, "use_backup_marker": false
+        }),
+    );
+    ui.save(
+        "flow",
+        json!({"id": "f", "space_id": "sp", "source_id": "src", "destination_id": "dst"}),
+    );
+    let context = json!({"spaceId": "sp", "projectId": null});
+    let args = json!({"context": context, "destinationId": "dst"});
+
+    let checks = ui.ok("check_workspace_destination", args.clone());
+    assert_eq!(checks.as_array().unwrap().len(), 1);
+    ui.wait_idle();
+    let jobs = ui.ok("list_transfers", json!({}));
+    let check = &jobs[0];
+    assert_eq!(check["kind"], "check");
+    assert_eq!(check["state"], "done");
+    assert_eq!(check["check_results"]["missing"], 1);
+    assert_eq!(check["check_results"]["conflicts"], 1);
+    assert_eq!(check["check_results"]["matched"], 0);
+    assert_eq!(check["check_results"]["items"][0]["outcome"], "conflict");
+    assert!(check["pending_conflict"].is_null());
+    assert!(!nas.path().join("Photos/B.JPG").exists());
+    assert_eq!(
+        std::fs::read(nas.path().join("Photos/A.JPG")).unwrap(),
+        b"other"
+    );
+
+    let runs = ui.ok("run_workspace_destination", args);
+    assert_eq!(runs.as_array().unwrap().len(), 1);
+    let job_id = runs[0].as_str().unwrap().to_string();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let pending = loop {
+        let jobs = ui.ok("list_transfers", json!({}));
+        let job = jobs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|j| j["id"] == job_id.as_str())
+            .unwrap()
+            .clone();
+        if job["state"] == "awaiting_decision" {
+            break job["pending_conflict"].clone();
+        }
+        assert!(Instant::now() < deadline, "no conflict request: {job}");
+        std::thread::sleep(Duration::from_millis(30));
+    };
+    assert!(pending["request_id"].as_str().is_some());
+    assert!(pending["destination_path"]
+        .as_str()
+        .unwrap()
+        .ends_with("A.JPG"));
+    let resolve = |request: &str, apply: bool| {
+        ui.call(
+            "resolve_transfer_conflict",
+            json!({
+                "jobId": job_id, "requestId": request,
+                "decision": "replace", "applyToRemaining": apply
+            }),
+        )
+    };
+    assert!(resolve("stale-request", true).is_err());
+    resolve(pending["request_id"].as_str().unwrap(), false).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while ui
+        .ok("list_transfers", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|j| j["id"] == job_id.as_str() && j["state"] != "done")
+    {
+        assert!(Instant::now() < deadline, "job did not finish");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    assert_eq!(
+        std::fs::read(nas.path().join("Photos/A.JPG")).unwrap(),
+        b"card photo"
+    );
+    assert_eq!(
+        std::fs::read(nas.path().join("Photos/B.JPG")).unwrap(),
+        b"second"
+    );
+    assert!(resolve(pending["request_id"].as_str().unwrap(), false).is_err());
+    assert!(ui
+        .call(
+            "check_workspace_destination",
+            json!({"context": {"spaceId": "sp", "projectId": null}, "destinationId": "missing"})
+        )
+        .is_err());
+}

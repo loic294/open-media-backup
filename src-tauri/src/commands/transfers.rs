@@ -1,6 +1,6 @@
 use super::{blocking, CmdResult, Shared};
 use crate::plan::WorkspaceContext;
-use crate::transfer::TransferJob;
+use crate::transfer::{ConflictDecision, TransferJob};
 use crate::wipe::{WipeMethod, WipePlan};
 use tauri::State;
 
@@ -36,6 +36,45 @@ pub async fn run_workspace_all(
     context: WorkspaceContext,
 ) -> CmdResult<Vec<String>> {
     blocking(&state, move |s| s.core.run_workspace_all(&context)).await
+}
+
+#[tauri::command]
+pub async fn check_workspace_destination(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    destination_id: String,
+) -> CmdResult<Vec<String>> {
+    blocking(&state, move |s| {
+        s.core
+            .check_workspace_destination(&context, &destination_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn run_workspace_destination(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    destination_id: String,
+) -> CmdResult<Vec<String>> {
+    blocking(&state, move |s| {
+        s.core.run_workspace_destination(&context, &destination_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn resolve_transfer_conflict(
+    state: State<'_, Shared>,
+    job_id: String,
+    request_id: String,
+    decision: ConflictDecision,
+    apply_to_remaining: bool,
+) -> CmdResult<()> {
+    state
+        .core
+        .transfers
+        .resolve_conflict(&job_id, &request_id, decision, apply_to_remaining)
 }
 
 #[tauri::command]

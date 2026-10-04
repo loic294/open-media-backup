@@ -1,6 +1,7 @@
 import type { Backend, EntityByKind } from "../api/backend";
 import type {
   AppSettings,
+  ConflictDecision,
   EntityKind,
   Status,
   Snapshot,
@@ -61,6 +62,8 @@ export class AppStore extends EventTarget {
   #disposed = false;
   #statusFlight: { signature: string; promise: Promise<void> } | null = null;
   #statusRefreshPending = false;
+  #shownCheckResults = new Set<string>();
+  #transfersSeq = 0;
 
   constructor(readonly backend: Backend) {
     super();
@@ -86,17 +89,19 @@ export class AppStore extends EventTarget {
       this.#unlisten = await Promise.all([
         b.on("snapshot-changed", () => void this.reloadSnapshot()),
         b.on("status-changed", () => this.refreshStatus()),
-        b.on("transfers", (jobs) => this.#set({ transfers: jobs })),
+        b.on("transfers", (jobs) => this.#receiveTransfers(jobs)),
         b.on("sync-status", (sync) => this.#set({ sync })),
         b.on("volumes-changed", (volumes) => this.#set({ volumes })),
       ]);
+      const transfersSeq = this.#transfersSeq;
       const [snapshot, transfers, sync, volumes] = await Promise.all([
         b.getSnapshot(),
         b.listTransfers(),
         b.syncStatus(),
         b.listVolumes(),
       ]);
-      this.#set({ snapshot, transfers, sync, volumes });
+      this.#set({ snapshot, sync, volumes });
+      if (transfersSeq === this.#transfersSeq) this.#receiveTransfers(transfers);
       applyTheme(snapshot.settings.theme);
       this.#unlisten.push(await connectDesktopMenu(this));
       await this.#loadStatus();
@@ -283,6 +288,82 @@ export class AppStore extends EventTarget {
   }
 
   // ---- actions ----
+
+  #receiveTransfers(jobs: TransferJob[]): void {
+    this.#transfersSeq++;
+    const dialogs = this.dialogs.filter(
+      (dialog) =>
+        dialog.type !== "transfer-conflict" ||
+        jobs.some(
+          (job) =>
+            job.id === dialog.jobId &&
+            job.pending_conflict?.request_id === dialog.requestId &&
+            !["done", "failed", "cancelled"].includes(job.state),
+        ),
+    );
+    if (!dialogs.some((dialog) => dialog.type === "transfer-conflict")) {
+      const waiting = jobs.find(
+        (job) => job.pending_conflict && !["done", "failed", "cancelled"].includes(job.state),
+      );
+      if (waiting?.pending_conflict)
+        dialogs.push({
+          type: "transfer-conflict",
+          jobId: waiting.id,
+          requestId: waiting.pending_conflict.request_id,
+        });
+    }
+    let completedCheck = false;
+    for (const job of jobs) {
+      if (
+        job.kind !== "check" ||
+        !["done", "failed", "cancelled"].includes(job.state) ||
+        this.#shownCheckResults.has(job.id)
+      )
+        continue;
+      this.#shownCheckResults.add(job.id);
+      dialogs.push({ type: "destination-check-results", job });
+      completedCheck = true;
+    }
+    const conflictIndex = dialogs.findIndex((dialog) => dialog.type === "transfer-conflict");
+    if (conflictIndex >= 0) dialogs.push(...dialogs.splice(conflictIndex, 1));
+    this.#set({ transfers: jobs, dialogs });
+    if (completedCheck) this.refreshStatus();
+  }
+
+  async runDestination(destinationId: string): Promise<void> {
+    const context = this.context;
+    if (context) await this.#guard(() => this.backend.runWorkspaceDestination(context, destinationId));
+  }
+
+  async checkDestination(destinationId: string): Promise<void> {
+    const context = this.context;
+    if (context) await this.#guard(() => this.backend.checkWorkspaceDestination(context, destinationId));
+  }
+
+  async resolveTransferConflict(
+    jobId: string,
+    requestId: string,
+    decision: ConflictDecision,
+    applyToRemaining: boolean,
+  ): Promise<boolean> {
+    return this.#guard(async () => {
+      await this.backend.resolveTransferConflict(jobId, requestId, decision, applyToRemaining);
+      await this.#reloadTransfers();
+    });
+  }
+
+  async cancelTransfer(jobId: string): Promise<boolean> {
+    return this.#guard(async () => {
+      await this.backend.cancelTransfer(jobId);
+      await this.#reloadTransfers();
+    });
+  }
+
+  async #reloadTransfers(): Promise<void> {
+    const seq = this.#transfersSeq;
+    const jobs = await this.backend.listTransfers();
+    if (seq === this.#transfersSeq) this.#receiveTransfers(jobs);
+  }
 
   async runFlow(flowId: string): Promise<void> {
     const context = this.context;

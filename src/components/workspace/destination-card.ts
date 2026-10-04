@@ -1,7 +1,7 @@
 import { html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Destination, DestinationStatus, FileCategory } from "../../api/types";
-import { destinationStatus, flowStatus, isRunnable } from "../../state/derived";
+import { destinationStatus, flowStatus, isActive, isRunnable, sourceStatus } from "../../state/derived";
 import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
@@ -18,6 +18,7 @@ import { buildCardContextMenuItems } from "./card-context-menu-model";
 export class OmbDestinationCard extends OmbElement {
   @property({ attribute: false }) destination!: Destination;
   @state() private menuAt: { x: number; y: number } | null = null;
+  @state() private actionBusy = false;
 
   get #incoming() {
     return (this.store.snapshot?.flows ?? []).filter((f) => f.destination_id === this.destination.id);
@@ -35,7 +36,49 @@ export class OmbDestinationCard extends OmbElement {
   }
 
   async #run() {
-    for (const f of this.#runnableIncoming()) await this.store.runFlow(f.id);
+    this.actionBusy = true;
+    try {
+      await this.store.runDestination(this.destination.id);
+    } finally {
+      this.actionBusy = false;
+    }
+  }
+
+  #busy() {
+    return (
+      this.actionBusy ||
+      this.store.transfers.some(
+        (job) =>
+          isActive(job) &&
+          this.#incoming.some((flow) => job.flow_id === flow.id || job.flow_id === `check:${flow.id}`),
+      )
+    );
+  }
+
+  #canCheck() {
+    return (
+      !this.#busy() &&
+      (destinationStatus(this.store.status, this.destination.id)?.available ?? false) &&
+      this.#incoming.some((flow) => {
+        const st = flowStatus(this.store.status, flow.id);
+        return (
+          sourceStatus(this.store.status, flow.source_id)?.available &&
+          st &&
+          st.state !== "unavailable" &&
+          (st.state !== "error" || isRunnable(st)) &&
+          st.transferred + st.to_transfer + st.failed > 0
+        );
+      })
+    );
+  }
+
+  async #check() {
+    this.actionBusy = true;
+    try {
+      await this.store.checkDestination(this.destination.id);
+    } finally {
+      this.actionBusy = false;
+    }
   }
 
   async #openInApp() {
@@ -57,6 +100,8 @@ export class OmbDestinationCard extends OmbElement {
       hasFilesystemPath: !!(snapshot && mappingFor(snapshot, this.destination.device_id)),
       isAppDestination: isApp,
       browseDisabled: !this.#incoming.length,
+      checkDisabled: isApp ? undefined : !this.#canCheck(),
+      runDisabled: !isApp && this.#busy(),
     });
     const items: CardContextMenuItem[] = specs.map((item) => ({
       ...item,
@@ -67,6 +112,9 @@ export class OmbDestinationCard extends OmbElement {
             break;
           case "run":
             void (isApp ? this.#openInApp() : this.#run());
+            break;
+          case "check":
+            void this.#check();
             break;
           case "edit":
             this.store.open({ type: "destination-settings", destinationId: this.destination.id });
@@ -158,7 +206,7 @@ export class OmbDestinationCard extends OmbElement {
       : device?.role === "temporary"
         ? `Counts toward safe copies in groups of ${temporaryCopiesPerFinal}`
         : "Counts as a safe copy";
-    const canRun = online && this.#runnableIncoming().length > 0;
+    const canRun = online && this.#runnableIncoming().length > 0 && !this.#busy();
     const missingStatus = this.store.statusLoading
       ? html`<span class="skeleton h-5 w-48"></span>`
       : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
@@ -335,6 +383,14 @@ export class OmbDestinationCard extends OmbElement {
               @click=${() => this.#preview()}
             >
               <omb-icon name="images"></omb-icon>
+            </button>
+            <button
+              class="btn btn-sm gap-1.5"
+              title="Compare source and destination hashes at the expected file paths"
+              ?disabled=${!this.#canCheck()}
+              @click=${() => this.#check()}
+            >
+              <omb-icon name="fingerprint"></omb-icon>Check
             </button>
             ${
               st?.failed

@@ -158,8 +158,9 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
                     </p>`
               }
               <p class="text-xs text-base-content/60 rounded-field bg-base-100 p-3">
-                Files match projects by embedded capture time and source scope. Files without a usable capture
-                time remain unassigned.
+                Files match projects by embedded capture time and source scope. Non-media files with the same
+                filename stem in the same folder inherit a dated media file's capture time. Files without a
+                usable capture time remain unassigned.
               </p>
             </div>
           </section>

@@ -77,6 +77,7 @@ export function newDestination(spaceId: string, deviceId: string, position: numb
     path_template: "{project_name}",
     app_name: null,
     subfolder_per_source: true,
+    preserve_file_structure: true,
     counts_as_safe_copy: true,
     use_backup_marker: false,
     rules: structuredClone(DEFAULT_RULES),

@@ -121,6 +121,19 @@ mod tests {
         let set = RuleSet::compile(&[rule(Exclude, Glob, "PRIVATE/")]).unwrap();
         assert!(set.allows("DCIM/PRIVATE"));
         assert!(!set.allows("PRIVATE/a.jpg"));
+        assert!(!set.allows("private/a.jpg"));
+    }
+
+    #[test]
+    fn glob_rules_match_without_regard_to_case() {
+        let set = RuleSet::compile(&[
+            rule(Exclude, Glob, "*.ARW"),
+            rule(Exclude, Glob, "PRIVATE/"),
+        ])
+        .unwrap();
+        assert!(!set.allows("DCIM/img_0001.arw"));
+        assert!(!set.allows("private/MIXED.JPG"));
+        assert!(set.allows("DCIM/img_0001.jpg"));
     }
 
     #[test]

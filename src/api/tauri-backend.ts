@@ -46,6 +46,12 @@ export const tauriBackend: Backend = {
   runAll: (projectId) => invoke("run_all", { projectId }),
   runWorkspaceFlow: (context, flowId) => invoke("run_workspace_flow", { context, flowId }),
   runWorkspaceAll: (context) => invoke("run_workspace_all", { context }),
+  runWorkspaceDestination: (context, destinationId) =>
+    invoke("run_workspace_destination", { context, destinationId }),
+  checkWorkspaceDestination: (context, destinationId) =>
+    invoke("check_workspace_destination", { context, destinationId }),
+  resolveTransferConflict: (jobId, requestId, decision, applyToRemaining) =>
+    invoke("resolve_transfer_conflict", { jobId, requestId, decision, applyToRemaining }),
   setTransferPaused: (jobId, paused) => invoke("set_transfer_paused", { jobId, paused }),
   setAllPaused: (paused) => invoke("set_all_paused", { paused }),
   cancelTransfer: (jobId) => invoke("cancel_transfer", { jobId }),

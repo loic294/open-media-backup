@@ -1,5 +1,7 @@
 use crate::domain::{Device, Project, Source, Space};
-use crate::plan::{assess_source, Catalog, DeviceCopies, FinalSet, RootResolver, SourceAssessment};
+use crate::plan::{
+    assess_workspace_device, Catalog, DeviceCopies, FinalSet, RootResolver, SourceAssessment,
+};
 use crate::store::Store;
 use serde::Serialize;
 
@@ -47,15 +49,22 @@ pub fn assess(
     }
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
     let finals = FinalSet::load(store).map_err(|e| e.to_string())?;
-    let assessment = assess_source(
+    let sources = store
+        .list_by::<Source>("space_id", &space.id)
+        .map_err(|e| e.to_string())?;
+    let assessment = assess_workspace_device(
         resolver,
         &catalog,
         &space,
-        &project,
+        Some(&project),
         &device,
-        &source,
+        &sources,
         &finals.targets(),
-    );
+    )
+    .into_iter()
+    .find(|(candidate, _)| candidate.id == source.id)
+    .map(|(_, assessment)| assessment)
+    .ok_or("source not found in device assessment")?;
     Ok(Assessed {
         source,
         device,

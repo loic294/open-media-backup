@@ -122,6 +122,7 @@ export interface Destination {
   path_template: string;
   app_name?: string | null;
   subfolder_per_source: boolean;
+  preserve_file_structure: boolean;
   counts_as_safe_copy: boolean;
   use_backup_marker: boolean;
   rules: FileRule[];
@@ -193,6 +194,7 @@ export interface SourceStatus {
   root_path: string | null;
   file_count: number;
   total_bytes: number;
+  /** Shared across all sources on the same device within this workspace. */
   safe_copies: number;
   required_copies: number | null;
   wipe_eligible: boolean;
@@ -351,7 +353,34 @@ export interface UpdateProgress {
   total: number | null;
 }
 
-export type TransferState = "queued" | "running" | "verifying" | "paused" | "done" | "failed" | "cancelled";
+export type TransferState =
+  "queued" | "running" | "verifying" | "awaiting_decision" | "paused" | "done" | "failed" | "cancelled";
+
+export type ConflictDecision = "skip" | "keep_both" | "replace";
+
+export interface TransferConflict {
+  request_id: string;
+  source_path: string;
+  destination_path: string;
+  source_hash: string;
+  destination_hash: string;
+}
+
+export interface DestinationCheckItem {
+  source_path: string;
+  destination_path: string;
+  outcome: "matched" | "missing" | "conflict" | "error";
+  error: string | null;
+}
+
+export interface DestinationCheckResults {
+  matched: number;
+  missing: number;
+  conflicts: number;
+  errors: number;
+  /** Paths needing attention; matching files are counted without adding snapshot payload. */
+  items: DestinationCheckItem[];
+}
 
 export interface TransferJob {
   id: string;
@@ -368,6 +397,9 @@ export interface TransferJob {
   bytes_per_sec: number | null;
   eta_secs: number | null;
   errors: string[];
+  kind?: "transfer" | "check" | "wipe";
+  pending_conflict?: TransferConflict | null;
+  check_results?: DestinationCheckResults | null;
 }
 
 export type VolumeMatch = "hw_serial" | "marker" | "volume_uuid" | "mapping";

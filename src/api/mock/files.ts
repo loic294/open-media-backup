@@ -24,6 +24,7 @@ export function mockFiles(
   directory?: FileDirectory,
   isApp = false,
   configError?: string | null,
+  preserveFileStructure = true,
 ): FilePage {
   const all = Array.from({ length: total }, (_, i) => {
     const [ext, media] = EXT[i % EXT.length];
@@ -38,7 +39,9 @@ export function mockFiles(
       media,
       abs_path: null,
       target_path:
-        category === "ignored" || configError ? null : [target, folder, name].filter(Boolean).join("/"),
+        category === "ignored" || configError
+          ? null
+          : [target, ...(preserveFileStructure ? [folder] : []), name].filter(Boolean).join("/"),
       category,
       error: configError ?? (category === "error" ? "hash mismatch after copy" : null),
       capture_time: Date.UTC(2026, 0, 14, 9, (i * 7) % 60),

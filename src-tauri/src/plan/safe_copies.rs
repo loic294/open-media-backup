@@ -3,6 +3,7 @@ use crate::domain::{Device, DeviceRole};
 use crate::paths::TemplateVars;
 use crate::rules::RuleSet;
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct DeviceCopies {
@@ -30,6 +31,12 @@ pub struct FinalTarget<'a> {
     pub rules: Vec<&'a RuleSet>,
 }
 
+pub struct SourceCopyFiles<'a> {
+    pub folder: &'a str,
+    pub files: &'a [(String, Option<String>)],
+    pub vars: &'a TemplateVars,
+}
+
 /// `files` are `(path relative to the source folder, known file id)`.
 pub fn safe_copy_report(
     files: &[(String, Option<String>)],
@@ -38,25 +45,56 @@ pub fn safe_copy_report(
     rule_vars: &TemplateVars,
     temporary_copies_per_final: u32,
 ) -> SafeCopyReport {
-    let required = |target: &FinalTarget, rel: &str| {
-        target.rules.is_empty()
-            || target
-                .rules
-                .iter()
-                .any(|r| r.allows_with_vars(rel, rule_vars))
+    device_safe_copy_report(
+        &[SourceCopyFiles {
+            folder: "",
+            files,
+            vars: rule_vars,
+        }],
+        finals,
+        catalog,
+        temporary_copies_per_final,
+    )
+}
+
+pub fn device_safe_copy_report(
+    sources: &[SourceCopyFiles<'_>],
+    finals: &[FinalTarget],
+    catalog: &Catalog,
+    temporary_copies_per_final: u32,
+) -> SafeCopyReport {
+    let required = |target: &FinalTarget, rel: &str, vars: &TemplateVars| {
+        target.rules.is_empty() || target.rules.iter().any(|r| r.allows_with_vars(rel, vars))
     };
+    let mut files: HashMap<String, Vec<(&str, &Option<String>, &TemplateVars)>> = HashMap::new();
+    for source in sources {
+        for (rel, id) in source.files {
+            let path = if source.folder.is_empty() {
+                rel.clone()
+            } else {
+                format!("{}/{rel}", source.folder)
+            };
+            files.entry(path).or_default().push((rel, id, source.vars));
+        }
+    }
     let copies: Vec<DeviceCopies> = finals
         .iter()
         .map(|target| {
             let wanted: Vec<_> = files
                 .iter()
-                .filter(|(rel, _)| required(target, rel))
+                .filter(|(_, views)| {
+                    views
+                        .iter()
+                        .any(|(rel, _, vars)| required(target, rel, vars))
+                })
                 .collect();
             let verified = wanted
                 .iter()
-                .filter(|(_, id)| {
-                    id.as_ref()
-                        .is_some_and(|id| catalog.has_copy_on(id, &target.device.id))
+                .filter(|(_, views)| {
+                    views.iter().all(|(_, id, _)| {
+                        id.as_ref()
+                            .is_some_and(|id| catalog.has_copy_on(id, &target.device.id))
+                    })
                 })
                 .count();
             DeviceCopies {
@@ -72,7 +110,11 @@ pub fn safe_copy_report(
     } else {
         files
             .iter()
-            .filter(|(rel, _)| !finals.iter().any(|t| required(t, rel)))
+            .filter(|(_, views)| {
+                !finals
+                    .iter()
+                    .any(|t| views.iter().any(|(rel, _, vars)| required(t, rel, vars)))
+            })
             .count()
     };
     let fully_verified = |role: DeviceRole| {

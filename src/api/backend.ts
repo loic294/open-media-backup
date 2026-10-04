@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  ConflictDecision,
   Destination,
   Device,
   DeviceMapping,
@@ -84,6 +85,14 @@ export interface Backend {
   runAll(projectId: string): Promise<void>;
   runWorkspaceFlow(context: WorkspaceContext, flowId: string): Promise<void>;
   runWorkspaceAll(context: WorkspaceContext): Promise<void>;
+  runWorkspaceDestination(context: WorkspaceContext, destinationId: string): Promise<string[]>;
+  checkWorkspaceDestination(context: WorkspaceContext, destinationId: string): Promise<string[]>;
+  resolveTransferConflict(
+    jobId: string,
+    requestId: string,
+    decision: ConflictDecision,
+    applyToRemaining: boolean,
+  ): Promise<void>;
   setTransferPaused(jobId: string, paused: boolean): Promise<void>;
   setAllPaused(paused: boolean): Promise<void>;
   cancelTransfer(jobId: string): Promise<void>;

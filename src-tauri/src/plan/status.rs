@@ -1,4 +1,4 @@
-use super::assess::{assess_workspace_source, FinalSet};
+use super::assess::{assess_workspace_device, FinalSet};
 use super::{
     classify_files, resolve_workspace_flow, Catalog, Category, FailureMap, PlanError, RootResolver,
     WorkspaceContext,
@@ -39,6 +39,7 @@ pub struct SourceStatus {
     pub root_path: Option<String>,
     pub file_count: usize,
     pub total_bytes: u64,
+    /// Shared across all sources on the same device within this workspace.
     pub safe_copies: usize,
     pub required_copies: Option<u32>,
     pub wipe_eligible: bool,
@@ -112,8 +113,25 @@ pub fn workspace_status(
     sources.sort_by_key(|s| s.position);
     let mut files_by_source: HashMap<String, Vec<ScannedFile>> = HashMap::new();
     let mut source_statuses = Vec::new();
+    let mut assessments = HashMap::new();
+    for device in devices
+        .values()
+        .filter(|d| sources.iter().any(|s| s.device_id == d.id))
+    {
+        for (source, assessment) in assess_workspace_device(
+            resolver,
+            catalog,
+            &space,
+            project.as_ref(),
+            device,
+            &sources,
+            &finals,
+        ) {
+            assessments.insert(source.id, assessment);
+        }
+    }
     for source in &sources {
-        let Some(device) = devices.get(&source.device_id) else {
+        let Some(assessment) = assessments.remove(&source.id) else {
             source_statuses.push(SourceStatus {
                 source_id: source.id.clone(),
                 available: false,
@@ -129,15 +147,6 @@ pub fn workspace_status(
             });
             continue;
         };
-        let assessment = assess_workspace_source(
-            resolver,
-            catalog,
-            &space,
-            project.as_ref(),
-            device,
-            source,
-            &finals,
-        );
         source_statuses.push(assessment.status);
         let files = assessment.files;
         files_by_source.insert(source.id.clone(), files);

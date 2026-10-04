@@ -1,4 +1,4 @@
-use super::handle::{JobHandle, JobState, TransferJob};
+use super::handle::{ConflictDecision, ConflictQueue, JobHandle, JobKind, JobState, TransferJob};
 use crate::domain::new_id;
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -17,6 +17,9 @@ pub struct JobSpec {
     pub label: String,
     pub devices: Vec<String>,
     pub work: Work,
+    pub kind: JobKind,
+    /// Conflict decisions are shared by all jobs of one queue.
+    pub queue: Option<Arc<ConflictQueue>>,
 }
 
 struct Entry {
@@ -57,29 +60,19 @@ impl TransferManager {
             return existing.handle.snapshot().id;
         }
         let id = new_id();
-        let job = TransferJob {
-            id: id.clone(),
-            flow_id: spec.key,
-            label: spec.label,
-            state: JobState::Queued,
-            files_done: 0,
-            files_total: 0,
-            bytes_done: 0,
-            bytes_total: 0,
-            current_file: None,
-            speed_bps: 0,
-            bytes_per_sec: None,
-            eta_secs: None,
-            errors: vec![],
-        };
+        let job = TransferJob::new(id.clone(), spec.key, spec.label, spec.kind);
         let weak = Arc::downgrade(&self.inner);
         let notify = Arc::new(move || {
             if let Some(inner) = weak.upgrade() {
                 inner.dirty.store(true, Ordering::SeqCst);
             }
         });
+        let handle = Arc::new(JobHandle::new(job, notify));
+        if let Some(queue) = &spec.queue {
+            queue.join(&handle);
+        }
         entries.push(Entry {
-            handle: Arc::new(JobHandle::new(job, notify)),
+            handle,
             devices: spec.devices,
             work: Some(spec.work),
         });
@@ -121,8 +114,36 @@ impl TransferManager {
             .find(|e| e.handle.snapshot().id == id && e.work.is_some())
         {
             entry.work = None;
+            entry.handle.leave_queue();
             entry.handle.update(|j| j.state = JobState::Cancelled);
         }
+    }
+
+    /// Answers a job's pending conflict. With `apply_to_remaining`, every waiting and
+    /// future conflict of the same queue gets the same decision.
+    pub fn resolve_conflict(
+        &self,
+        job_id: &str,
+        request_id: &str,
+        decision: ConflictDecision,
+        apply_to_remaining: bool,
+    ) -> Result<(), String> {
+        let handle = self
+            .inner
+            .entries
+            .lock()
+            .iter()
+            .find(|e| e.handle.snapshot().id == job_id)
+            .map(|e| e.handle.clone())
+            .ok_or("Transfer not found")?;
+        handle.resolve(request_id, decision)?;
+        if apply_to_remaining {
+            if let Some(queue) = handle.queue() {
+                queue.apply_to_remaining(decision);
+            }
+        }
+        self.inner.dirty.store(true, Ordering::SeqCst);
+        Ok(())
     }
 
     pub fn clear_finished(&self) {
@@ -180,6 +201,7 @@ impl TransferManager {
                         _ => JobState::Done,
                     };
                 });
+                handle.leave_queue();
                 manager.schedule();
             });
         }

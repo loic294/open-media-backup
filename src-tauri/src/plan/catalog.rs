@@ -49,6 +49,12 @@ impl Catalog {
         size.is_none_or(|s| s == record.size).then_some(record)
     }
 
+    /// The live copy claim at an exact device location.
+    pub fn copy_at(&self, device_id: &str, path: &str) -> Option<&FileCopy> {
+        self.by_location
+            .get(&(device_id.to_string(), path.to_string()))
+    }
+
     pub fn has_copy_on(&self, file_id: &str, device_id: &str) -> bool {
         self.devices_by_file
             .get(file_id)

@@ -1,8 +1,11 @@
 use super::AppCore;
-use crate::domain::{DestinationKind, Device, Source};
+use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
 use crate::plan::{resolve_workspace_flow, workspace_status, Catalog, FlowState, WorkspaceContext};
-use crate::transfer::{run_workspace_transfer, JobSpec};
+use crate::transfer::{
+    run_workspace_check, run_workspace_transfer, ConflictQueue, JobKind, JobSpec,
+};
 use crate::wipe::{wipe, WipeMethod};
+use std::sync::Arc;
 
 impl AppCore {
     pub fn run_flow(&self, project_id: &str, flow_id: &str) -> Result<String, String> {
@@ -15,6 +18,15 @@ impl AppCore {
         &self,
         context: &WorkspaceContext,
         flow_id: &str,
+    ) -> Result<String, String> {
+        self.enqueue_transfer(context, flow_id, ConflictQueue::new())
+    }
+
+    fn enqueue_transfer(
+        &self,
+        context: &WorkspaceContext,
+        flow_id: &str,
+        queue: Arc<ConflictQueue>,
     ) -> Result<String, String> {
         let ctx = resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, flow_id)
             .map_err(|e| e.to_string())?;
@@ -37,6 +49,8 @@ impl AppCore {
             key: flow_id.to_string(),
             label: ctx.label(),
             devices: vec![ctx.source_device.id.clone(), ctx.dest_device.id.clone()],
+            kind: JobKind::Transfer,
+            queue: Some(queue),
             work: Box::new(move |handle| {
                 run_workspace_transfer(
                     &store,
@@ -58,6 +72,34 @@ impl AppCore {
     }
 
     pub fn run_workspace_all(&self, context: &WorkspaceContext) -> Result<Vec<String>, String> {
+        let runnable = self.runnable_flows(context, None)?;
+        let queue = ConflictQueue::new();
+        runnable
+            .iter()
+            .map(|id| self.enqueue_transfer(context, id, queue.clone()))
+            .collect()
+    }
+
+    /// Queues the runnable incoming flows of one destination as a single conflict queue.
+    pub fn run_workspace_destination(
+        &self,
+        context: &WorkspaceContext,
+        destination_id: &str,
+    ) -> Result<Vec<String>, String> {
+        self.folder_destination(context, destination_id)?;
+        let runnable = self.runnable_flows(context, Some(destination_id))?;
+        let queue = ConflictQueue::new();
+        runnable
+            .iter()
+            .map(|id| self.enqueue_transfer(context, id, queue.clone()))
+            .collect()
+    }
+
+    fn runnable_flows(
+        &self,
+        context: &WorkspaceContext,
+        destination_id: Option<&str>,
+    ) -> Result<Vec<String>, String> {
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
         let failures = self.failures.lock().clone();
         let status = workspace_status(
@@ -75,6 +117,9 @@ impl AppCore {
             let ctx =
                 resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, &f.flow_id)
                     .map_err(|e| e.to_string())?;
+            if destination_id.is_some_and(|id| ctx.flow.destination_id != id) {
+                continue;
+            }
             if ctx.destination.kind == DestinationKind::Folder
                 && ctx.source_root.is_some()
                 && ctx.dest_root.is_some()
@@ -83,10 +128,70 @@ impl AppCore {
                 runnable.push(f.flow_id.clone());
             }
         }
-        runnable
-            .iter()
-            .map(|id| self.run_workspace_flow(context, id))
-            .collect()
+        Ok(runnable)
+    }
+
+    fn folder_destination(
+        &self,
+        context: &WorkspaceContext,
+        destination_id: &str,
+    ) -> Result<Destination, String> {
+        let destination: Destination = self
+            .store
+            .get(destination_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("destination not found")?;
+        if destination.space_id != context.space_id {
+            return Err("Destination must belong to the workspace space".into());
+        }
+        if destination.kind != DestinationKind::Folder {
+            return Err("Only folder destinations can be run or checked".into());
+        }
+        Ok(destination)
+    }
+
+    /// Queues a read-only hash check for every connected, valid incoming flow of a
+    /// folder destination.
+    pub fn check_workspace_destination(
+        &self,
+        context: &WorkspaceContext,
+        destination_id: &str,
+    ) -> Result<Vec<String>, String> {
+        self.folder_destination(context, destination_id)?;
+        context.load(&self.store).map_err(|e| e.to_string())?;
+        let flows: Vec<Flow> = self
+            .store
+            .list_by("space_id", &context.space_id)
+            .map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for flow in flows.iter().filter(|f| f.destination_id == destination_id) {
+            let ctx =
+                resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, &flow.id)
+                    .map_err(|e| e.to_string())?;
+            if ctx.config_error.is_some()
+                || !ctx.source_path_valid
+                || ctx.source_root.is_none()
+                || ctx.dest_root.is_none()
+            {
+                continue;
+            }
+            let (store, resolver) = (self.store.clone(), self.resolver.clone());
+            let (context, flow_id) = (context.clone(), flow.id.clone());
+            ids.push(self.transfers.enqueue(JobSpec {
+                key: format!("check:{}", flow.id),
+                label: ctx.label(),
+                devices: vec![ctx.source_device.id.clone(), ctx.dest_device.id.clone()],
+                kind: JobKind::Check,
+                queue: None,
+                work: Box::new(move |handle| {
+                    run_workspace_check(&store, resolver.as_ref(), &context, &flow_id, handle)
+                }),
+            }));
+        }
+        if ids.is_empty() {
+            return Err("Connect the source and destination devices to check".into());
+        }
+        Ok(ids)
     }
 
     pub fn start_wipe(
@@ -116,6 +221,8 @@ impl AppCore {
             key: format!("wipe:{source_id}"),
             label: format!("Wipe {}", device.name),
             devices: vec![device.id],
+            kind: JobKind::Wipe,
+            queue: None,
             work: Box::new(move |handle| {
                 wipe(&store, resolver.as_ref(), &project, &source, method, handle)
             }),

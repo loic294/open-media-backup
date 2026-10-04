@@ -297,7 +297,12 @@ impl FlowContext {
                 &sanitize_segment(self.source.resolved_backup_name(&self.source_device)),
             );
         }
-        Ok(Some(join_rel(&folder, rel)))
+        let file_path = if self.destination.preserve_file_structure {
+            rel
+        } else {
+            rel.rsplit('/').next().unwrap_or(rel)
+        };
+        Ok(Some(join_rel(&folder, file_path)))
     }
 
     /// Variables used by condition rules for a single routed file. Condition

@@ -73,4 +73,24 @@ describe("transfer directory summaries", () => {
     const filtered = mockFiles(300, "to_transfer", 0, 120, "backup/PRIVATE", "backup");
     expect(filtered.items.every((entry) => entry.target_path!.includes("backup/PRIVATE"))).toBe(true);
   });
+
+  it("flattens demo target paths without removing the destination folder", () => {
+    const flattened = mockFiles(
+      30,
+      "to_transfer",
+      0,
+      30,
+      "",
+      "backup",
+      [],
+      {},
+      undefined,
+      false,
+      null,
+      false,
+    );
+    const nestedFile = flattened.items.find((entry) => entry.rel_path.includes("/"))!;
+    expect(nestedFile.target_path).toBe(`backup/${nestedFile.name}`);
+    expect(nestedFile.target_path).not.toContain(nestedFile.rel_path.slice(0, -nestedFile.name.length));
+  });
 });

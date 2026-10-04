@@ -26,6 +26,17 @@ describe("file rule helpers", () => {
     ).toBe(false);
   });
 
+  it("matches glob rules without regard to case", () => {
+    const rules: FileRule[] = [
+      { action: "exclude", syntax: "glob", pattern: "*.ARW" },
+      { action: "exclude", syntax: "glob", pattern: "PRIVATE/" },
+    ];
+
+    expect(rulesAllowPath(rules, "DCIM/img_0001.arw")).toBe(false);
+    expect(rulesAllowPath(rules, "private/MIXED.JPG")).toBe(false);
+    expect(rulesAllowPath(rules, "DCIM/img_0001.jpg")).toBe(true);
+  });
+
   it("does not offer extension rules for no-extension files", () => {
     expect(extensionForRule("README")).toBeNull();
     expect(extensionExcludePattern("README")).toBeNull();

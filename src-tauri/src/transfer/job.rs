@@ -1,4 +1,4 @@
-use super::copy::{copy_verified, CopyError};
+use super::copy::{copy_resolving, CopyError};
 use super::handle::{JobHandle, JobState};
 use crate::app::AppSettings;
 use crate::domain::{FileCopy, FileRecord};
@@ -34,7 +34,7 @@ pub fn run_workspace_transfer(
     handle: &JobHandle,
     failures: &Mutex<FailureMap>,
 ) -> Result<(), String> {
-    let ctx = prepare(store, resolver, context, flow_id)?;
+    let ctx = prepare(store, resolver, context, flow_id, true)?;
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
     let planned = classify_flow(&ctx, &catalog, None);
     let planning_errors: Vec<_> = planned
@@ -68,17 +68,20 @@ pub fn run_workspace_transfer(
             .iter()
             .any(|f| f.failure_key() == *key || f.rel_path == *key)
     });
+    let mut skipped_any = false;
     for file in &pending {
         if handle.checkpoint().is_err() {
             break;
         }
         handle.update(|j| j.current_file = Some(file.rel_path.clone()));
-        match transfer_one(&ctx, &catalog, file, handle) {
-            Ok((hash, dest_rel)) => {
+        match transfer_one(&ctx, file, handle) {
+            Ok(Some((hash, dest_rel))) => {
                 flow_failures.remove(&file.rel_path);
                 flow_failures.remove(&file.failure_key());
                 writer.add(&ctx, file, hash, dest_rel);
             }
+            // Skipped by the user: stays pending and is not a failure.
+            Ok(None) => skipped_any = true,
             Err(CopyError::Cancelled) => break,
             Err(e) => {
                 let message = e.to_string();
@@ -96,7 +99,8 @@ pub fn run_workspace_transfer(
     if !flow_failures.is_empty() {
         failures.lock().insert(flow_id.to_string(), flow_failures);
     }
-    if completed_without_errors {
+    // Skipped files were never copied, so the byte totals would overstate throughput.
+    if completed_without_errors && !skipped_any {
         record_learned_speed(store, &ctx.dest_device.id, handle);
     }
     handle.update(|j| j.current_file = None);
@@ -118,11 +122,14 @@ fn record_learned_speed(store: &Store, destination_device_id: &str, handle: &Job
     }
 }
 
-fn prepare(
+/// Resolves the flow and verifies both devices are usable. `create_marker` is false for
+/// read-only checks, which must not write to the source.
+pub(super) fn prepare(
     store: &Store,
     resolver: &dyn RootResolver,
     context: &WorkspaceContext,
     flow_id: &str,
+    create_marker: bool,
 ) -> Result<FlowContext, String> {
     let mut ctx =
         resolve_workspace_flow(store, resolver, context, flow_id).map_err(|e| e.to_string())?;
@@ -135,7 +142,7 @@ fn prepare(
     if let Some(err) = &ctx.config_error {
         return Err(err.clone());
     }
-    if ctx.destination.use_backup_marker {
+    if create_marker && ctx.destination.use_backup_marker {
         let root = ctx.source_root.clone().expect("checked above");
         let folder = ctx.vars.get("backup_folder").cloned().unwrap_or_default();
         ensure_backup_folder(&root, &folder).map_err(|e| format!("backup marker: {e}"))?;
@@ -147,10 +154,9 @@ fn prepare(
 
 fn transfer_one(
     ctx: &FlowContext,
-    catalog: &Catalog,
     file: &PlannedFile,
     handle: &JobHandle,
-) -> Result<(String, String), CopyError> {
+) -> Result<Option<(String, String)>, CopyError> {
     let src = file.abs_path.as_ref().ok_or(CopyError::SourceChanged)?;
     let root = ctx.dest_root.as_ref().ok_or(CopyError::SourceChanged)?;
     let target = file
@@ -158,57 +164,65 @@ fn transfer_one(
         .as_deref()
         .ok_or(CopyError::SourceChanged)?;
     let dst = join_relative(root, target);
-    let known = file
-        .file_id
-        .as_deref()
-        .and_then(|id| catalog.record(id))
-        .filter(|r| r.hash_algo == ctx.space.hash_algo)
-        .map(|r| r.hash.clone());
+    // The catalog hash may predate an edit of the source, so the copy's own fresh hash
+    // becomes the source identity instead of being checked against it.
     let before = handle.snapshot().bytes_done;
-    let outcome = copy_verified(
+    let outcome = copy_resolving(
         src,
         &dst,
         ctx.space.hash_algo,
         ctx.space.verify_mode,
-        known.as_deref(),
+        None,
         handle,
+        &mut |info| handle.request_decision(info),
     );
     // Keep the byte counter aligned with the file size, whatever was re-read or skipped.
     handle.update(|j| j.bytes_done = before + file.size);
     let outcome = outcome?;
+    if outcome.skipped {
+        return Ok(None);
+    }
     let dest_rel = to_relative(root, &outcome.final_path).ok_or_else(|| {
         CopyError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Transferred target is outside destination root",
         ))
     })?;
-    Ok((outcome.hash, dest_rel))
+    Ok(Some((outcome.hash, dest_rel)))
 }
 
-struct RecordWriter<'a> {
+pub(super) struct RecordWriter<'a> {
     store: &'a Store,
     catalog: &'a Catalog,
     written: HashSet<String>,
+    removed: HashSet<String>,
     records: Vec<FileRecord>,
     copies: Vec<FileCopy>,
 }
 
 impl<'a> RecordWriter<'a> {
-    fn new(store: &'a Store, catalog: &'a Catalog) -> Self {
+    pub(super) fn new(store: &'a Store, catalog: &'a Catalog) -> Self {
         Self {
             store,
             catalog,
             written: HashSet::new(),
+            removed: HashSet::new(),
             records: vec![],
             copies: vec![],
         }
     }
 
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.copies.len()
     }
 
-    fn add(&mut self, ctx: &FlowContext, file: &PlannedFile, hash: String, dest_rel: String) {
+    pub(super) fn add(
+        &mut self,
+        ctx: &FlowContext,
+        file: &PlannedFile,
+        hash: String,
+        dest_rel: String,
+    ) {
         let algo = ctx.space.hash_algo;
         let file_id = FileRecord::id_for(algo, &hash);
         let source_path = ctx.source_device_path(&file.rel_path);
@@ -234,6 +248,7 @@ impl<'a> RecordWriter<'a> {
             (&ctx.source_device.id, source_path),
             (&ctx.dest_device.id, dest_rel),
         ] {
+            self.invalidate_other_claims(device, &path, &file_id);
             self.copies.push(FileCopy {
                 id: FileCopy::id_for(&file_id, device, &path),
                 file_id: file_id.clone(),
@@ -245,7 +260,26 @@ impl<'a> RecordWriter<'a> {
         }
     }
 
-    fn flush(&mut self) -> crate::store::StoreResult<()> {
+    /// A location now holding `file_id` can no longer be claimed by a different file.
+    fn invalidate_other_claims(&mut self, device: &str, path: &str, file_id: &str) {
+        let catalog = self.catalog;
+        if let Some(old) = catalog.copy_at(device, path) {
+            if old.file_id != file_id {
+                self.invalidate(old);
+            }
+        }
+    }
+
+    pub(super) fn invalidate(&mut self, copy: &FileCopy) {
+        if self.removed.insert(copy.id.clone()) {
+            self.copies.push(FileCopy {
+                removed: true,
+                ..copy.clone()
+            });
+        }
+    }
+
+    pub(super) fn flush(&mut self) -> crate::store::StoreResult<()> {
         if !self.records.is_empty() {
             self.store.put_all(&std::mem::take(&mut self.records))?;
         }

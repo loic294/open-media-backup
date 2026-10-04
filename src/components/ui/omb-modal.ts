@@ -38,7 +38,13 @@ export class OmbModal extends OmbPureElement {
       screen: "max-w-[90vw] h-[90vh] max-h-[90vh]",
     }[this.size];
     return html`
-      <dialog class="modal backdrop:bg-neutral/70" @close=${this.#onClose}>
+      <dialog
+        class="modal backdrop:bg-neutral/70"
+        @close=${this.#onClose}
+        @cancel=${(event: Event) => {
+          if (!this.closeable) event.preventDefault();
+        }}
+      >
         <div
           class="modal-box bg-base-100 text-base-content ${width} w-full p-0 flex flex-col ${this.size === "screen" ? "" : "max-h-[88vh]"}"
         >

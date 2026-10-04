@@ -66,4 +66,22 @@ describe("card context menu model", () => {
       separatorBefore: true,
     });
   });
+
+  it("offers Check only for folder destinations and respects its availability", () => {
+    const state = {
+      fileManagerName: "Finder" as const,
+      runnableCount: 0,
+      offline: false,
+      hasFilesystemPath: true,
+      checkDisabled: false,
+    };
+    expect(buildCardContextMenuItems(state).find((item) => item.action === "check")?.disabled).toBe(false);
+    expect(
+      buildCardContextMenuItems({ ...state, checkDisabled: true }).find((item) => item.action === "check")
+        ?.disabled,
+    ).toBe(true);
+    expect(
+      buildCardContextMenuItems({ ...state, isAppDestination: true }).some((item) => item.action === "check"),
+    ).toBe(false);
+  });
 });

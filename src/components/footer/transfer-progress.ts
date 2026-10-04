@@ -12,15 +12,16 @@ export class OmbTransferProgress extends OmbElement {
   #job(job: TransferJob) {
     const pct = percent(job.bytes_done, job.bytes_total);
     const paused = job.state === "paused";
-    const speed = formatSpeed(liveTransferSpeed(job));
-    const eta = formatEta(job.eta_secs);
+    const waiting = !!job.pending_conflict || job.state === "awaiting_decision";
+    const speed = paused || waiting ? "" : formatSpeed(liveTransferSpeed(job));
+    const eta = paused || waiting ? "" : formatEta(job.eta_secs);
     return html`
       <li class="flex items-center gap-3 py-2">
         <div class="flex-1 min-w-0">
           <div class="flex justify-between text-sm gap-3">
             <span class="font-medium truncate">${job.label}</span>
             <span class="text-base-content/60 whitespace-nowrap"
-              >${paused ? "Paused" : job.state === "queued" && !speed ? "Queued" : speed || `${pct}%`}</span
+              >${waiting ? "Waiting for your decision" : paused ? "Paused" : job.state === "queued" ? "Queued" : job.kind === "check" ? "Checking hashes" : speed || `${pct}%`}</span
             >
           </div>
           <progress
@@ -37,9 +38,17 @@ export class OmbTransferProgress extends OmbElement {
         <button
           class="btn btn-ghost btn-xs btn-square"
           title=${paused ? "Resume" : "Pause"}
+          ?disabled=${waiting}
           @click=${() => this.store.setPaused(job.id, !paused)}
         >
           <omb-icon name=${paused ? "play" : "pause"}></omb-icon>
+        </button>
+        <button
+          class="btn btn-ghost btn-xs btn-square"
+          title="Cancel job"
+          @click=${() => this.store.cancelTransfer(job.id)}
+        >
+          <omb-icon name="x"></omb-icon>
         </button>
       </li>
     `;
@@ -49,11 +58,21 @@ export class OmbTransferProgress extends OmbElement {
     const t = transferTotals(this.store.transfers);
     const pct = percent(t.bytesDone, t.bytesTotal);
     const idle = t.active.length === 0;
+    const checking = t.active.filter((job) => job.kind === "check").length;
+    const waiting = t.active.filter(
+      (job) => job.pending_conflict || job.state === "awaiting_decision",
+    ).length;
     const label = idle
       ? "No transfers running"
-      : t.paused
-        ? "Transfers paused"
-        : `${plural(t.running, "transfer")} running`;
+      : waiting
+        ? `${plural(waiting, "job")} awaiting a decision`
+        : t.paused
+          ? "Jobs paused"
+          : checking
+            ? `${plural(checking, "destination check")} active`
+            : t.running
+              ? `${plural(t.running, "transfer")} running`
+              : "Jobs queued";
     const speed = formatSpeed(t.bytesPerSec);
     const eta = formatEta(t.etaSeconds);
     const details = [
@@ -100,7 +119,7 @@ export class OmbTransferProgress extends OmbElement {
                 style="position: fixed; bottom: 5rem; left: 1.25rem; z-index: 1000;"
               >
                 <div class="flex items-center justify-between mb-1">
-                  <h3 class="font-semibold">Active transfers</h3>
+                  <h3 class="font-semibold">Active jobs</h3>
                   <button
                     class="btn btn-xs btn-ghost gap-1"
                     @click=${() => this.store.setPaused(null, !t.paused)}

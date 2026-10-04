@@ -20,6 +20,8 @@ export type DialogRequest =
   | { type: "wipe-card"; sourceId: string }
   | { type: "preview"; flowId: string | null; category?: "to_transfer" | "transferred" | "ignored" | "error" }
   | { type: "media-browser"; sourceId: string }
+  | { type: "transfer-conflict"; jobId: string; requestId: string }
+  | { type: "destination-check-results"; job: import("../api/types").TransferJob }
   | {
       type: "confirm";
       title: string;

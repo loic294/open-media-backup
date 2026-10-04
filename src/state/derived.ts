@@ -57,7 +57,11 @@ export function sourceStatus(status: Status | null, id: string) {
 
 export function isActive(job: TransferJob): boolean {
   return (
-    job.state === "queued" || job.state === "running" || job.state === "verifying" || job.state === "paused"
+    job.state === "queued" ||
+    job.state === "running" ||
+    job.state === "verifying" ||
+    job.state === "awaiting_decision" ||
+    job.state === "paused"
   );
 }
 
@@ -75,10 +79,13 @@ export function transferTotals(jobs: TransferJob[]): TransferTotals {
   const active = jobs.filter(isActive);
   const bytesDone = active.reduce((n, j) => n + j.bytes_done, 0);
   const bytesTotal = active.reduce((n, j) => n + j.bytes_total, 0);
-  const speed = active.reduce((n, j) => n + (j.state === "paused" ? 0 : (liveTransferSpeed(j) ?? 0)), 0);
+  const speed = active.reduce(
+    (n, j) => n + (j.state === "running" || j.state === "verifying" ? (liveTransferSpeed(j) ?? 0) : 0),
+    0,
+  );
   return {
     active,
-    running: active.filter((j) => j.state !== "paused").length,
+    running: active.filter((j) => j.state === "running" || j.state === "verifying").length,
     paused: active.length > 0 && active.every((j) => j.state === "paused"),
     bytesDone,
     bytesTotal,

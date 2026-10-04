@@ -21,6 +21,7 @@ pub struct Destination {
     pub path_template: String,
     pub app_name: Option<String>,
     pub subfolder_per_source: bool,
+    pub preserve_file_structure: bool,
     pub counts_as_safe_copy: bool,
     /// Use the backup-folder marker stored on the original device instead of project variables.
     pub use_backup_marker: bool,
@@ -40,6 +41,7 @@ impl Default for Destination {
             path_template: String::new(),
             app_name: None,
             subfolder_per_source: true,
+            preserve_file_structure: true,
             counts_as_safe_copy: true,
             use_backup_marker: false,
             rules: Vec::new(),
