@@ -15,10 +15,10 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            args: --target universal-apple-darwin
+            args: --target universal-apple-darwin --config src-tauri/tauri.release.conf.json
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
           - os: windows-latest
-            args: ""
+            args: --config src-tauri/tauri.release.conf.json
             rust-targets: ""
     runs-on: ${{ matrix.os }}
     steps:

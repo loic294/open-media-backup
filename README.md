@@ -113,7 +113,7 @@ To publish signed releases:
 5. Configure `update-open-media-backup.loicba.me` as the Worker's custom domain in Cloudflare, with HTTPS enabled. It must serve both `/:target/:arch/:current_version` update checks and `/download/:assetName` downloads. Changing the app's endpoint does not provision DNS, TLS, or Worker routing.
 6. Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds macOS universal and Windows bundles with `tauri-apps/tauri-action@v0`, signs updater artifacts from the secrets, and uploads `latest.json`.
 
-`src-tauri/tauri.conf.json` keeps `bundle.createUpdaterArtifacts` enabled for releases. The regular CI bundle job intentionally passes a `--config` override that sets `createUpdaterArtifacts` to `false`, because CI does not have updater signing secrets and should still verify unsigned installers on pushes.
+`src-tauri/tauri.conf.json` leaves `bundle.createUpdaterArtifacts` disabled, so local `npx tauri build` runs and the CI bundle job produce unsigned installers without needing `TAURI_SIGNING_PRIVATE_KEY`. The release workflow merges `src-tauri/tauri.release.conf.json`, which enables updater artifacts, and signs them with the repository secrets. To build signed updater artifacts locally, export `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and run `npx tauri build --config src-tauri/tauri.release.conf.json`.
 
 ## License
 
