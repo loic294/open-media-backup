@@ -176,6 +176,7 @@ export interface FlowStatus {
   failed: number;
   bytes_to_transfer: number;
   error: string | null;
+  runnable?: boolean;
 }
 
 export interface SourceStatus {
@@ -185,7 +186,7 @@ export interface SourceStatus {
   file_count: number;
   total_bytes: number;
   safe_copies: number;
-  required_copies: number;
+  required_copies: number | null;
   wipe_eligible: boolean;
   blocking_reason: string | null;
 }
@@ -210,11 +211,39 @@ export interface ProjectStatus {
   destinations: DestinationStatus[];
 }
 
+export interface WorkspaceContext {
+  spaceId: string;
+  projectId: string | null;
+}
+
+export interface WorkspaceStatus {
+  context: WorkspaceContext;
+  flows: FlowStatus[];
+  sources: SourceStatus[];
+  destinations: DestinationStatus[];
+}
+
+export type Status = ProjectStatus | WorkspaceStatus;
+
+export interface WorkspaceFilesRequest {
+  context: WorkspaceContext;
+  flowId: string;
+  category: FileCategory;
+  offset: number;
+  limit: number;
+  filter?: string;
+}
+
 export type FileCategory = "to_transfer" | "transferred" | "ignored" | "error";
 export type MediaKind = "image" | "video" | "raw" | "other";
 
 export type CaptureTimeSource =
-  "exif_original" | "exif_digitized" | "video_creation_time" | "video_original_date";
+  | "exif_original"
+  | "exif_digitized"
+  | "video_creation_time"
+  | "video_original_date"
+  | "sidecar_xml"
+  | "mp4_header";
 
 export interface CaptureTime {
   /** Embedded local wall time. Do not infer a timezone if utc_offset_seconds is null. */

@@ -10,7 +10,7 @@ mod settings;
 mod snapshot;
 
 pub use core::{AppCore, AppImportFile, PreparedAppImport};
-pub use files::{FileEntry, FilePage, ListFilesRequest};
+pub use files::{FileEntry, FilePage, ListFilesRequest, ListWorkspaceFilesRequest};
 pub use resolver::DeviceResolver;
 pub use reveal::{resolve_reveal_path, reveal_space_id, RevealKind};
 pub use settings::AppSettings;

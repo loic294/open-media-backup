@@ -1,6 +1,9 @@
-use super::assess::{assess_source, FinalSet};
-use super::{classify_files, resolve_flow, Catalog, Category, FailureMap, PlanError, RootResolver};
-use crate::domain::{Destination, DestinationKind, Device, Flow, Project, Source, Space};
+use super::assess::{assess_workspace_source, FinalSet};
+use super::{
+    classify_files, resolve_workspace_flow, Catalog, Category, FailureMap, PlanError, RootResolver,
+    WorkspaceContext,
+};
+use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
 use crate::scan::ScannedFile;
 use crate::store::Store;
 use serde::Serialize;
@@ -26,6 +29,7 @@ pub struct FlowStatus {
     pub failed: usize,
     pub bytes_to_transfer: u64,
     pub error: Option<String>,
+    pub runnable: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,7 +40,7 @@ pub struct SourceStatus {
     pub file_count: usize,
     pub total_bytes: u64,
     pub safe_copies: usize,
-    pub required_copies: u32,
+    pub required_copies: Option<u32>,
     pub wipe_eligible: bool,
     pub blocking_reason: Option<String>,
 }
@@ -63,6 +67,14 @@ pub struct ProjectStatus {
     pub destinations: Vec<DestinationStatus>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceStatus {
+    pub context: WorkspaceContext,
+    pub flows: Vec<FlowStatus>,
+    pub sources: Vec<SourceStatus>,
+    pub destinations: Vec<DestinationStatus>,
+}
+
 pub fn project_status(
     store: &Store,
     resolver: &dyn RootResolver,
@@ -70,12 +82,24 @@ pub fn project_status(
     project_id: &str,
     failures: &FailureMap,
 ) -> Result<ProjectStatus, PlanError> {
-    let project: Project = store
-        .get(project_id)?
-        .ok_or_else(|| PlanError::NotFound(format!("project {project_id}")))?;
-    let space: Space = store
-        .get(&project.space_id)?
-        .ok_or_else(|| PlanError::NotFound("space".into()))?;
+    let context = WorkspaceContext::for_project(store, project_id)?;
+    let status = workspace_status(store, resolver, catalog, &context, failures)?;
+    Ok(ProjectStatus {
+        project_id: project_id.to_string(),
+        flows: status.flows,
+        sources: status.sources,
+        destinations: status.destinations,
+    })
+}
+
+pub fn workspace_status(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    catalog: &Catalog,
+    context: &WorkspaceContext,
+    failures: &FailureMap,
+) -> Result<WorkspaceStatus, PlanError> {
+    let (space, project) = context.load(store)?;
     let devices: HashMap<String, Device> = store
         .list::<Device>()?
         .into_iter()
@@ -89,11 +113,18 @@ pub fn project_status(
     let mut files_by_source: HashMap<String, Vec<ScannedFile>> = HashMap::new();
     let mut source_statuses = Vec::new();
     for source in &sources {
-        let Some(device) = devices.get(&source.device_id) else {
-            continue;
-        };
-        let assessment =
-            assess_source(resolver, catalog, &space, &project, device, source, &finals);
+        let device = devices
+            .get(&source.device_id)
+            .ok_or_else(|| PlanError::NotFound(format!("device {}", source.device_id)))?;
+        let assessment = assess_workspace_source(
+            resolver,
+            catalog,
+            &space,
+            project.as_ref(),
+            device,
+            source,
+            &finals,
+        );
         source_statuses.push(assessment.status);
         let files = assessment.files;
         files_by_source.insert(source.id.clone(), files);
@@ -103,9 +134,7 @@ pub fn project_status(
     let mut dest_statuses: HashMap<String, DestinationStatus> = HashMap::new();
     let mut flow_statuses = Vec::new();
     for flow in &flows {
-        let Ok(ctx) = resolve_flow(store, resolver, project_id, &flow.id) else {
-            continue;
-        };
+        let ctx = resolve_workspace_flow(store, resolver, context, &flow.id)?;
         let files = files_by_source
             .get(&flow.source_id)
             .cloned()
@@ -173,6 +202,7 @@ pub fn project_status(
             failed,
             bytes_to_transfer,
             error,
+            runnable: available && ctx.config_error.is_none() && to_transfer + failed > 0,
         });
     }
     for dest in store.list_by::<Destination>("space_id", &space.id)? {
@@ -192,8 +222,8 @@ pub fn project_status(
             }
         });
     }
-    Ok(ProjectStatus {
-        project_id: project_id.to_string(),
+    Ok(WorkspaceStatus {
+        context: context.clone(),
         flows: flow_statuses,
         sources: source_statuses,
         destinations: dest_statuses.into_values().collect(),

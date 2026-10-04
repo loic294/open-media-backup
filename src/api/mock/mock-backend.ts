@@ -8,13 +8,15 @@ import type {
   TransferJob,
   UpdateInfo,
   Volume,
+  WorkspaceContext,
 } from "../types";
 import { demoCounts, demoOffline, demoSnapshot } from "./data";
 import { Emitter } from "./emitter";
 import { mockFiles } from "./files";
-import { mockStatus, type Counts } from "./status";
+import { mockStatus, mockWorkspaceStatus, type Counts } from "./status";
 import { demoSync } from "./sync";
 import { validateProjectConfiguration } from "../../state/projects";
+import { expandTemplate, previewVars, templateVars } from "../../utils/template";
 
 const COLLECTION: Record<EntityKind, keyof Snapshot> = {
   space: "spaces",
@@ -145,7 +147,33 @@ export function createMockBackend(
     tick();
   }
 
-  return {
+  const workspaceStatus = (context: WorkspaceContext) =>
+    mockWorkspaceStatus(snapshot, context, counts, offline);
+  const workspaceFlow = (context: WorkspaceContext, flowId: string) => {
+    const status = workspaceStatus(context);
+    const flow = snapshot.flows.find((f) => f.id === flowId && f.space_id === context.spaceId);
+    if (!flow) throw new Error("Flow must belong to the workspace space");
+    const st = status.flows.find((f) => f.flow_id === flowId)!;
+    return { flow, status: st };
+  };
+  const imports = new Map<string, { context: WorkspaceContext; flowId: string; count: number }>();
+  const openMockApp = (flowId: string) => {
+    const flow = snapshot.flows.find((f) => f.id === flowId);
+    const dest = snapshot.destinations.find((d) => d.id === flow?.destination_id);
+    if (dest?.kind !== "app") throw new Error("This destination is not an app destination");
+    const appPath = snapshot.settings.app_destinations?.[dest.id]?.trim();
+    const appName = dest.app_name ?? (appPath ? appPath.split(/[\\/]/).pop() : null) ?? "Application";
+    if (!appPath) throw new Error(`Choose the application for ${appName} on this computer`);
+    const c = counts[flowId] ?? [0, 0, 0, 0];
+    const files = Array.from({ length: c[1] }, (_, i) => ({
+      rel_path: `100MSDCF/IMG_${String(7412 + i).padStart(5, "0")}.JPG`,
+      project_id: null,
+    }));
+    console.info(`Demo mode would open ${files.length} files in ${appPath}`);
+    return { token: crypto.randomUUID(), app_name: appName, files };
+  };
+
+  const backend: Backend = {
     getSnapshot: async () => structuredClone(snapshot),
     saveEntity: async (kind, entity) => {
       const candidate = structuredClone(snapshot);
@@ -197,6 +225,46 @@ export function createMockBackend(
       snapshot.settings = structuredClone(settings);
     },
     getProjectStatus: async (projectId) => mockStatus(snapshot, projectId, counts, offline),
+    getWorkspaceStatus: async (context) => workspaceStatus(context),
+    listWorkspaceFiles: async (req) => {
+      const { flow, status } = workspaceFlow(req.context, req.flowId);
+      const source = snapshot.sources.find((s) => s.id === flow.source_id)!;
+      const space = snapshot.spaces.find((s) => s.id === req.context.spaceId)!;
+      const project = snapshot.projects.find((p) => p.id === req.context.projectId) ?? null;
+      const vars = previewVars(space, project, snapshot.devices.find((d) => d.id === source.device_id)?.name);
+      if (templateVars(source.path_template).some((name) => !(name in vars)))
+        throw new Error("Source path requires project values or an unknown variable");
+      const destination = snapshot.destinations.find((d) => d.id === flow.destination_id)!;
+      const configError = status.state === "error" && !status.runnable ? status.error : null;
+      const total = configError
+        ? req.category === "error"
+          ? status.transferred + status.to_transfer + status.ignored + status.failed
+          : 0
+        : {
+            transferred: status.transferred,
+            to_transfer: status.to_transfer,
+            ignored: status.ignored,
+            error: status.failed,
+          }[req.category];
+      const page = mockFiles(
+        total,
+        req.category,
+        req.offset,
+        req.limit,
+        req.filter,
+        expandTemplate(destination.path_template, vars),
+        destination.rules,
+        project ? vars : {},
+      );
+      for (const file of page.items) {
+        file.project_id = project?.id ?? null;
+        if (configError) {
+          file.error = configError;
+          file.target_path = null;
+        }
+      }
+      return page;
+    },
     listFiles: async ({ projectId, flowId, category, offset, limit, filter }) => {
       const [transferred, toTransfer, ignored, failed] = counts[flowId] ?? [0, 25, 0, 0];
       const total = { transferred, to_transfer: toTransfer, ignored, error: failed }[category];
@@ -243,26 +311,36 @@ export function createMockBackend(
     revealInFileManager: async (kind, id) => {
       console.info(`Demo mode would reveal ${kind} ${id} in the file manager`);
     },
-    openFlowInApp: async (_projectId, flowId) => {
-      const flow = snapshot.flows.find((f) => f.id === flowId);
-      const dest = snapshot.destinations.find((d) => d.id === flow?.destination_id);
-      if (dest?.kind !== "app") throw new Error("This destination is not an app destination");
-      const appPath = snapshot.settings.app_destinations?.[dest.id]?.trim();
-      const appName = dest.app_name ?? (appPath ? appPath.split(/[\\/]/).pop() : null) ?? "Application";
-      if (!appPath) throw new Error(`Choose the application for ${appName} on this computer`);
-      const c = counts[flowId] ?? [0, 0, 0, 0];
-      const files = Array.from({ length: c[1] }, (_, i) => ({
-        rel_path: `100MSDCF/IMG_${String(7412 + i).padStart(5, "0")}.JPG`,
-        project_id: null,
-      }));
-      console.info(`Demo mode would open ${files.length} files in ${appPath}`);
-      return { token: crypto.randomUUID(), app_name: appName, files };
-    },
+    openFlowInApp: async (_projectId, flowId) => openMockApp(flowId),
     confirmAppImport: async (_projectId, flowId) => {
       const c = counts[flowId] ?? [0, 0, 0, 0];
       const marked = c[1];
       c[0] += marked;
       c[1] = 0;
+      changed();
+      return marked;
+    },
+    openWorkspaceFlowInApp: async (context, flowId) => {
+      const { status } = workspaceFlow(context, flowId);
+      if (!status.runnable) throw new Error(status.error || "No available files to import");
+      const opened = openMockApp(flowId);
+      imports.set(opened.token, { context: structuredClone(context), flowId, count: opened.files.length });
+      return opened;
+    },
+    confirmWorkspaceAppImport: async (context, flowId, token) => {
+      const session = imports.get(token);
+      imports.delete(token);
+      if (
+        !session ||
+        JSON.stringify(session.context) !== JSON.stringify(context) ||
+        session.flowId !== flowId
+      )
+        throw new Error("This app import confirmation does not match the workspace and flow");
+      workspaceFlow(context, flowId);
+      const c = counts[flowId];
+      const marked = Math.min(session.count, c[1]);
+      c[0] += marked;
+      c[1] -= marked;
       changed();
       return marked;
     },
@@ -290,6 +368,19 @@ export function createMockBackend(
           return snapshot.destinations.find((d) => d.id === flow?.destination_id)?.kind !== "app";
         })
         .forEach((f) => startFlow(f.flow_id));
+    },
+    runWorkspaceFlow: async (context, flowId) => {
+      const { status } = workspaceFlow(context, flowId);
+      if (!status.runnable)
+        throw new Error(status.error || "Connect the source and destination devices to run");
+      startFlow(flowId);
+    },
+    runWorkspaceAll: async (context) => {
+      for (const st of workspaceStatus(context).flows.filter((f) => f.runnable)) {
+        const flow = snapshot.flows.find((f) => f.id === st.flow_id)!;
+        if (snapshot.destinations.find((d) => d.id === flow.destination_id)?.kind !== "app")
+          startFlow(st.flow_id);
+      }
     },
     setTransferPaused: async (jobId, isPaused) => {
       const job = jobs.find((j) => j.id === jobId);
@@ -390,7 +481,11 @@ export function createMockBackend(
         reason: status?.blocking_reason ?? null,
       };
     },
-    wipe: async (_projectId, sourceId) => {
+    wipe: async (projectId, sourceId) => {
+      const status = mockStatus(snapshot, projectId, counts, offline).sources.find(
+        (s) => s.source_id === sourceId,
+      );
+      if (!status?.wipe_eligible) throw new Error(status?.blocking_reason || "Not safe to wipe this source");
       const source = snapshot.sources.find((s) => s.id === sourceId);
       snapshot.flows.filter((f) => f.source_id === sourceId).forEach((f) => (counts[f.id] = [0, 0, 0, 0]));
       if (source) source.offer_wipe = true;
@@ -402,4 +497,5 @@ export function createMockBackend(
     syncNow: async () => events.emit("sync-status", demoSync()),
     on: async (event, handler) => events.on(event, handler as never),
   };
+  return backend;
 }

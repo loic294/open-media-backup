@@ -1,4 +1,4 @@
-use super::{backup_folder_name, sanitize_segment, template_vars, RootResolver};
+use super::{backup_folder_name, sanitize_segment, RootResolver};
 use crate::domain::{
     validate_project_ranges, Destination, DestinationKind, Device, DeviceKind, DeviceRole, Flow,
     Project, Source, Space,
@@ -15,13 +15,47 @@ pub enum PlanError {
     NotFound(String),
     #[error(transparent)]
     Store(#[from] StoreError),
+    #[error("{0}")]
+    InvalidContext(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceContext {
+    pub space_id: String,
+    pub project_id: Option<String>,
+}
+
+impl WorkspaceContext {
+    pub fn for_project(store: &Store, project_id: &str) -> Result<Self, PlanError> {
+        let project: Project = load(store, project_id, "project")?;
+        Ok(Self {
+            space_id: project.space_id,
+            project_id: Some(project.id),
+        })
+    }
+
+    pub fn load(&self, store: &Store) -> Result<(Space, Option<Project>), PlanError> {
+        let space: Space = load(store, &self.space_id, "space")?;
+        let project: Option<Project> = self
+            .project_id
+            .as_deref()
+            .map(|id| load(store, id, "project"))
+            .transpose()?;
+        if project.as_ref().is_some_and(|p| p.space_id != space.id) {
+            return Err(PlanError::InvalidContext(
+                "Project must belong to the workspace space".into(),
+            ));
+        }
+        Ok((space, project))
+    }
 }
 
 /// Everything needed to plan or run one source → destination flow.
 pub struct FlowContext {
     pub flow: Flow,
     pub space: Space,
-    pub project: Project,
+    pub project: Option<Project>,
     pub projects: Vec<Project>,
     pub source: Source,
     pub destination: Destination,
@@ -32,6 +66,7 @@ pub struct FlowContext {
     pub dest_root: Option<PathBuf>,
     /// Source folder relative to the source device root.
     pub source_folder_rel: String,
+    pub source_path_valid: bool,
     /// Target base folder relative to the destination device root.
     pub dest_folder_rel: String,
     pub rules: RuleSet,
@@ -51,11 +86,30 @@ pub fn resolve_flow(
     project_id: &str,
     flow_id: &str,
 ) -> Result<FlowContext, PlanError> {
+    let context = WorkspaceContext::for_project(store, project_id)?;
+    resolve_workspace_flow(store, resolver, &context, flow_id)
+}
+
+pub fn resolve_workspace_flow(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    context: &WorkspaceContext,
+    flow_id: &str,
+) -> Result<FlowContext, PlanError> {
+    let (space, project) = context.load(store)?;
     let flow: Flow = load(store, flow_id, "flow")?;
-    let project: Project = load(store, project_id, "project")?;
-    let space: Space = load(store, &flow.space_id, "space")?;
+    if flow.space_id != space.id {
+        return Err(PlanError::InvalidContext(
+            "Flow must belong to the workspace space".into(),
+        ));
+    }
     let source: Source = load(store, &flow.source_id, "source")?;
     let destination: Destination = load(store, &flow.destination_id, "destination")?;
+    if source.space_id != space.id || destination.space_id != space.id {
+        return Err(PlanError::InvalidContext(
+            "Flow entities must belong to the same space".into(),
+        ));
+    }
     let source_device: Device = load(store, &source.device_id, "device")?;
     let dest_device: Device = if destination.kind == DestinationKind::App {
         Device {
@@ -85,12 +139,6 @@ pub fn resolve_flow(
 
     let mut errors = Vec::new();
     let projects: Vec<Project> = store.list_by("space_id", &space.id)?;
-    if project.space_id != space.id
-        || source.space_id != space.id
-        || destination.space_id != space.id
-    {
-        errors.push("Flow entities must belong to the same space".into());
-    }
     if let Err(error) = validate_project_ranges(&projects, space.allow_project_overlap) {
         errors.push(error);
     }
@@ -104,21 +152,32 @@ pub fn resolve_flow(
     let mut vars = if matches!(source.project_scope, crate::domain::ProjectScope::None) {
         super::project_template_vars(&space, None, &source_device)
     } else {
-        template_vars(&space, &project, &source_device)
+        super::project_template_vars(&space, project.as_ref(), &source_device)
     };
+    if project.is_none()
+        && projects.is_empty()
+        && destination.kind == DestinationKind::Folder
+        && super::uses_project_variables(
+            &destination.path_template,
+            &space,
+            &projects,
+            destination.use_backup_marker,
+        )
+    {
+        errors.push("Destination path requires project values; create a project or use a project-independent path".into());
+    }
     if destination.use_backup_marker {
         match backup_folder_name(&space, &vars, source_root.as_deref()) {
             Ok(folder) => drop(vars.insert("backup_folder".into(), folder)),
             Err(e) => errors.push(format!("backup folder: {e}")),
         }
     }
-    let mut expand_or_note = |template: &str, what: &str| {
-        expand(template, &vars).unwrap_or_else(|e| {
-            errors.push(format!("{what}: {e}"));
-            String::new()
-        })
-    };
-    let source_folder_rel = normalize(&expand_or_note(&source.path_template, "source path"));
+    let expanded_source = expand(&source.path_template, &vars);
+    let source_path_valid = expanded_source.is_ok();
+    let source_folder_rel = normalize(&expanded_source.unwrap_or_else(|e| {
+        errors.push(format!("source path: {e}"));
+        String::new()
+    }));
     // The selected project's preview is retained for old callers. Actual routing below
     // expands the destination separately for each file's matching projects.
     let mut dest_folder_rel = if destination.kind == DestinationKind::App {
@@ -168,6 +227,7 @@ pub fn resolve_flow(
         source_root,
         dest_root,
         source_folder_rel,
+        source_path_valid,
         dest_folder_rel,
         rules,
         config_error: (!errors.is_empty()).then(|| errors.join("; ")),
@@ -241,6 +301,9 @@ impl FlowContext {
     }
 
     pub fn source_folder(&self) -> Option<PathBuf> {
+        if !self.source_path_valid {
+            return None;
+        }
         self.source_root
             .as_ref()
             .map(|r| join_relative(r, &self.source_folder_rel))

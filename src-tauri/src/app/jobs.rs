@@ -1,31 +1,47 @@
 use super::AppCore;
 use crate::domain::{DestinationKind, Device, Source};
-use crate::plan::{project_status, resolve_flow, Catalog, FlowState};
-use crate::transfer::{run_transfer, JobSpec};
+use crate::plan::{resolve_workspace_flow, workspace_status, Catalog, FlowState, WorkspaceContext};
+use crate::transfer::{run_workspace_transfer, JobSpec};
 use crate::wipe::{wipe, WipeMethod};
 
 impl AppCore {
     pub fn run_flow(&self, project_id: &str, flow_id: &str) -> Result<String, String> {
-        let ctx = resolve_flow(&self.store, self.resolver.as_ref(), project_id, flow_id)
+        let context =
+            WorkspaceContext::for_project(&self.store, project_id).map_err(|e| e.to_string())?;
+        self.run_workspace_flow(&context, flow_id)
+    }
+
+    pub fn run_workspace_flow(
+        &self,
+        context: &WorkspaceContext,
+        flow_id: &str,
+    ) -> Result<String, String> {
+        let ctx = resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, flow_id)
             .map_err(|e| e.to_string())?;
         if ctx.destination.kind == DestinationKind::App {
             return Err("App destinations can only be triggered manually".into());
+        }
+        if let Some(error) = &ctx.config_error {
+            return Err(error.clone());
+        }
+        if ctx.source_root.is_none() || ctx.dest_root.is_none() {
+            return Err("Connect the source and destination devices to run".into());
         }
         let (store, resolver, failures) = (
             self.store.clone(),
             self.resolver.clone(),
             self.failures.clone(),
         );
-        let (project, flow) = (project_id.to_string(), flow_id.to_string());
+        let (context, flow) = (context.clone(), flow_id.to_string());
         Ok(self.transfers.enqueue(JobSpec {
             key: flow_id.to_string(),
             label: ctx.label(),
             devices: vec![ctx.source_device.id.clone(), ctx.dest_device.id.clone()],
             work: Box::new(move |handle| {
-                run_transfer(
+                run_workspace_transfer(
                     &store,
                     resolver.as_ref(),
-                    &project,
+                    &context,
                     &flow,
                     handle,
                     &failures,
@@ -36,28 +52,39 @@ impl AppCore {
 
     /// Queues every flow of the project that has something to copy (or to retry).
     pub fn run_all(&self, project_id: &str) -> Result<Vec<String>, String> {
+        let context =
+            WorkspaceContext::for_project(&self.store, project_id).map_err(|e| e.to_string())?;
+        self.run_workspace_all(&context)
+    }
+
+    pub fn run_workspace_all(&self, context: &WorkspaceContext) -> Result<Vec<String>, String> {
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
-        let status = project_status(
+        let status = workspace_status(
             &self.store,
             self.resolver.as_ref(),
             &catalog,
-            project_id,
+            context,
             &self.failures.lock(),
         )
         .map_err(|e| e.to_string())?;
-        status
-            .flows
+        let mut runnable = Vec::new();
+        for f in status.flows.iter().filter(|f| {
+            matches!(f.state, FlowState::Pending | FlowState::Error) && f.to_transfer + f.failed > 0
+        }) {
+            let ctx =
+                resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, &f.flow_id)
+                    .map_err(|e| e.to_string())?;
+            if ctx.destination.kind == DestinationKind::Folder
+                && ctx.source_root.is_some()
+                && ctx.dest_root.is_some()
+                && ctx.config_error.is_none()
+            {
+                runnable.push(f.flow_id.clone());
+            }
+        }
+        runnable
             .iter()
-            .filter(|f| {
-                matches!(f.state, FlowState::Pending | FlowState::Error)
-                    && f.to_transfer + f.failed > 0
-            })
-            .filter_map(|f| {
-                let ctx = resolve_flow(&self.store, self.resolver.as_ref(), project_id, &f.flow_id)
-                    .ok()?;
-                (ctx.destination.kind == DestinationKind::Folder)
-                    .then(|| self.run_flow(project_id, &f.flow_id))
-            })
+            .map(|id| self.run_workspace_flow(context, id))
             .collect()
     }
 

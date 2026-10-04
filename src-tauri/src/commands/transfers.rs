@@ -1,4 +1,5 @@
 use super::{blocking, CmdResult, Shared};
+use crate::plan::WorkspaceContext;
 use crate::transfer::TransferJob;
 use crate::wipe::{WipeMethod, WipePlan};
 use tauri::State;
@@ -15,6 +16,26 @@ pub async fn run_flow(
 #[tauri::command]
 pub async fn run_all(state: State<'_, Shared>, project_id: String) -> CmdResult<Vec<String>> {
     blocking(&state, move |s| s.core.run_all(&project_id)).await
+}
+
+#[tauri::command]
+pub async fn run_workspace_flow(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    flow_id: String,
+) -> CmdResult<String> {
+    blocking(&state, move |s| {
+        s.core.run_workspace_flow(&context, &flow_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn run_workspace_all(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+) -> CmdResult<Vec<String>> {
+    blocking(&state, move |s| s.core.run_workspace_all(&context)).await
 }
 
 #[tauri::command]

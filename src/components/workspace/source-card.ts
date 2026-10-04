@@ -78,7 +78,15 @@ export class OmbSourceCard extends OmbElement {
 
   #footer() {
     const st = sourceStatus(this.store.status, this.source.id);
-    if (!st) return html`<span class="skeleton h-6 w-32"></span>`;
+    if (!st)
+      return this.store.statusLoading
+        ? html`<span class="skeleton h-6 w-32"></span>`
+        : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
+    if (st.required_copies === null)
+      return html`
+        <span class="badge badge-ghost gap-1.5">${st.safe_copies} safe copies</span>
+        <span class="text-sm text-base-content/60">${st.blocking_reason}</span>
+      `;
     const icon =
       st.safe_copies >= st.required_copies ? "shield-check" : st.safe_copies > 0 ? "shield" : "shield-alert";
     return html`
@@ -86,7 +94,7 @@ export class OmbSourceCard extends OmbElement {
         <omb-icon name=${icon} class="size-3.5"></omb-icon>${st.safe_copies}/${st.required_copies} safe copies
       </span>
       ${
-        st.wipe_eligible
+        st.wipe_eligible && this.store.project
           ? html`<button
               class="btn btn-sm btn-error btn-soft gap-1.5"
               @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "wipe-card", sourceId: this.source.id }))}
@@ -124,7 +132,7 @@ export class OmbSourceCard extends OmbElement {
             </div>
             <span class="flex items-center gap-2 text-sm text-base-content/70">
               <span class="status ${st?.available ? "status-success" : "status-neutral"}"></span
-              >${st?.available ? "Mounted" : "Not mounted"}
+              >${!st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : st.available ? "Mounted" : "Not mounted"}
             </span>
             <button
               class="btn btn-ghost btn-xs btn-square"

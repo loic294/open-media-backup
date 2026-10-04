@@ -53,6 +53,15 @@ export class OmbWipeDialog extends DialogBase<Extract<DialogRequest, { type: "wi
   }
 
   override render() {
+    if (!this.store.project) return html`<omb-modal
+      heading="Wipe card"
+      icon="eraser"
+      @close=${this.onClosed}
+      .body=${html`<div role="alert" class="alert alert-warning alert-soft">
+        <span>Create a project to set card-wiping safety requirements.</span>
+      </div>`}
+      .actions=${html`<button class="btn btn-ghost" @click=${() => this.dismiss()}>Close</button>`}
+    ></omb-modal>`;
     const source = this.store.snapshot?.sources.find((s) => s.id === this.request.sourceId);
     const name = source ? deviceById(this.store.snapshot!, source.device_id)?.name : "";
     const p = this.plan;

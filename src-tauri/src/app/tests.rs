@@ -107,6 +107,206 @@ fn run_all_then_list_files() {
 }
 
 #[test]
+fn project_free_transfers_preview_verify_and_record_copies_without_enabling_wipe() {
+    let fx = Fixture::new();
+    fx.store
+        .delete(crate::domain::EntityKind::Project, "project")
+        .unwrap();
+    let source = fx.write_card_file("DCIM/A.JPG", b"project-free photo");
+    let (core, _t) = core(&fx);
+    let context = crate::plan::WorkspaceContext {
+        space_id: fx.space.id.clone(),
+        project_id: None,
+    };
+    let req = |category| ListWorkspaceFilesRequest {
+        context: context.clone(),
+        flow_id: fx.flow.id.clone(),
+        category,
+        offset: 0,
+        limit: 50,
+        filter: None,
+    };
+    let pending = core
+        .list_workspace_files(&req(Category::ToTransfer))
+        .unwrap();
+    assert_eq!(pending.total, 1);
+    assert_eq!(pending.items[0].project_id, None);
+    assert_eq!(
+        core.authorize_media_open(&source).unwrap(),
+        source.canonicalize().unwrap()
+    );
+    assert_eq!(core.run_workspace_all(&context).unwrap().len(), 1);
+    wait_idle(&core);
+    assert!(core
+        .transfers
+        .jobs()
+        .iter()
+        .all(|j| j.state == crate::transfer::JobState::Done));
+    let target = fx.nas_dir.path().join("photo/Trip/Camera A Card 1/A.JPG");
+    assert_eq!(fs::read(&target).unwrap(), b"project-free photo");
+    assert_eq!(
+        crate::hashing::hash_file(&source, fx.space.hash_algo, |_| true).unwrap(),
+        crate::hashing::hash_file(&target, fx.space.hash_algo, |_| true).unwrap(),
+    );
+    let records = fx.store.list::<crate::domain::FileRecord>().unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(fx.store.list::<crate::domain::FileCopy>().unwrap().len(), 2);
+    assert_eq!(
+        core.list_workspace_files(&req(Category::Transferred))
+            .unwrap()
+            .total,
+        1
+    );
+    let status = core.workspace_status(&context).unwrap();
+    assert_eq!(status.sources[0].safe_copies, 1);
+    assert_eq!(status.sources[0].required_copies, None);
+    assert!(!status.sources[0].wipe_eligible);
+    assert!(core
+        .start_wipe("", "src", crate::wipe::WipeMethod::DeleteFiles)
+        .is_err());
+    assert!(core
+        .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
+        .is_err());
+    assert!(core.run_workspace_all(&context).unwrap().is_empty());
+    assert!(fx
+        .store
+        .list::<crate::domain::Project>()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn project_free_blocked_paths_never_copy_or_create_markers() {
+    let fx = Fixture::new();
+    fx.store
+        .delete(crate::domain::EntityKind::Project, "project")
+        .unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"photo");
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{backup_folder}".into();
+    destination.use_backup_marker = true;
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    let context = crate::plan::WorkspaceContext {
+        space_id: "space".into(),
+        project_id: None,
+    };
+    assert!(core
+        .run_workspace_flow(&context, "flow")
+        .unwrap_err()
+        .contains("backup folder"));
+    assert!(core.run_workspace_all(&context).unwrap().is_empty());
+    assert!(!fx
+        .card_dir
+        .path()
+        .join(crate::paths::BACKUP_MARKER_FILE)
+        .exists());
+    assert!(fs::read_dir(fx.nas_dir.path()).unwrap().next().is_none());
+    crate::paths::ensure_backup_folder(fx.card_dir.path(), "Existing").unwrap();
+    core.run_workspace_flow(&context, "flow").unwrap();
+    wait_idle(&core);
+    assert_eq!(
+        fs::read(fx.nas_dir.path().join("Existing/Camera A Card 1/A.JPG")).unwrap(),
+        b"photo"
+    );
+}
+
+#[test]
+fn project_free_app_imports_are_manual_and_confirmations_are_context_bound() {
+    let fx = Fixture::new();
+    fx.store
+        .delete(crate::domain::EntityKind::Project, "project")
+        .unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"photo");
+    let mut destination = fx.destination.clone();
+    destination.kind = DestinationKind::App;
+    destination.device_id.clear();
+    destination.path_template.clear();
+    destination.app_name = Some("Photo app".into());
+    destination.counts_as_safe_copy = false;
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    let app_path = fake_app(fx.card_dir.path());
+    let mut settings = core.settings();
+    settings.app_destinations.insert(
+        destination.id.clone(),
+        app_path.to_string_lossy().into_owned(),
+    );
+    core.save_settings(&settings).unwrap();
+    let context = crate::plan::WorkspaceContext {
+        space_id: "space".into(),
+        project_id: None,
+    };
+    assert!(core.run_workspace_all(&context).unwrap().is_empty());
+    assert!(core
+        .run_workspace_flow(&context, "flow")
+        .unwrap_err()
+        .contains("manually"));
+    let prepared = core.prepare_workspace_app_import(&context, "flow").unwrap();
+    assert_eq!(prepared.files[0].project_id, None);
+    assert_eq!(
+        core.confirm_workspace_app_import(&context, "flow", &prepared.token)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        core.workspace_status(&context).unwrap().destinations[0].transferred,
+        1
+    );
+    assert_eq!(
+        core.workspace_status(&context).unwrap().sources[0].safe_copies,
+        0
+    );
+    assert!(core
+        .confirm_workspace_app_import(&context, "flow", &prepared.token)
+        .is_err());
+    fx.write_card_file("DCIM/B.JPG", b"new photo");
+    let prepared = core.prepare_workspace_app_import(&context, "flow").unwrap();
+    let other = crate::plan::WorkspaceContext {
+        space_id: "other".into(),
+        project_id: None,
+    };
+    assert!(core
+        .confirm_workspace_app_import(&other, "flow", &prepared.token)
+        .unwrap_err()
+        .contains("does not match"));
+}
+
+#[test]
+fn project_free_transfer_can_generate_a_project_independent_marker() {
+    let fx = Fixture::new();
+    fx.store
+        .delete(crate::domain::EntityKind::Project, "project")
+        .unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"photo");
+    let mut space = fx.space.clone();
+    space.backup_marker_template = "{date}".into();
+    fx.store.put(&space).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{backup_folder}".into();
+    destination.use_backup_marker = true;
+    destination.subfolder_per_source = false;
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    let context = crate::plan::WorkspaceContext {
+        space_id: "space".into(),
+        project_id: None,
+    };
+    assert!(core.workspace_status(&context).unwrap().flows[0].runnable);
+    core.run_workspace_flow(&context, "flow").unwrap();
+    wait_idle(&core);
+    let folder = crate::paths::read_backup_folder(fx.card_dir.path()).unwrap();
+    assert_eq!(
+        fs::read(fx.nas_dir.path().join(folder).join("A.JPG")).unwrap(),
+        b"photo"
+    );
+    assert_eq!(
+        core.workspace_status(&context).unwrap().destinations[0].transferred,
+        1
+    );
+}
+
+#[test]
 fn destination_kind_defaults_to_folder_for_old_snapshots() {
     let destination: Destination = serde_json::from_value(json!({
         "id": "dst",

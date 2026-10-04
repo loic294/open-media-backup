@@ -115,6 +115,129 @@ fn opening_media_rejects_paths_not_listed_by_a_source() {
         .contains("only available for files listed by a source"));
 }
 
+#[test]
+fn project_free_workspace_ipc_copies_files_and_rejects_wipe_without_project() {
+    let ui = Ui::start();
+    let card = tempfile::tempdir().unwrap();
+    let nas = tempfile::tempdir().unwrap();
+    write(card.path(), "DCIM/A.JPG", b"project-free IPC photo");
+    ui.save("space", json!({"id": "sp", "name": "Project-free"}));
+    for (id, root, role) in [
+        ("card", card.path(), "original"),
+        ("nas", nas.path(), "final"),
+    ] {
+        ui.ok(
+            "register_device",
+            json!({
+                "mountPath": root.display().to_string(),
+                "device": {"id": id, "name": id, "kind": "other", "role": role}
+            }),
+        );
+    }
+    ui.save("source", json!({
+        "id": "src", "space_id": "sp", "device_id": "card", "path_template": "DCIM", "offer_wipe": true
+    }));
+    ui.save(
+        "destination",
+        json!({
+            "id": "dst", "space_id": "sp", "device_id": "nas",
+            "path_template": "Photos", "subfolder_per_source": false, "use_backup_marker": false
+        }),
+    );
+    ui.save(
+        "flow",
+        json!({"id": "f", "space_id": "sp", "source_id": "src", "destination_id": "dst"}),
+    );
+    let context = json!({"spaceId": "sp", "projectId": null});
+    let pending = ui.ok("get_workspace_status", json!({"context": context}));
+    assert_eq!(pending["context"], context);
+    assert_eq!(pending["sources"][0]["file_count"], 1);
+    assert!(pending["sources"][0]["required_copies"].is_null());
+    assert_eq!(pending["flows"][0]["runnable"], true);
+    let req = |category| {
+        json!({
+            "req": {"context": context, "flowId": "f", "category": category, "offset": 0, "limit": 50}
+        })
+    };
+    let files = ui.ok("list_workspace_files", req("to_transfer"));
+    assert_eq!(files["total"], 1);
+    assert!(files["items"][0]["project_id"].is_null());
+    assert_eq!(
+        ui.ok("run_workspace_all", json!({"context": context}))
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    ui.wait_idle();
+    let jobs = ui.ok("list_transfers", json!({}));
+    assert!(
+        jobs.as_array()
+            .unwrap()
+            .iter()
+            .all(|j| j["state"] == "done"),
+        "{jobs}"
+    );
+    assert_eq!(
+        std::fs::read(nas.path().join("Photos/A.JPG")).unwrap(),
+        b"project-free IPC photo"
+    );
+    assert_eq!(
+        ui.ok("list_workspace_files", req("transferred"))["total"],
+        1
+    );
+    let completed = ui.ok("get_workspace_status", json!({"context": context}));
+    assert_eq!(completed["flows"][0]["state"], "done");
+    assert_eq!(completed["sources"][0]["wipe_eligible"], false);
+    for project_id in [Value::Null, json!("")] {
+        assert!(ui
+            .call(
+                "wipe",
+                json!({
+                    "projectId": project_id, "sourceId": "src", "method": "delete_files"
+                })
+            )
+            .is_err());
+        assert!(ui
+            .call(
+                "plan_wipe",
+                json!({
+                    "projectId": project_id, "sourceId": "src"
+                })
+            )
+            .is_err());
+    }
+    assert!(card.path().join("DCIM/A.JPG").exists());
+    assert!(ui.ok("get_snapshot", json!({}))["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["space_id"] != "sp"));
+    write(card.path(), "DCIM/B.JPG", b"second photo");
+    ui.ok(
+        "run_workspace_flow",
+        json!({"context": context, "flowId": "f"}),
+    );
+    ui.wait_idle();
+    assert_eq!(
+        ui.ok("list_workspace_files", req("transferred"))["total"],
+        2
+    );
+    assert_eq!(
+        std::fs::read(nas.path().join("Photos/B.JPG")).unwrap(),
+        b"second photo"
+    );
+    let error = ui
+        .call(
+            "confirm_workspace_app_import",
+            json!({
+                "context": context, "flowId": "f", "token": "invalid"
+            }),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("no longer valid"));
+}
+
 /// A new user sets everything up from scratch with the UI's default factories.
 #[test]
 fn fresh_setup_backs_up_card_and_wipes_it() {

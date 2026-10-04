@@ -1,6 +1,6 @@
 use super::{
-    safe_copy_report, source_files, template_vars, Catalog, FinalTarget, RootResolver,
-    SafeCopyReport, SourceStatus,
+    safe_copy_report, source_files, Catalog, FinalTarget, RootResolver, SafeCopyReport,
+    SourceStatus,
 };
 use crate::domain::{Destination, Device, DeviceRole, Project, Source, Space};
 use crate::paths::expand;
@@ -83,13 +83,38 @@ pub fn assess_source(
     source: &Source,
     finals: &[FinalTarget],
 ) -> SourceAssessment {
+    assess_workspace_source(
+        resolver,
+        catalog,
+        space,
+        Some(project),
+        device,
+        source,
+        finals,
+    )
+}
+
+pub fn assess_workspace_source(
+    resolver: &dyn RootResolver,
+    catalog: &Catalog,
+    space: &Space,
+    project: Option<&Project>,
+    device: &Device,
+    source: &Source,
+    finals: &[FinalTarget],
+) -> SourceAssessment {
     let root = resolver.device_root(&device.id).filter(|p| p.exists());
-    let vars = template_vars(space, project, device);
-    let folder = expand(&source.path_template, &vars)
-        .unwrap_or_default()
-        .trim_matches('/')
-        .to_string();
-    let files = source_files(root.as_deref(), &folder, &device.id, catalog);
+    let vars = super::project_template_vars(space, project, device);
+    let expanded = expand(&source.path_template, &vars);
+    let folder = expanded
+        .as_ref()
+        .map(|s| s.trim_matches('/').to_string())
+        .unwrap_or_default();
+    let files = if expanded.is_ok() {
+        source_files(root.as_deref(), &folder, &device.id, catalog)
+    } else {
+        Vec::new()
+    };
     let mut assessment = SourceAssessment {
         status: SourceStatus {
             source_id: source.id.clone(),
@@ -98,7 +123,7 @@ pub fn assess_source(
             file_count: files.len(),
             total_bytes: files.iter().map(|f| f.size).sum(),
             safe_copies: 0,
-            required_copies: project.final_copies_required,
+            required_copies: project.map(|p| p.final_copies_required),
             wipe_eligible: false,
             blocking_reason: None,
         },
@@ -145,8 +170,12 @@ pub fn assess_source(
         .filter(|c| c.verified < c.total)
         .map(|c| c.device_name.as_str())
         .collect();
-    let enough = report.safe_copies as u32 >= project.final_copies_required;
-    let blocking_reason = if assessment.root.is_none() {
+    let enough = project.is_some_and(|p| report.safe_copies as u32 >= p.final_copies_required);
+    let blocking_reason = if let Err(error) = expanded {
+        Some(format!("Source path: {error}"))
+    } else if project.is_none() {
+        Some("Create a project to set card-wiping safety requirements".into())
+    } else if assessment.root.is_none() {
         Some(format!("{} not mounted", device.name))
     } else if assessment.files.is_empty() {
         Some("No files".into())

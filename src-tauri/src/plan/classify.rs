@@ -50,6 +50,9 @@ pub fn classify_flow(
     catalog: &Catalog,
     failures: Option<&HashMap<String, String>>,
 ) -> Vec<PlannedFile> {
+    if !ctx.source_path_valid {
+        return Vec::new();
+    }
     let files = source_files(
         ctx.source_root.as_deref(),
         &ctx.source_folder_rel,

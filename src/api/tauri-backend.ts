@@ -27,6 +27,8 @@ export const tauriBackend: Backend = {
   saveSettings: (settings) => invoke("save_settings", { settings }),
 
   getProjectStatus: (projectId) => invoke("get_project_status", { projectId }),
+  getWorkspaceStatus: (context) => invoke("get_workspace_status", { context }),
+  listWorkspaceFiles: (req) => invoke("list_workspace_files", { req }),
   listFiles: (req) => invoke("list_files", { req }),
   thumbnail: (absPath) => thumbnailUrl(absPath),
   getMediaMetadata: (absPath) => invoke("get_media_metadata", { absPath }),
@@ -34,11 +36,16 @@ export const tauriBackend: Backend = {
   revealInFileManager: (kind, id) => invoke("reveal_in_file_manager", { kind, id }),
   openFlowInApp: (projectId, flowId) => invoke("open_flow_in_app", { projectId, flowId }),
   confirmAppImport: (projectId, flowId, token) => invoke("confirm_app_import", { projectId, flowId, token }),
+  openWorkspaceFlowInApp: (context, flowId) => invoke("open_workspace_flow_in_app", { context, flowId }),
+  confirmWorkspaceAppImport: (context, flowId, token) =>
+    invoke("confirm_workspace_app_import", { context, flowId, token }),
   checkForUpdate: () => invoke("check_for_update"),
   installUpdate: () => invoke("install_update"),
 
   runFlow: (projectId, flowId) => invoke("run_flow", { projectId, flowId }),
   runAll: (projectId) => invoke("run_all", { projectId }),
+  runWorkspaceFlow: (context, flowId) => invoke("run_workspace_flow", { context, flowId }),
+  runWorkspaceAll: (context) => invoke("run_workspace_all", { context }),
   setTransferPaused: (jobId, paused) => invoke("set_transfer_paused", { jobId, paused }),
   setAllPaused: (paused) => invoke("set_all_paused", { paused }),
   cancelTransfer: (jobId) => invoke("cancel_transfer", { jobId }),

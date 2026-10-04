@@ -22,6 +22,17 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 - **Wipe.** A card can be wiped once each of its files is verified on at least _N_ final destinations (_N_ is set per project). Wiping either deletes the files or does a quick format.
 - **Hashing.** Each space uses BLAKE3 by default (cryptographic and still very fast) or xxHash64 (fastest). The verify mode is also set per space. _Re-read_ (the default) reads every copy back and compares hashes. _Inline_ hashes the bytes while copying, which is faster.
 
+### Spaces without projects
+
+You can browse, preview, and transfer files before creating a project. Files without
+a matching project stay unassigned and can use project-independent destination paths.
+App destinations still require a manual import and confirmation.
+
+Paths needing project values are blocked until those values are available. An existing
+backup-folder marker can resolve `{backup_folder}` without a project; a new marker
+can only be generated when its template resolves without invented project values.
+Card wiping remains disabled without a project to define the required safe-copy count.
+
 ## Peer-to-peer sync
 
 Each computer stores its catalog in SQLite. Changes go into an operation log stamped with a hybrid logical clock. Peers exchange the log over HTTP+JSON on port `47821`, authenticated by a shared token, and conflicts resolve per field by last-writer-wins.

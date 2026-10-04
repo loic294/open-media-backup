@@ -119,11 +119,12 @@ describe("source browser data", () => {
     );
   });
 
-  it("uses exact inclusive Unix ms bounds, including epoch zero, and refuses absent or invalid capture dates", () => {
+  it("uses exact inclusive Unix ms bounds, including epoch zero, and skips absent or invalid capture dates", () => {
     const items = mergeMedia([], [file("a", 0), file("b", 200), file("unknown"), file("invalid", Infinity)]);
     expect(selectedCaptureRange(items, new Set(["a", "b"]))).toEqual([0, 200]);
     expect(selectedCaptureRange(items, new Set(["b"]))).toEqual([200, 200]);
-    for (const keys of [[], ["unknown"], ["invalid"], ["a", "unknown"], ["missing"]]) {
+    expect(selectedCaptureRange(items, new Set(["a", "unknown", "invalid"]))).toEqual([0, 0]);
+    for (const keys of [[], ["unknown"], ["invalid"], ["unknown", "invalid"], ["a", "missing"]]) {
       expect(selectedCaptureRange(items, new Set(keys))).toBeNull();
     }
     expect(captureLabel(file("unknown"))).toBe("Capture date unavailable");
@@ -287,7 +288,7 @@ describe("source media browser components", () => {
     tiles[3].dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
     await element.updateComplete;
     expect(create.disabled).toBe(false);
-    expect(element.textContent).toContain("Unknown dates are not inferred");
+    expect(element.textContent).toContain("Files without a capture date are skipped");
     await until(() =>
       vi.mocked(store.backend.getMediaMetadata).mock.calls.some(([path]) => path === "/source/unknown"),
     );
@@ -393,8 +394,40 @@ describe("source media browser components", () => {
     expect(create.disabled).toBe(false);
     create.click();
 
-    await until(() => element.textContent?.includes("Unknown dates are not inferred") ?? false);
+    await until(
+      () => element.textContent?.includes("None of the selected files have a capture date") ?? false,
+    );
     expect(store.dialogs).toHaveLength(0);
+  });
+
+  it("creates a project from the dated files when other selected files are undated or unreadable", async () => {
+    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+      req.category === "to_transfer"
+        ? page([file("late", 500), file("early", 100), file("sidecar.xml"), file("broken")])
+        : page([]),
+    );
+    vi.mocked(store.backend.getMediaMetadata).mockImplementation(async (path) => {
+      if (path.endsWith("/broken")) throw new Error("ffprobe failed");
+      return { ...metadata, capture_time: null };
+    });
+    const element = await browser();
+    const tiles = [...element.querySelectorAll<HTMLButtonElement>('button[aria-label^="Select"]')];
+    tiles[0].click();
+    tiles.at(-1)!.dispatchEvent(new MouseEvent("click", { shiftKey: true, bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelectorAll('[aria-pressed="true"]')).toHaveLength(4);
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Create project from selection"))!
+      .click();
+
+    await until(() => store.dialogs.length > 0);
+    expect(store.backend.getMediaMetadata).toHaveBeenCalledWith("/source/broken");
+    expect(store.dialogs.at(-1)).toEqual({
+      type: "project",
+      projectId: null,
+      start_time: 100,
+      end_time: 500,
+    });
   });
 
   it("ignores stale inspector metadata and explicitly displays unknown offsets", async () => {

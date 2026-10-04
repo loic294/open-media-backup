@@ -1,11 +1,4 @@
-import type {
-  Destination,
-  DestinationStatus,
-  Flow,
-  FlowStatus,
-  ProjectStatus,
-  TransferJob,
-} from "../api/types";
+import type { Destination, DestinationStatus, Flow, FlowStatus, Status, TransferJob } from "../api/types";
 
 import { DEFAULT_TRANSFER_SPEED_BPS, liveTransferSpeed } from "../utils/eta";
 
@@ -20,7 +13,7 @@ export interface ProjectTotals {
 }
 
 export function projectTotals(
-  status: ProjectStatus | null,
+  status: Status | null,
   flows: Flow[],
   destinations: Destination[] = [],
 ): ProjectTotals {
@@ -47,18 +40,18 @@ export function projectTotals(
 }
 
 export function isRunnable(f: FlowStatus): boolean {
-  return (f.state === "pending" || f.state === "error") && f.to_transfer + f.failed > 0;
+  return f.runnable ?? ((f.state === "pending" || f.state === "error") && f.to_transfer + f.failed > 0);
 }
 
-export function flowStatus(status: ProjectStatus | null, flowId: string): FlowStatus | undefined {
+export function flowStatus(status: Status | null, flowId: string): FlowStatus | undefined {
   return status?.flows.find((f) => f.flow_id === flowId);
 }
 
-export function destinationStatus(status: ProjectStatus | null, id: string): DestinationStatus | undefined {
+export function destinationStatus(status: Status | null, id: string): DestinationStatus | undefined {
   return status?.destinations.find((d) => d.destination_id === id);
 }
 
-export function sourceStatus(status: ProjectStatus | null, id: string) {
+export function sourceStatus(status: Status | null, id: string) {
   return status?.sources.find((s) => s.source_id === id);
 }
 

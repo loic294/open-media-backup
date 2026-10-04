@@ -1,7 +1,10 @@
 use super::{blocking, CmdResult, Shared};
-use crate::app::{AppImportFile, AppSettings, FilePage, ListFilesRequest, RevealKind, Snapshot};
+use crate::app::{
+    AppImportFile, AppSettings, FilePage, ListFilesRequest, ListWorkspaceFilesRequest,
+    PreparedAppImport, RevealKind, Snapshot,
+};
 use crate::metadata::MediaMetadata;
-use crate::plan::ProjectStatus;
+use crate::plan::{ProjectStatus, WorkspaceContext, WorkspaceStatus};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
@@ -51,8 +54,24 @@ pub async fn get_project_status(
 }
 
 #[tauri::command]
+pub async fn get_workspace_status(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+) -> CmdResult<WorkspaceStatus> {
+    blocking(&state, move |s| s.core.workspace_status(&context)).await
+}
+
+#[tauri::command]
 pub async fn list_files(state: State<'_, Shared>, req: ListFilesRequest) -> CmdResult<FilePage> {
     blocking(&state, move |s| s.core.list_files(&req)).await
+}
+
+#[tauri::command]
+pub async fn list_workspace_files(
+    state: State<'_, Shared>,
+    req: ListWorkspaceFilesRequest,
+) -> CmdResult<FilePage> {
+    blocking(&state, move |s| s.core.list_workspace_files(&req)).await
 }
 
 #[tauri::command]
@@ -123,6 +142,23 @@ pub async fn open_flow_in_app(
         s.core.prepare_app_import(&project_id, &flow_id)
     })
     .await?;
+    launch_app_import(prepared).await
+}
+
+#[tauri::command]
+pub async fn open_workspace_flow_in_app(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    flow_id: String,
+) -> CmdResult<OpenAppImportResult> {
+    let prepared = blocking(&state, move |s| {
+        s.core.prepare_workspace_app_import(&context, &flow_id)
+    })
+    .await?;
+    launch_app_import(prepared).await
+}
+
+async fn launch_app_import(prepared: PreparedAppImport) -> CmdResult<OpenAppImportResult> {
     let token = prepared.token;
     let app_name = prepared.app_name;
     let app_path = prepared.app_path;
@@ -166,6 +202,20 @@ pub async fn confirm_app_import(
 ) -> CmdResult<usize> {
     blocking(&state, move |s| {
         s.core.confirm_app_import(&project_id, &flow_id, &token)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn confirm_workspace_app_import(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    flow_id: String,
+    token: String,
+) -> CmdResult<usize> {
+    blocking(&state, move |s| {
+        s.core
+            .confirm_workspace_app_import(&context, &flow_id, &token)
     })
     .await
 }

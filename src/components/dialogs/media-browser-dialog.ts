@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { customElement, state } from "lit/decorators.js";
 import type { FileCategory } from "../../api/types";
-import type { Project, Snapshot, Source } from "../../api/types";
+import type { Project, Snapshot, Source, WorkspaceContext } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { selectMedia, type MediaSelection } from "../../state/media-selection";
 import { matchingProjects } from "../../state/projects";
@@ -14,6 +14,7 @@ import {
   captureLabel,
   captureTime,
   captureTimeMs,
+  captureRange,
   browserDirectory,
   mergeMedia,
   selectedCaptureRange,
@@ -63,12 +64,12 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
   #cursors: Cursor[] = [];
   #next = 0;
   #seq = 0;
-  #projectId: string | null = null;
+  #context: WorkspaceContext | null = null;
   #projectsSignature = "";
 
   override connectedCallback(): void {
     super.connectedCallback();
-    this.#projectId = this.store.project?.id ?? null;
+    this.#context = this.store.context;
     this.#projectsSignature = this.#signature();
     this.store.addEventListener("change", this.#onStoreChange);
     this.#reset();
@@ -84,8 +85,11 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     const snapshot = this.store.snapshot;
     const source = snapshot?.sources.find((item) => item.id === this.request.sourceId);
     return JSON.stringify({
-      activeProjectId: this.store.project?.id ?? null,
-      sourceScope: source?.project_scope ?? { mode: "all" },
+      context: this.store.context,
+      space: this.store.space,
+      source,
+      flows: snapshot?.flows.filter((flow) => flow.source_id === source?.id),
+      destinations: snapshot?.destinations.filter((destination) => destination.space_id === source?.space_id),
       projects: snapshot?.projects
         .filter((project) => project.space_id === source?.space_id)
         .map((project) => [
@@ -93,30 +97,33 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
           project.start_time ?? null,
           project.end_time ?? null,
           project.granularity ?? "minute",
-          project.color ?? null,
-          project.archived,
+          project.name,
+          project.values,
         ]),
     });
   }
 
   #onStoreChange = () => {
-    const projectId = this.store.project?.id ?? null;
+    const context = this.store.context;
     const signature = this.#signature();
-    if (projectId !== this.#projectId) {
-      this.#projectId = projectId;
+    if (JSON.stringify(context) !== JSON.stringify(this.#context)) {
+      this.#context = context;
+      this.#seq++;
       this.#projectsSignature = signature;
       this.#reload();
       return;
     }
     if (signature !== this.#projectsSignature) {
       this.#projectsSignature = signature;
-      this.requestUpdate();
+      this.#seq++;
+      this.#reload();
     }
   };
 
   #reset() {
     this.#seq++;
     this.loading = false;
+    this.error = null;
     this.items = [];
     this.selection = { selected: new Set(), anchor: null };
     this.inspected = null;
@@ -126,14 +133,16 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     this.#cursors = CATEGORIES.flatMap((category) =>
       flows.map((flow) => ({ flowId: flow.id, category, offset: 0, done: false })),
     );
-    this.hasMore = this.#cursors.length > 0 && this.#projectId !== null;
+    const source = this.store.snapshot?.sources.find((s) => s.id === this.request.sourceId);
+    this.hasMore = this.#cursors.length > 0 && !!this.#context && source?.space_id === this.#context.spaceId;
     void this.#load();
   }
 
   #reload = debounce(() => this.isConnected && this.#reset(), 200);
 
   async #load() {
-    if (this.loading || !this.hasMore || !this.#projectId) return;
+    const context = this.#context;
+    if (this.loading || !this.hasMore || !context) return;
     const seq = ++this.#seq;
     this.loading = true;
     this.error = null;
@@ -146,8 +155,8 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     await Promise.all(
       batch.map(async (cursor) => {
         try {
-          const page = await this.store.backend.listFiles({
-            projectId: this.#projectId!,
+          const page = await this.store.listWorkspaceFiles({
+            context,
             flowId: cursor.flowId,
             category: cursor.category,
             offset: cursor.offset,
@@ -208,23 +217,27 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
             const listedTime = captureTime(file);
             if (listedTime !== null) return listedTime;
             if (!file.abs_path) return null;
-            const metadata = await this.store.backend.getMediaMetadata(file.abs_path);
-            return captureTimeMs(metadata.capture_time);
+            try {
+              const metadata = await this.store.backend.getMediaMetadata(file.abs_path);
+              return captureTimeMs(metadata.capture_time);
+            } catch {
+              // Sidecars and unreadable files are skipped; the dated files define the range.
+              return null;
+            }
           }),
         );
         times.push(...batch);
       }
-      if (times.some((time) => time === null)) {
-        this.selectionError =
-          "Every selected file needs an embedded capture date and known timezone to create a project. Unknown dates are not inferred.";
+      const range = captureRange(times);
+      if (!range) {
+        this.selectionError = "None of the selected files have a capture date with a known timezone.";
         return;
       }
-      const validTimes = times.filter((time): time is number => time !== null);
       this.store.open({
         type: "project",
         projectId: null,
-        start_time: Math.min(...validTimes),
-        end_time: Math.max(...validTimes),
+        start_time: range[0],
+        end_time: range[1],
       });
     } catch (error) {
       this.selectionError = `Could not read selected files' embedded capture times: ${error}`;
@@ -295,7 +308,6 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
         range. Ctrl/Cmd-click toggles selection. Focus a tile and press Enter or Space to select. Only loaded
         files are included; loading more may insert earlier captures.
       </p>
-      ${!this.#projectId ? html`<p role="status">Select a project before browsing source media.</p>` : nothing}
       ${!this.#cursors.length ? html`<p role="status">Connect this source to a destination to browse its files.</p>` : nothing}
       ${this.error ? html`<p role="alert" class="text-error">${this.error} Use Load more to retry.</p>` : nothing}
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -412,7 +424,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
             !this.loading &&
             !this.error &&
             this.#cursors.length &&
-            this.#projectId
+            this.#context
               ? html`<p role="status" class="py-6 text-base-content/60">
                   ${this.hasMore ? "No files in these pages. Load more to check remaining routes." : "No files found."}
                 </p>`
@@ -447,7 +459,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
       </div>
       ${this.creatingProject ? html`<p class="text-sm" role="status"><span class="loading loading-spinner loading-sm"></span> Reading selected files' embedded capture times…</p>` : nothing}
       ${this.selectionError ? html`<p class="text-sm text-warning" role=${this.selectionError.startsWith("Could not") ? "alert" : "status"}>${this.selectionError}</p>` : nothing}
-      ${this.selection.selected.size && !range && !this.selectionError && !this.creatingProject ? html`<p class="text-sm text-base-content/60" role="status">Selected files need embedded capture dates and known timezones. Create project from selection checks them. Unknown dates are not inferred.</p>` : nothing}
+      ${this.selection.selected.size && !range && !this.selectionError && !this.creatingProject ? html`<p class="text-sm text-base-content/60" role="status">Project dates span the earliest and latest capture dates in the selection. Files without a capture date are skipped.</p>` : nothing}
     </div>`;
     const actions = html` <button class="btn btn-ghost" @click=${() => this.dismiss()}>Close</button>
       <button

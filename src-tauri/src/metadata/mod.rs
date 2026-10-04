@@ -8,6 +8,7 @@
 
 mod image;
 mod video;
+mod video_fallback;
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +45,10 @@ pub enum CaptureTimeSource {
     ExifDigitized,
     VideoCreationTime,
     VideoOriginalDate,
+    /// Camera XML sidecar, e.g. Sony `<clip>M01.XML` `CreationDate`.
+    SidecarXml,
+    /// ISO-BMFF `mvhd` creation time (UTC), read without ffprobe.
+    Mp4Header,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -115,8 +120,10 @@ pub enum MetadataError {
     ProbeJson(#[from] serde_json::Error),
 }
 
-/// Extracts metadata from a local regular file. Requires `ffprobe` for video
-/// (`OMB_FFPROBE`, PATH, Homebrew, or next to the executable, in that order).
+/// Extracts metadata from a local regular file. Video uses `ffprobe`
+/// (`OMB_FFPROBE`, PATH, Homebrew, or next to the executable, in that order);
+/// when it is missing, fails, or finds no capture date, a camera XML sidecar
+/// and the MP4 `mvhd` header fill in whatever fields are still missing.
 /// A successful result with `capture_time == None` must remain unassigned.
 pub fn extract_metadata(path: &Path) -> Result<MediaMetadata, MetadataError> {
     let stat = std::fs::metadata(path).map_err(|source| MetadataError::Io {

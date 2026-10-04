@@ -90,17 +90,19 @@ export function mergeMedia(current: readonly BrowserMedia[], incoming: readonly 
   });
 }
 
-/** Every selected file must have an eligible capture date; missing dates are never inferred. */
+/** Earliest and latest capture dates among the selection; undated files are skipped, never inferred. */
 export function selectedCaptureRange(
   items: readonly BrowserMedia[],
   keys: ReadonlySet<string>,
 ): [number, number] | null {
   const selected = items.filter((item) => keys.has(item.file.rel_path));
   if (!selected.length || selected.length !== keys.size) return null;
-  const times = selected.map((item) => captureTime(item.file));
-  if (times.some((time) => time === null)) return null;
+  return captureRange(selected.map((item) => captureTime(item.file)));
+}
+
+export function captureRange(times: readonly (number | null)[]): [number, number] | null {
   const valid = times.filter((time): time is number => time !== null);
-  return [Math.min(...valid), Math.max(...valid)];
+  return valid.length ? [Math.min(...valid), Math.max(...valid)] : null;
 }
 
 export function captureLabel(file: FileEntry): string {

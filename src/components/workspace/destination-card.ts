@@ -86,6 +86,10 @@ export class OmbDestinationCard extends OmbElement {
 
   #statusLine(st: DestinationStatus, hosts: string[]) {
     const size = formatBytes(st.bytes_to_transfer);
+    if (st.last_error && !this.#runnableIncoming().length) {
+      return html`<omb-icon name="circle-alert" class="size-5 text-error"></omb-icon>
+        <span class="text-sm text-error">${st.last_error}</span>`;
+    }
     if (st.failed) {
       return html`<omb-icon name="circle-x" class="size-5 text-error"></omb-icon>
         <button class="font-semibold text-error hover:underline" @click=${() => this.#preview("error")}>
@@ -153,7 +157,10 @@ export class OmbDestinationCard extends OmbElement {
       device?.role === "temporary"
         ? `Counts toward safe copies in groups of ${temporaryCopiesPerFinal}`
         : "Counts as a safe copy";
-    const canRun = online && !!st && st.to_transfer + st.failed > 0;
+    const canRun = online && this.#runnableIncoming().length > 0;
+    const missingStatus = this.store.statusLoading
+      ? html`<span class="skeleton h-5 w-48"></span>`
+      : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
     if (isApp) {
       return html`
         <article
@@ -207,7 +214,7 @@ export class OmbDestinationCard extends OmbElement {
                           <span class="font-semibold text-success">All imported</span>`
                       : html`<span class="text-sm text-base-content/50">Nothing to import</span>`
                   : localAppPath
-                    ? html`<span class="skeleton h-5 w-48"></span>`
+                    ? missingStatus
                     : nothing
               }
               <span class="flex-1"></span>
@@ -282,7 +289,7 @@ export class OmbDestinationCard extends OmbElement {
             </div>
             <span class="flex items-center gap-2 text-sm text-base-content/70">
               <span class="status ${online ? "status-success" : "status-neutral"}"></span
-              >${online ? "Online" : "Offline"}
+              >${!st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : online ? "Online" : "Offline"}
             </span>
             <button
               class="btn btn-ghost btn-xs btn-square"
@@ -293,7 +300,7 @@ export class OmbDestinationCard extends OmbElement {
             </button>
           </div>
           <div class="flex items-center gap-2 min-h-8">
-            ${st ? this.#statusLine(st, hosts) : html`<span class="skeleton h-5 w-48"></span>`}
+            ${st ? this.#statusLine(st, hosts) : missingStatus}
             <span class="flex-1"></span>
             ${
               st && (st.transferred || st.ignored)
@@ -320,7 +327,7 @@ export class OmbDestinationCard extends OmbElement {
               st?.failed
                 ? html`<button
                     class="btn btn-sm btn-error btn-soft gap-1.5"
-                    ?disabled=${!online}
+                    ?disabled=${!canRun}
                     @click=${() => this.#run()}
                   >
                     <omb-icon name="rotate-ccw"></omb-icon>Retry

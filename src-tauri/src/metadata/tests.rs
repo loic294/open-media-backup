@@ -447,3 +447,128 @@ fn generated_video_end_to_end() {
         Err(MetadataError::ProbeFailed(_))
     ));
 }
+
+const SONY_SIDECAR: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<NonRealTimeMeta xmlns="urn:schemas-professionalDisc:nonRealTimeMeta:ver.2.20" lastUpdate="2026-07-18T19:53:09-08:00">
+	<Duration value="168"/>
+	<CreationDate value="2026-07-18T19:53:01-08:00"/>
+	<VideoFormat>
+		<VideoFrame videoCodec="HEVC_3840_2160_M42210P@L5HT" captureFps="23.98p" formatFps="23.98p"/>
+		<VideoLayout pixel="3840" numOfVerticalLine="2160" aspectRatio="16:9"/>
+	</VideoFormat>
+	<Device manufacturer="Sony" modelName="ILCE-7M4" serialNo="06121265"/>
+	<Lens modelName="E 17-28mm F2.8-2.8"/>
+	<AcquisitionRecord><ChangeTable name="LensControlInformation"/></AcquisitionRecord>
+</NonRealTimeMeta>"#;
+
+/// Minimal `ftyp` + `moov/mvhd` file; `version` selects 32- or 64-bit fields.
+fn mp4_with_mvhd(version: u8, creation: u64, timescale: u32, duration: u64) -> Vec<u8> {
+    let mut mvhd = vec![version, 0, 0, 0];
+    if version == 0 {
+        mvhd.extend((creation as u32).to_be_bytes());
+        mvhd.extend((creation as u32).to_be_bytes());
+        mvhd.extend(timescale.to_be_bytes());
+        mvhd.extend((duration as u32).to_be_bytes());
+    } else {
+        mvhd.extend(creation.to_be_bytes());
+        mvhd.extend(creation.to_be_bytes());
+        mvhd.extend(timescale.to_be_bytes());
+        mvhd.extend(duration.to_be_bytes());
+    }
+    mvhd.extend([0; 80]);
+    let wrap = |kind: &[u8; 4], body: &[u8]| {
+        let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        out.extend(kind);
+        out.extend(body);
+        out
+    };
+    let mut file = wrap(b"ftyp", b"XAVC\0\0\0\0mp42");
+    file.extend(wrap(b"free", &[0; 16]));
+    file.extend(wrap(
+        b"moov",
+        &[wrap(b"udta", &[0; 4]), wrap(b"mvhd", &mvhd)].concat(),
+    ));
+    file
+}
+
+// 2026-07-19T03:53:01Z in seconds since 1904-01-01.
+const MVHD_CREATION: u64 = 1_784_433_181 + 2_082_844_800;
+
+#[test]
+fn sony_sidecar_fills_capture_time_camera_and_video_fields() {
+    let mut metadata = base(MediaKind::Video);
+    assert!(video_fallback::apply_sidecar(SONY_SIDECAR, &mut metadata));
+    let capture = metadata.capture_time.unwrap();
+    assert_eq!(capture.local_datetime, "2026-07-18T19:53:01");
+    assert_eq!(capture.utc_offset_seconds, Some(-8 * 3600));
+    assert_eq!(capture.source, CaptureTimeSource::SidecarXml);
+    assert_eq!(metadata.camera.make.as_deref(), Some("Sony"));
+    assert_eq!(metadata.camera.model.as_deref(), Some("ILCE-7M4"));
+    assert_eq!(
+        metadata.camera.lens_model.as_deref(),
+        Some("E 17-28mm F2.8-2.8")
+    );
+    assert_eq!(
+        metadata.dimensions,
+        Some(Dimensions {
+            width: 3840,
+            height: 2160
+        })
+    );
+    let video = metadata.video.unwrap();
+    assert_eq!(video.codec.as_deref(), Some("hevc"));
+    assert!((video.frame_rate.unwrap() - 24000.0 / 1001.0).abs() < 1e-9);
+    assert!((video.duration_seconds.unwrap() - 168.0 * 1001.0 / 24000.0).abs() < 1e-9);
+}
+
+#[test]
+fn sidecar_never_overwrites_existing_fields() {
+    let mut metadata = base(MediaKind::Video);
+    metadata.camera.make = Some("Existing".into());
+    video_fallback::apply_sidecar(SONY_SIDECAR, &mut metadata);
+    assert_eq!(metadata.camera.make.as_deref(), Some("Existing"));
+    let mut empty = base(MediaKind::Video);
+    assert!(!video_fallback::apply_sidecar(
+        "<NonRealTimeMeta/>",
+        &mut empty
+    ));
+    assert_eq!(empty, base(MediaKind::Video));
+}
+
+#[test]
+fn mvhd_header_is_read_without_ffprobe() {
+    let dir = tempfile::tempdir().unwrap();
+    for version in [0, 1] {
+        let path = dir.path().join(format!("v{version}.mp4"));
+        fs::write(&path, mp4_with_mvhd(version, MVHD_CREATION, 1000, 7000)).unwrap();
+        let mut metadata = base(MediaKind::Video);
+        assert!(video_fallback::fill(&path, &mut metadata));
+        let capture = metadata.capture_time.unwrap();
+        assert_eq!(capture.local_datetime, "2026-07-19T03:53:01");
+        assert_eq!(capture.utc_offset_seconds, Some(0));
+        assert_eq!(capture.source, CaptureTimeSource::Mp4Header);
+        assert_eq!(metadata.video.unwrap().duration_seconds, Some(7.0));
+    }
+    let unset = dir.path().join("unset.mp4");
+    fs::write(&unset, mp4_with_mvhd(0, 0, 0, 0)).unwrap();
+    let mut metadata = base(MediaKind::Video);
+    assert!(!video_fallback::fill(&unset, &mut metadata));
+    assert_eq!(metadata.capture_time, None);
+    let garbage = dir.path().join("garbage.mp4");
+    fs::write(&garbage, "this is not a video").unwrap();
+    assert!(!video_fallback::fill(&garbage, &mut base(MediaKind::Video)));
+}
+
+#[test]
+fn sidecar_takes_precedence_over_mvhd_utc_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = dir.path().join("C7000.MP4");
+    fs::write(&clip, mp4_with_mvhd(0, MVHD_CREATION, 1000, 7000)).unwrap();
+    fs::write(dir.path().join("C7000M01.XML"), SONY_SIDECAR).unwrap();
+    let mut metadata = base(MediaKind::Video);
+    assert!(video_fallback::fill(&clip, &mut metadata));
+    let capture = metadata.capture_time.unwrap();
+    assert_eq!(capture.source, CaptureTimeSource::SidecarXml);
+    assert_eq!(capture.utc_offset_seconds, Some(-8 * 3600));
+    assert_eq!(metadata.camera.model.as_deref(), Some("ILCE-7M4"));
+}

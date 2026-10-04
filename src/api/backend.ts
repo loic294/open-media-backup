@@ -22,6 +22,9 @@ import type {
   Volume,
   WipeMethod,
   WipePlan,
+  WorkspaceContext,
+  WorkspaceFilesRequest,
+  WorkspaceStatus,
 } from "./types";
 
 export type EntityByKind = {
@@ -54,6 +57,8 @@ export interface Backend {
   saveSettings(settings: AppSettings): Promise<void>;
 
   getProjectStatus(projectId: string): Promise<ProjectStatus>;
+  getWorkspaceStatus(context: WorkspaceContext): Promise<WorkspaceStatus>;
+  listWorkspaceFiles(req: WorkspaceFilesRequest): Promise<FilePage>;
   listFiles(req: {
     projectId: string;
     flowId: string;
@@ -68,11 +73,15 @@ export interface Backend {
   revealInFileManager(kind: RevealKind, id: string): Promise<void>;
   openFlowInApp(projectId: string, flowId: string): Promise<OpenAppImportResult>;
   confirmAppImport(projectId: string, flowId: string, token: string): Promise<number>;
+  openWorkspaceFlowInApp(context: WorkspaceContext, flowId: string): Promise<OpenAppImportResult>;
+  confirmWorkspaceAppImport(context: WorkspaceContext, flowId: string, token: string): Promise<number>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
 
   runFlow(projectId: string, flowId: string): Promise<void>;
   runAll(projectId: string): Promise<void>;
+  runWorkspaceFlow(context: WorkspaceContext, flowId: string): Promise<void>;
+  runWorkspaceAll(context: WorkspaceContext): Promise<void>;
   setTransferPaused(jobId: string, paused: boolean): Promise<void>;
   setAllPaused(paused: boolean): Promise<void>;
   cancelTransfer(jobId: string): Promise<void>;

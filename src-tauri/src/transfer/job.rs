@@ -4,8 +4,8 @@ use crate::app::AppSettings;
 use crate::domain::{FileCopy, FileRecord};
 use crate::paths::{ensure_backup_folder, join_relative, to_relative};
 use crate::plan::{
-    classify_flow, resolve_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile,
-    RootResolver,
+    classify_flow, resolve_workspace_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile,
+    RootResolver, WorkspaceContext,
 };
 use crate::store::Store;
 use parking_lot::Mutex;
@@ -22,7 +22,19 @@ pub fn run_transfer(
     handle: &JobHandle,
     failures: &Mutex<FailureMap>,
 ) -> Result<(), String> {
-    let ctx = prepare(store, resolver, project_id, flow_id)?;
+    let context = WorkspaceContext::for_project(store, project_id).map_err(|e| e.to_string())?;
+    run_workspace_transfer(store, resolver, &context, flow_id, handle, failures)
+}
+
+pub fn run_workspace_transfer(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    context: &WorkspaceContext,
+    flow_id: &str,
+    handle: &JobHandle,
+    failures: &Mutex<FailureMap>,
+) -> Result<(), String> {
+    let ctx = prepare(store, resolver, context, flow_id)?;
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
     let planned = classify_flow(&ctx, &catalog, None);
     let planning_errors: Vec<_> = planned
@@ -109,10 +121,11 @@ fn record_learned_speed(store: &Store, destination_device_id: &str, handle: &Job
 fn prepare(
     store: &Store,
     resolver: &dyn RootResolver,
-    project_id: &str,
+    context: &WorkspaceContext,
     flow_id: &str,
 ) -> Result<FlowContext, String> {
-    let mut ctx = resolve_flow(store, resolver, project_id, flow_id).map_err(|e| e.to_string())?;
+    let mut ctx =
+        resolve_workspace_flow(store, resolver, context, flow_id).map_err(|e| e.to_string())?;
     if ctx.source_root.is_none() {
         return Err(format!("{} is not connected", ctx.source_device.name));
     }
@@ -126,7 +139,8 @@ fn prepare(
         let root = ctx.source_root.clone().expect("checked above");
         let folder = ctx.vars.get("backup_folder").cloned().unwrap_or_default();
         ensure_backup_folder(&root, &folder).map_err(|e| format!("backup marker: {e}"))?;
-        ctx = resolve_flow(store, resolver, project_id, flow_id).map_err(|e| e.to_string())?;
+        ctx =
+            resolve_workspace_flow(store, resolver, context, flow_id).map_err(|e| e.to_string())?;
     }
     Ok(ctx)
 }

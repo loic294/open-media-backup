@@ -1,9 +1,12 @@
 use super::{
     entities, files, resolve_reveal_path, reveal_space_id, AppSettings, FilePage, ListFilesRequest,
-    RevealKind, Snapshot,
+    ListWorkspaceFilesRequest, RevealKind, Snapshot,
 };
 use crate::domain::{Destination, DestinationKind};
-use crate::plan::{project_status, Catalog, FailureMap, ProjectStatus, RootResolver};
+use crate::plan::{
+    workspace_status, Catalog, FailureMap, ProjectStatus, RootResolver, WorkspaceContext,
+    WorkspaceStatus,
+};
 use crate::store::Store;
 use crate::thumbnails::ThumbnailCache;
 use crate::transfer::{TransferJob, TransferManager};
@@ -44,7 +47,7 @@ pub struct PreparedAppImport {
 
 #[derive(Debug, Clone)]
 struct AppImportSession {
-    project_id: String,
+    context: WorkspaceContext,
     flow_id: String,
     files: Vec<AppImportFile>,
 }
@@ -105,12 +108,24 @@ impl AppCore {
     }
 
     pub fn project_status(&self, project_id: &str) -> Result<ProjectStatus, String> {
+        let context =
+            WorkspaceContext::for_project(&self.store, project_id).map_err(|e| e.to_string())?;
+        let status = self.workspace_status(&context)?;
+        Ok(ProjectStatus {
+            project_id: project_id.into(),
+            sources: status.sources,
+            destinations: status.destinations,
+            flows: status.flows,
+        })
+    }
+
+    pub fn workspace_status(&self, context: &WorkspaceContext) -> Result<WorkspaceStatus, String> {
         let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
-        let mut status = project_status(
+        let mut status = workspace_status(
             &self.store,
             self.resolver.as_ref(),
             &catalog,
-            project_id,
+            context,
             &self.failures.lock(),
         )
         .map_err(|e| e.to_string())?;
@@ -141,6 +156,25 @@ impl AppCore {
             &self.failures.lock(),
             req,
         )?;
+        self.authorize_preview_paths(&page);
+        Ok(page)
+    }
+
+    pub fn list_workspace_files(
+        &self,
+        req: &ListWorkspaceFilesRequest,
+    ) -> Result<FilePage, String> {
+        let page = files::list_workspace_files(
+            &self.store,
+            self.resolver.as_ref(),
+            &self.failures.lock(),
+            req,
+        )?;
+        self.authorize_preview_paths(&page);
+        Ok(page)
+    }
+
+    fn authorize_preview_paths(&self, page: &FilePage) {
         let mut preview_paths = self.preview_paths.lock();
         for path in page
             .items
@@ -151,7 +185,6 @@ impl AppCore {
                 preview_paths.insert(path);
             }
         }
-        Ok(page)
     }
 
     pub fn thumbnail(&self, path: &Path) -> Result<Option<PathBuf>, String> {
@@ -207,10 +240,20 @@ impl AppCore {
         project_id: &str,
         flow_id: &str,
     ) -> Result<PreparedAppImport, String> {
-        use crate::domain::DestinationKind;
-        use crate::plan::{classify_flow, resolve_flow, Category};
+        let context =
+            WorkspaceContext::for_project(&self.store, project_id).map_err(|e| e.to_string())?;
+        self.prepare_workspace_app_import(&context, flow_id)
+    }
 
-        let ctx = resolve_flow(&self.store, self.resolver.as_ref(), project_id, flow_id)
+    pub fn prepare_workspace_app_import(
+        &self,
+        context: &WorkspaceContext,
+        flow_id: &str,
+    ) -> Result<PreparedAppImport, String> {
+        use crate::domain::DestinationKind;
+        use crate::plan::{classify_flow, resolve_workspace_flow, Category};
+
+        let ctx = resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, flow_id)
             .map_err(|e| e.to_string())?;
         if ctx.destination.kind != DestinationKind::App {
             return Err("This destination is not an app destination".into());
@@ -262,7 +305,7 @@ impl AppCore {
         self.app_imports.lock().insert(
             token.clone(),
             AppImportSession {
-                project_id: project_id.to_string(),
+                context: context.clone(),
                 flow_id: flow_id.to_string(),
                 files: files.clone(),
             },
@@ -282,18 +325,29 @@ impl AppCore {
         flow_id: &str,
         token: &str,
     ) -> Result<usize, String> {
+        let context =
+            WorkspaceContext::for_project(&self.store, project_id).map_err(|e| e.to_string())?;
+        self.confirm_workspace_app_import(&context, flow_id, token)
+    }
+
+    pub fn confirm_workspace_app_import(
+        &self,
+        context: &WorkspaceContext,
+        flow_id: &str,
+        token: &str,
+    ) -> Result<usize, String> {
         use crate::domain::{DestinationKind, FileCopy, FileRecord};
-        use crate::plan::{classify_flow, resolve_flow, Category};
+        use crate::plan::{classify_flow, resolve_workspace_flow, Category};
 
         let session = self
             .app_imports
             .lock()
             .remove(token)
             .ok_or_else(|| "This app import confirmation is no longer valid".to_string())?;
-        if session.project_id != project_id || session.flow_id != flow_id {
+        if session.context != *context || session.flow_id != flow_id {
             return Err("This app import confirmation does not match the flow".into());
         }
-        let ctx = resolve_flow(&self.store, self.resolver.as_ref(), project_id, flow_id)
+        let ctx = resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, flow_id)
             .map_err(|e| e.to_string())?;
         if ctx.destination.kind != DestinationKind::App {
             return Err("This destination is not an app destination".into());

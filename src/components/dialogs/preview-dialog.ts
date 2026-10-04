@@ -1,7 +1,7 @@
 import { html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { FileCategory, FileEntry } from "../../api/types";
-import { flowStatus, isRunnable } from "../../state/derived";
+import { flowStatus, isRunnable, projectTotals } from "../../state/derived";
 import type { DialogRequest } from "../../state/dialogs";
 import { flowLabel, spaceFlows } from "../../state/selectors";
 import { debounce } from "../../utils/debounce";
@@ -44,7 +44,9 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
   @state() private total = 0;
   @state() private totalBytes = 0;
   @state() private loading = false;
+  @state() private error: string | null = null;
   #seq = 0;
+  #contextKey = "";
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -56,6 +58,8 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
     });
     this.flowId = this.request.flowId ?? runnable?.id ?? flows[0]?.id ?? null;
     this.category = this.request.category ?? "to_transfer";
+    this.#contextKey = this.#workspaceSignature();
+    this.store.addEventListener("change", this.#onStoreChange);
     window.addEventListener("pointerdown", this.#onPointerDown, true);
     window.addEventListener("keydown", this.#onKeyDown);
     window.addEventListener("scroll", this.#onScroll, true);
@@ -63,6 +67,8 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
   }
 
   override disconnectedCallback(): void {
+    this.#seq++;
+    this.store.removeEventListener("change", this.#onStoreChange);
     window.removeEventListener("pointerdown", this.#onPointerDown, true);
     window.removeEventListener("keydown", this.#onKeyDown);
     window.removeEventListener("scroll", this.#onScroll, true);
@@ -70,13 +76,14 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
   }
 
   async #load(reset: boolean) {
-    const project = this.store.project;
-    if (!project || !this.flowId) return;
+    const context = this.store.context;
+    if (!context || !this.flowId) return;
     const seq = ++this.#seq;
     this.loading = true;
+    this.error = null;
     try {
-      const page = await this.store.backend.listFiles({
-        projectId: project.id,
+      const page = await this.store.listWorkspaceFiles({
+        context,
         flowId: this.flowId,
         category: this.category,
         offset: reset ? 0 : this.items.length,
@@ -88,6 +95,8 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
       this.total = page.total;
       this.totalBytes = page.total_bytes;
     } catch (e) {
+      if (seq !== this.#seq) return;
+      this.error = String(e);
       this.store.toast("error", String(e));
     } finally {
       if (seq === this.#seq) this.loading = false;
@@ -96,10 +105,37 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
 
   #reload = debounce(() => void this.#load(true), 200);
 
+  #workspaceSignature(): string {
+    const snapshot = this.store.snapshot;
+    return JSON.stringify({
+      context: this.store.context,
+      space: this.store.space,
+      projects: snapshot?.projects,
+      sources: snapshot?.sources,
+      destinations: snapshot?.destinations,
+      flows: snapshot?.flows,
+      mappings: snapshot?.mappings,
+    });
+  }
+
+  #onStoreChange = () => {
+    const key = this.#workspaceSignature();
+    if (key === this.#contextKey) return;
+    this.#contextKey = key;
+    const flows =
+      this.store.snapshot && this.store.space ? spaceFlows(this.store.snapshot, this.store.space.id) : [];
+    this.flowId = flows.find((f) => f.id === this.flowId)?.id ?? flows[0]?.id ?? null;
+    this.#set({});
+  };
+
   #set(patch: { flowId?: string; category?: FileCategory; filter?: string }) {
+    this.#seq++;
+    this.loading = false;
     Object.assign(this, patch);
     this.menu = null;
     this.items = [];
+    this.total = 0;
+    this.totalBytes = 0;
     if ("filter" in patch) this.#reload();
     else void this.#load(true);
   }
@@ -269,8 +305,16 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
         <p class="text-sm text-base-content/60">
           ${formatCount(this.total)} files · ${formatBytes(this.totalBytes)}
         </p>
+        ${
+          this.error
+            ? html`<div role="alert" class="alert alert-error alert-soft sm:alert-horizontal">
+                <span>Could not load files: ${this.error}</span>
+                <button class="btn btn-sm" @click=${() => this.#load(true)}>Retry</button>
+              </div>`
+            : nothing
+        }
         ${!flows.length ? html`<p class="text-center py-10 text-base-content/60">Connect a source to a destination to preview files.</p>` : nothing}
-        ${this.items.length === 0 && !this.loading && flows.length ? html`<p class="text-center py-10 text-base-content/60">No files here.</p>` : this.#grid()}
+        ${this.items.length === 0 && !this.loading && !this.error && flows.length ? html`<p class="text-center py-10 text-base-content/60">No files here.</p>` : this.#grid()}
         ${this.loading ? html`<div class="grid place-items-center py-4"><span class="loading loading-spinner"></span></div>` : nothing}
         ${
           !this.loading && this.items.length < this.total
@@ -299,7 +343,11 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
         <omb-icon name=${isApp ? "external-link" : "play"}></omb-icon
         >${isApp ? "Open in app" : "Run this flow"}
       </button>
-      <button class="btn btn-primary" @click=${() => (this.store.runAll(), this.dismiss())}>
+      <button
+        class="btn btn-primary"
+        ?disabled=${!projectTotals(this.store.status, flows, snapshot.destinations).runnable}
+        @click=${() => (this.store.runAll(), this.dismiss())}
+      >
         <omb-icon name="play"></omb-icon>Run all transfers
       </button>
     `;

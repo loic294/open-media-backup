@@ -1,5 +1,8 @@
 use crate::media::{media_kind, MediaKind};
-use crate::plan::{classify_flow, resolve_flow, Catalog, Category, FailureMap, RootResolver};
+use crate::plan::{
+    classify_flow, resolve_workspace_flow, Catalog, Category, FailureMap, RootResolver,
+    WorkspaceContext,
+};
 use crate::store::Store;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -8,6 +11,17 @@ use std::path::Path;
 #[serde(rename_all = "camelCase")]
 pub struct ListFilesRequest {
     pub project_id: String,
+    pub flow_id: String,
+    pub category: Category,
+    pub offset: usize,
+    pub limit: usize,
+    pub filter: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWorkspaceFilesRequest {
+    pub context: WorkspaceContext,
     pub flow_id: String,
     pub category: Category,
     pub offset: usize,
@@ -42,8 +56,37 @@ pub fn list_files(
     failures: &FailureMap,
     req: &ListFilesRequest,
 ) -> Result<FilePage, String> {
-    let ctx =
-        resolve_flow(store, resolver, &req.project_id, &req.flow_id).map_err(|e| e.to_string())?;
+    let context =
+        WorkspaceContext::for_project(store, &req.project_id).map_err(|e| e.to_string())?;
+    list_workspace_files(
+        store,
+        resolver,
+        failures,
+        &ListWorkspaceFilesRequest {
+            context,
+            flow_id: req.flow_id.clone(),
+            category: req.category,
+            offset: req.offset,
+            limit: req.limit,
+            filter: req.filter.clone(),
+        },
+    )
+}
+
+pub fn list_workspace_files(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    failures: &FailureMap,
+    req: &ListWorkspaceFilesRequest,
+) -> Result<FilePage, String> {
+    let ctx = resolve_workspace_flow(store, resolver, &req.context, &req.flow_id)
+        .map_err(|e| e.to_string())?;
+    if !ctx.source_path_valid {
+        return Err(ctx
+            .config_error
+            .clone()
+            .unwrap_or_else(|| "Invalid source path".into()));
+    }
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
     let filter = req
         .filter

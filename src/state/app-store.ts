@@ -2,12 +2,14 @@ import type { Backend, EntityByKind } from "../api/backend";
 import type {
   AppSettings,
   EntityKind,
-  ProjectStatus,
+  Status,
   Snapshot,
   SyncStatus,
   TransferJob,
   UpdateInfo,
   Volume,
+  WorkspaceContext,
+  WorkspaceFilesRequest,
 } from "../api/types";
 import { connectDesktopMenu } from "../desktop/menu";
 import { checkForUpdateOnLaunch } from "./updater";
@@ -39,7 +41,9 @@ let autoUpdatePrompted = false;
 /** Single source of UI state. Emits "change" whenever anything changes. */
 export class AppStore extends EventTarget {
   snapshot: Snapshot | null = null;
-  status: ProjectStatus | null = null;
+  status: Status | null = null;
+  statusLoading = false;
+  statusError: string | null = null;
   transfers: TransferJob[] = [];
   sync: SyncStatus | null = null;
   volumes: Volume[] = [];
@@ -51,6 +55,10 @@ export class AppStore extends EventTarget {
   selectedSourceId: string | null = null;
   #toastId = 0;
   #unlisten: (() => void)[] = [];
+  #statusSeq = 0;
+  #snapshotSeq = 0;
+  #statusContextKey = "";
+  #disposed = false;
 
   constructor(readonly backend: Backend) {
     super();
@@ -64,7 +72,13 @@ export class AppStore extends EventTarget {
     return this.snapshot ? activeProject(this.snapshot, this.space?.id) : null;
   }
 
+  get context(): WorkspaceContext | null {
+    const space = this.space;
+    return space ? { spaceId: space.id, projectId: this.project?.id ?? null } : null;
+  }
+
   async init(): Promise<void> {
+    this.#disposed = false;
     try {
       const b = this.backend;
       this.#unlisten = await Promise.all([
@@ -92,23 +106,69 @@ export class AppStore extends EventTarget {
   }
 
   dispose(): void {
+    this.#disposed = true;
+    this.#statusSeq++;
+    this.#snapshotSeq++;
     this.#unlisten.forEach((u) => u());
+    this.#unlisten = [];
   }
 
   async reloadSnapshot(): Promise<void> {
-    this.#set({ snapshot: await this.backend.getSnapshot() });
+    const seq = ++this.#snapshotSeq;
+    try {
+      const snapshot = await this.backend.getSnapshot();
+      if (this.#disposed || seq !== this.#snapshotSeq) return;
+      this.#set({ snapshot });
+      this.refreshStatus();
+    } catch (error) {
+      if (this.#disposed || seq !== this.#snapshotSeq) return;
+      console.error("snapshot failed", error);
+      this.toast("error", `Could not refresh workspace: ${error}`);
+    }
   }
 
-  refreshStatus = debounce(() => void this.#loadStatus(), 120);
+  #scheduleStatus = debounce(() => !this.#disposed && void this.#loadStatus(), 120);
+
+  refreshStatus = (): void => {
+    if (this.#disposed) return;
+    this.#statusSeq++;
+    this.#scheduleStatus();
+  };
+
+  retryStatus = (): Promise<void> => this.#loadStatus();
 
   async #loadStatus(): Promise<void> {
-    const id = this.project?.id;
+    if (this.#disposed) return;
+    const context = this.context;
+    const key = JSON.stringify(context);
+    const seq = ++this.#statusSeq;
+    const current = () => !this.#disposed && seq === this.#statusSeq && key === JSON.stringify(this.context);
+    this.#set({
+      status: key === this.#statusContextKey ? this.status : null,
+      statusLoading: !!context,
+      statusError: null,
+    });
+    this.#statusContextKey = key;
     try {
-      this.#set({ status: id ? await this.backend.getProjectStatus(id) : null });
+      const status = context
+        ? context.projectId
+          ? await this.backend.getProjectStatus(context.projectId)
+          : await this.backend.getWorkspaceStatus(context)
+        : null;
+      if (current()) this.#set({ status, statusLoading: false });
     } catch (e) {
+      if (!current()) return;
       console.error("status failed", e);
+      this.#set({ status: null, statusLoading: false, statusError: String(e) });
       this.toast("error", `Status failed: ${e}`);
     }
+  }
+
+  listWorkspaceFiles(req: WorkspaceFilesRequest) {
+    const { context, ...args } = req;
+    return context.projectId
+      ? this.backend.listFiles({ ...args, projectId: context.projectId })
+      : this.backend.listWorkspaceFiles(req);
   }
 
   // ---- selection & settings ----
@@ -184,19 +244,31 @@ export class AppStore extends EventTarget {
   // ---- actions ----
 
   async runFlow(flowId: string): Promise<void> {
-    const project = this.project;
-    if (project) await this.#guard(() => this.backend.runFlow(project.id, flowId));
+    const context = this.context;
+    if (context)
+      await this.#guard(() =>
+        context.projectId
+          ? this.backend.runFlow(context.projectId, flowId)
+          : this.backend.runWorkspaceFlow(context, flowId),
+      );
   }
 
   async runAll(): Promise<void> {
-    const project = this.project;
-    if (project) await this.#guard(() => this.backend.runAll(project.id));
+    const context = this.context;
+    if (context)
+      await this.#guard(() =>
+        context.projectId ? this.backend.runAll(context.projectId) : this.backend.runWorkspaceAll(context),
+      );
   }
 
   async openFlowInApp(flowId: string): Promise<void> {
-    const project = this.project;
-    if (!project) return;
-    const opened = await this.#guardResult(() => this.backend.openFlowInApp(project.id, flowId));
+    const context = this.context;
+    if (!context) return;
+    const opened = await this.#guardResult(() =>
+      context.projectId
+        ? this.backend.openFlowInApp(context.projectId, flowId)
+        : this.backend.openWorkspaceFlowInApp(context, flowId),
+    );
     if (!opened) return;
     const count = opened.files.length;
     this.open({
@@ -206,7 +278,9 @@ export class AppStore extends EventTarget {
       confirmLabel: "Mark as transferred",
       cancelLabel: "Not yet",
       onConfirm: async () => {
-        const marked = await this.backend.confirmAppImport(project.id, flowId, opened.token);
+        const marked = await (context.projectId
+          ? this.backend.confirmAppImport(context.projectId, flowId, opened.token)
+          : this.backend.confirmWorkspaceAppImport(context, flowId, opened.token));
         this.toast(
           "success",
           `${marked.toLocaleString("en-US")} ${marked === 1 ? "file" : "files"} marked transferred`,
@@ -285,7 +359,31 @@ export class AppStore extends EventTarget {
   }
 
   #set(patch: Partial<AppStore>): void {
+    const previousContext = JSON.stringify(this.context);
+    const previousStatusSignature = "snapshot" in patch ? this.#statusSignature() : "";
     Object.assign(this, patch);
+    if ("snapshot" in patch) {
+      this.#snapshotSeq++;
+      if (previousStatusSignature !== this.#statusSignature()) {
+        this.#statusSeq++;
+        if (previousContext !== JSON.stringify(this.context)) this.status = null;
+        this.statusError = null;
+        this.statusLoading = !!this.context;
+      }
+    }
     this.dispatchEvent(new Event("change"));
+  }
+
+  #statusSignature(): string {
+    return JSON.stringify({
+      context: this.context,
+      space: this.space,
+      projects: this.snapshot?.projects,
+      sources: this.snapshot?.sources,
+      destinations: this.snapshot?.destinations,
+      flows: this.snapshot?.flows,
+      devices: this.snapshot?.devices,
+      mappings: this.snapshot?.mappings,
+    });
   }
 }

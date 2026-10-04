@@ -8,16 +8,17 @@ mod safe_copies;
 mod status;
 mod vars;
 
-pub use assess::{assess_source, FinalSet, SourceAssessment};
+pub use assess::{assess_source, assess_workspace_source, FinalSet, SourceAssessment};
 pub use catalog::Catalog;
 pub use classify::{
     capture_time_ms, classify_files, classify_files_with_capture_times, classify_flow,
     source_files, Category, PlannedFile,
 };
-pub use context::{resolve_flow, FlowContext, PlanError};
+pub use context::{resolve_flow, resolve_workspace_flow, FlowContext, PlanError, WorkspaceContext};
 pub use safe_copies::{safe_copy_report, DeviceCopies, FinalTarget, SafeCopyReport};
 pub use status::{
-    project_status, DestinationStatus, FlowState, FlowStatus, ProjectStatus, SourceStatus,
+    project_status, workspace_status, DestinationStatus, FlowState, FlowStatus, ProjectStatus,
+    SourceStatus, WorkspaceStatus,
 };
 pub use vars::{
     backup_folder_name, project_template_vars, template_vars, uses_project_variables,
@@ -54,3 +55,5 @@ pub(crate) fn sanitize_segment(name: &str) -> String {
 mod project_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workspace_tests;

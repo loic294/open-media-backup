@@ -64,16 +64,32 @@ struct SideData {
 }
 
 pub(super) fn extract(path: &Path, metadata: &mut MediaMetadata) -> Result<(), MetadataError> {
-    let executable = find_ffprobe().ok_or_else(|| {
-        MetadataError::ProbeIo(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "ffprobe not found; install it or set OMB_FFPROBE",
-        ))
-    })?;
-    populate(
-        run_probe(path, &executable, Duration::from_secs(10))?,
-        metadata,
-    )
+    let probed = find_ffprobe()
+        .ok_or_else(|| {
+            MetadataError::ProbeIo(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "ffprobe not found; install it or set OMB_FFPROBE",
+            ))
+        })
+        .and_then(|executable| run_probe(path, &executable, Duration::from_secs(10)))
+        .and_then(|probe| populate(probe, metadata));
+    match probed {
+        Ok(()) => {
+            if metadata.capture_time.is_none() {
+                super::video_fallback::fill(path, metadata);
+            }
+            Ok(())
+        }
+        // A broken or missing ffprobe must not hide metadata readable without it.
+        Err(error) if super::video_fallback::fill(path, metadata) => {
+            log::debug!(
+                "ffprobe failed for {}, used fallback metadata: {error}",
+                path.display()
+            );
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn run_probe(path: &Path, executable: &Path, timeout: Duration) -> Result<Probe, MetadataError> {

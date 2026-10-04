@@ -10,7 +10,7 @@ import "./transfer-progress";
 @customElement("omb-footer")
 export class OmbFooter extends OmbElement {
   override render() {
-    const { snapshot, space, status, project } = this.store;
+    const { snapshot, space, status } = this.store;
     const totals = projectTotals(
       status,
       snapshot && space ? spaceFlows(snapshot, space.id) : [],
@@ -23,7 +23,7 @@ export class OmbFooter extends OmbElement {
         <span class="flex-1"></span>
         <button
           class="btn gap-2"
-          ?disabled=${!project}
+          ?disabled=${!space}
           @click=${() => this.store.open({ type: "preview", flowId: null })}
         >
           <omb-icon name="images"></omb-icon>Preview

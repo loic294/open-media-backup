@@ -7,7 +7,7 @@ mod speed;
 
 pub use copy::{copy_verified, CopyError, CopyOutcome};
 pub use handle::{JobHandle, JobState, TransferJob};
-pub use job::run_transfer;
+pub use job::{run_transfer, run_workspace_transfer};
 pub use manager::{JobSpec, TransferManager};
 
 #[cfg(test)]
