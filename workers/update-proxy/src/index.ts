@@ -5,6 +5,7 @@ export interface Env {
 interface GitHubAsset {
   name: string;
   url: string;
+  browser_download_url: string;
 }
 
 interface GitHubRelease {
@@ -112,8 +113,9 @@ async function latestRelease(env: Env): Promise<GitHubRelease> {
   return response.json();
 }
 
+// browser_download_url is not subject to the REST API rate limit, which shared Worker IPs exhaust quickly.
 async function fetchReleaseAsset(asset: GitHubAsset, env: Env): Promise<Response> {
-  return fetchWithCache(asset.url, env, "application/octet-stream");
+  return fetchWithCache(asset.browser_download_url, env, "application/octet-stream");
 }
 
 async function latestManifest(release: GitHubRelease, env: Env): Promise<LatestManifest> {
@@ -157,8 +159,8 @@ async function downloadResponse(assetName: string, env: Env): Promise<Response> 
   const release = await latestRelease(env);
   const asset = release.assets.find((item) => item.name === assetName);
   if (!asset) return new Response("Asset not found", { status: 404 });
-  const response = await fetch(asset.url, {
-    headers: githubHeaders(env, "application/octet-stream"),
+  const response = await fetch(asset.browser_download_url, {
+    headers: { "User-Agent": USER_AGENT },
     redirect: "follow",
   });
   if (!response.ok || !response.body)
@@ -180,8 +182,8 @@ export default {
       const url = new URL(request.url);
       if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
       const parts = url.pathname.split("/").filter(Boolean);
-      if (parts[0] === "download" && parts[1]) return downloadResponse(decodeURIComponent(parts[1]), env);
-      if (parts.length === 3) return updateResponse(request, env, parts);
+      if (parts[0] === "download" && parts[1]) return await downloadResponse(decodeURIComponent(parts[1]), env);
+      if (parts.length === 3) return await updateResponse(request, env, parts);
       return new Response("Not found", { status: 404 });
     } catch (error) {
       return new Response(error instanceof Error ? error.message : String(error), { status: 500 });
