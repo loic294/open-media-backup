@@ -89,7 +89,7 @@ src-tauri/src/           Rust core
 
 ## Releases & auto-update
 
-Open Media Backup uses `tauri-plugin-updater` and a Cloudflare Worker proxy. The app checks `https://update-open-media-backup.loicba.me/{{target}}/{{arch}}/{{current_version}}`, configured in `src-tauri/tauri.conf.json` under `plugins.updater.endpoints`; change that endpoint there if the update domain changes. HTTPS is required for secure updates. The committed updater public key is a placeholder, and no private key should be committed.
+Open Media Backup uses `tauri-plugin-updater` and a Cloudflare Worker proxy. The app checks `https://update-open-media-backup.loicba.me/{{target}}/{{arch}}/{{current_version}}`, configured in `src-tauri/tauri.conf.json` under `plugins.updater.endpoints`; change that endpoint there if the update domain changes. HTTPS is required for secure updates. `tauri.conf.json` holds the updater public key. Never commit the private key.
 
 To publish signed releases:
 
@@ -99,7 +99,7 @@ To publish signed releases:
    npx tauri signer generate -w ~/.tauri/omb-updater.key
    ```
 
-2. Replace `REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY` in `src-tauri/tauri.conf.json` with the generated public key.
+2. Put the generated public key in `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`.
 3. Add GitHub repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key can be the contents of `~/.tauri/omb-updater.key`.
 4. Deploy `workers/update-proxy` with Cloudflare Wrangler:
 
@@ -110,7 +110,7 @@ To publish signed releases:
    npx wrangler deploy
    ```
 
-5. Configure `update-open-media-backup.loicba.me` as the Worker's custom domain in Cloudflare, with HTTPS enabled. It must serve both `/:target/:arch/:current_version` update checks and `/download/:assetName` downloads. Changing the app's endpoint does not provision DNS, TLS, or Worker routing.
+5. `wrangler.toml` declares `update-open-media-backup.loicba.me` as the Worker's custom domain, so `wrangler deploy` provisions DNS and TLS for it. The `loicba.me` zone must be in the same Cloudflare account. It must serve both `/:target/:arch/:current_version` update checks and `/download/:assetName` downloads. Changing the app's endpoint does not provision DNS, TLS, or Worker routing.
 6. Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds macOS universal and Windows bundles with `tauri-apps/tauri-action@v0`, signs updater artifacts from the secrets, and uploads `latest.json`.
 
 `src-tauri/tauri.conf.json` leaves `bundle.createUpdaterArtifacts` disabled, so local `npx tauri build` runs and the CI bundle job produce unsigned installers without needing `TAURI_SIGNING_PRIVATE_KEY`. The release workflow merges `src-tauri/tauri.release.conf.json`, which enables updater artifacts, and signs them with the repository secrets. To build signed updater artifacts locally, export `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and run `npx tauri build --config src-tauri/tauri.release.conf.json`.
