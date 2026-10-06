@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 
 impl Store {
     /// Use normal field-clock operations so migrated policies reach existing peers.
-    pub(super) fn migrate_copy_policy(&self) -> StoreResult<()> {
+    pub(crate) fn migrate_copy_policy(&self) -> StoreResult<()> {
         let policies: Vec<(String, u32)> = {
             let conn = self.conn.lock();
             let mut stmt = conn.prepare(
@@ -20,6 +20,7 @@ impl Store {
             let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
             rows.collect::<Result<_, _>>()?
         };
+        let changed = !policies.is_empty();
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         for (id, required) in policies {
@@ -34,6 +35,9 @@ impl Store {
             )?;
         }
         tx.commit()?;
+        if changed {
+            self.notify(vec![EntityKind::Space.as_str().to_string()], false);
+        }
         Ok(())
     }
     pub fn get<E: Entity>(&self, id: &str) -> StoreResult<Option<E>> {

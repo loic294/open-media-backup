@@ -9,10 +9,10 @@ pub(super) fn apply_op(tx: &Transaction, op: &Op) -> StoreResult<bool> {
         && op
             .value
             .as_u64()
-            .is_none_or(|value| value > u32::MAX as u64)
+            .is_none_or(|value| value == 0 || value > u32::MAX as u64)
     {
         return Err(super::StoreError::Invalid(
-            "Required copies must be a non-negative 32-bit integer".into(),
+            "Required copies must be a positive 32-bit integer".into(),
         ));
     }
     let encoded = serde_json::to_string(&op.value)?;

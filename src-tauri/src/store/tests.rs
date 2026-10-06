@@ -138,6 +138,7 @@ fn copy_policy_migration_preserves_per_space_maximum_and_syncs_once() {
 fn invalid_space_copy_policy_is_rejected_by_sync_without_partial_writes() {
     let store = Store::open_in_memory().unwrap();
     for value in [
+        serde_json::json!(0),
         serde_json::json!(-1),
         serde_json::json!(1.5),
         serde_json::json!(4294967296_u64),

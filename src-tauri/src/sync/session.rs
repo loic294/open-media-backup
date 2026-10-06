@@ -51,6 +51,11 @@ pub async fn sync_peer_with_page_size(
         }
     };
 
+    // Legacy peers may send spaces before the projects that define their copy
+    // policies. Migrate only after the complete pull so pagination cannot lock
+    // in the new-space default before older project requirements arrive.
+    store.migrate_copy_policy()?;
+
     let mut pushed = 0;
     loop {
         let ops = store.ops_since(&peer_vv, page_size)?;
@@ -185,5 +190,66 @@ mod tests {
             b.list::<Space>().unwrap().len()
         );
         assert!(*transport.pushes.lock() > 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_copy_policy_migrates_after_all_paginated_pull_ops() {
+        let local = Arc::new(Store::open_in_memory().unwrap());
+        let remote = Arc::new(Store::open_in_memory().unwrap());
+        let clock = crate::store::HlcClock::new("legacy".into());
+        let legacy_ops = [
+            Op {
+                hlc: clock.now().encode(),
+                origin: "legacy".into(),
+                kind: "space".into(),
+                entity_id: "space".into(),
+                field: "name".into(),
+                value: serde_json::json!("Travel"),
+            },
+            Op {
+                hlc: clock.now().encode(),
+                origin: "legacy".into(),
+                kind: "project".into(),
+                entity_id: "project".into(),
+                field: "space_id".into(),
+                value: serde_json::json!("space"),
+            },
+            Op {
+                hlc: clock.now().encode(),
+                origin: "legacy".into(),
+                kind: "project".into(),
+                entity_id: "project".into(),
+                field: "final_copies_required".into(),
+                value: serde_json::json!(5),
+            },
+        ];
+        remote.apply_remote(&legacy_ops).unwrap();
+
+        let peer = Peer {
+            id: remote.computer_id().into(),
+            name: "legacy".into(),
+            ..Default::default()
+        };
+        let transport = FakeTransport::new(remote.clone(), 1);
+        sync_peer_with_page_size(local.clone(), &transport, &peer, 1, |_| {})
+            .await
+            .unwrap();
+
+        assert_eq!(
+            local
+                .get::<Space>("space")
+                .unwrap()
+                .unwrap()
+                .final_copies_required,
+            5
+        );
+        assert_eq!(
+            remote
+                .get::<Space>("space")
+                .unwrap()
+                .unwrap()
+                .final_copies_required,
+            5
+        );
     }
 }
