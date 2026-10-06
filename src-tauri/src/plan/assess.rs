@@ -235,7 +235,7 @@ pub fn assess_workspace_source(
             rules: t.rules.clone(),
         })
         .collect();
-    let report = device_safe_copy_report(
+    let mut report = device_safe_copy_report(
         &[SourceCopyFiles {
             folder: &assessment.folder,
             files: &assessment.known,
@@ -247,6 +247,10 @@ pub fn assess_workspace_source(
         space.temporary_copies_per_final,
         space.skip_counts_as_safe_copy,
         &space.id,
+    );
+    report.classify_files(
+        project.map(|project| project.final_copies_required),
+        device.role,
     );
     apply_safety(&mut assessment, project, device, source, &report, None);
     assessment.report = report;
@@ -296,13 +300,17 @@ pub fn assess_workspace_device(
             rules: t.rules.clone(),
         })
         .collect();
-    let report = device_safe_copy_report(
+    let mut report = device_safe_copy_report(
         &files,
         &targets,
         catalog,
         space.temporary_copies_per_final,
         space.skip_counts_as_safe_copy,
         &space.id,
+    );
+    report.classify_files(
+        project.map(|project| project.final_copies_required),
+        device.role,
     );
     let path_error = assessments.iter().find_map(|(source, assessment)| {
         assessment
@@ -356,7 +364,11 @@ pub fn assess_workspace_device(
             )
         })
         .collect();
-    for ((source, assessment), scoped_report) in assessments.iter_mut().zip(scoped_reports) {
+    for ((source, assessment), mut scoped_report) in assessments.iter_mut().zip(scoped_reports) {
+        scoped_report.classify_files(
+            project.map(|project| project.final_copies_required),
+            device.role,
+        );
         assessment.report = scoped_report;
         apply_safety(
             assessment,
@@ -439,39 +451,4 @@ fn apply_safety(
     assessment.status.wipe_eligible = blocking_reason.is_none() && source.offer_wipe;
     assessment.status.blocking_reason = blocking_reason;
     assessment.device_files = report.files.clone();
-    for file in &mut assessment.device_files {
-        if file.state == SafeCopyState::Excluded {
-            continue;
-        }
-        let threshold_met =
-            project.is_some_and(|p| file.safe_copies as u32 >= p.final_copies_required);
-        let identity_known = !file
-            .reasons
-            .iter()
-            .any(|reason| reason.starts_with("File identity is not verified"));
-        let has_coverage = !file
-            .reasons
-            .iter()
-            .any(|reason| reason.starts_with("No eligible"));
-        let needs_final = device.role == DeviceRole::Temporary && file.final_copies == 0;
-        if threshold_met && identity_known && has_coverage && !needs_final {
-            file.state = SafeCopyState::Safe;
-        } else {
-            if !threshold_met {
-                file.reasons.push(match project {
-                    Some(project) => format!(
-                        "Needs {} safe copies; currently {}",
-                        project.final_copies_required, file.safe_copies
-                    ),
-                    None => "Create or select a project to set safe-copy requirements".into(),
-                });
-            }
-            if needs_final {
-                file.reasons.push(
-                    "Needs a final destination copy before this temporary device can be wiped"
-                        .into(),
-                );
-            }
-        }
-    }
 }

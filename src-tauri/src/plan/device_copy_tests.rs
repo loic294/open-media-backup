@@ -129,6 +129,8 @@ fn destination_exclusion_does_not_exempt_required_files_or_lower_threshold() {
         .iter()
         .any(|reason| reason.contains("No eligible")));
     assert_eq!(assessment.device_files[0].state, SafeCopyState::Safe);
+    assert_eq!(assessment.report.files[0].state, SafeCopyState::Safe);
+    assert_eq!(assessment.report.files[1].state, SafeCopyState::Unsafe);
 }
 
 #[test]

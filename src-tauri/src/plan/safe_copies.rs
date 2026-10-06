@@ -47,6 +47,47 @@ pub struct SafeCopyReport {
     pub files: Vec<SafeCopyFile>,
 }
 
+impl SafeCopyReport {
+    pub fn classify_files(&mut self, required_copies: Option<u32>, source_role: DeviceRole) {
+        for file in &mut self.files {
+            if file.state == SafeCopyState::Excluded {
+                continue;
+            }
+            let threshold_met =
+                required_copies.is_some_and(|required| file.safe_copies as u32 >= required);
+            let identity_known = !file
+                .reasons
+                .iter()
+                .any(|reason| reason.starts_with("File identity is not verified"));
+            let has_coverage = !file
+                .reasons
+                .iter()
+                .any(|reason| reason.starts_with("No eligible"));
+            let needs_final = source_role == DeviceRole::Temporary && file.final_copies == 0;
+            file.state = if threshold_met && identity_known && has_coverage && !needs_final {
+                SafeCopyState::Safe
+            } else {
+                SafeCopyState::Unsafe
+            };
+            if !threshold_met {
+                file.reasons.push(match required_copies {
+                    Some(required) => format!(
+                        "Needs {} safe copies; currently {}",
+                        required, file.safe_copies
+                    ),
+                    None => "Create or select a project to set safe-copy requirements".into(),
+                });
+            }
+            if needs_final {
+                file.reasons.push(
+                    "Needs a final destination copy before this temporary device can be wiped"
+                        .into(),
+                );
+            }
+        }
+    }
+}
+
 /// A destination device and the rule sets of destinations pointing at it (empty = keep everything).
 pub struct FinalTarget<'a> {
     pub device: &'a Device,
@@ -259,6 +300,7 @@ pub fn device_safe_copy_report(
             } else { 0 };
             SafeCopyFile {
                 path: path.clone(),
+                // This report has no project threshold; classify_files applies the source policy.
                 state: SafeCopyState::Unsafe,
                 safe_copies,
                 final_copies: final_count,
