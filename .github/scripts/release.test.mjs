@@ -17,6 +17,9 @@ import {
   validateVersion,
 } from "./release.mjs";
 
+const readWorkflow = (name) =>
+  readFileSync(new URL(`../workflows/${name}`, import.meta.url), "utf8").replace(/\r\n?/g, "\n");
+
 const sha = "a".repeat(40);
 const version = "0.1.19";
 const tag = `v${version}`;
@@ -326,7 +329,7 @@ test("release lookup includes drafts beyond the first page", async () => {
 });
 
 test("CI gates publishing on tests and main pushes, and passes the caller run number and SHA", () => {
-  const ci = readFileSync(new URL("../workflows/ci.yml", import.meta.url), "utf8");
+  const ci = readWorkflow("ci.yml");
   assert.match(ci, /permissions:\n  contents: read/);
   assert.match(
     ci,
@@ -336,7 +339,7 @@ test("CI gates publishing on tests and main pushes, and passes the caller run nu
   assert.match(ci, /commit: \$\{\{ github.sha \}\}/);
   assert.match(ci, /build-number: \$\{\{ github.run_number \}\}/);
   assert.match(ci, /node --test \.github\/scripts\/release.test.mjs/);
-  const workflow = readFileSync(new URL("../workflows/release.yml", import.meta.url), "utf8");
+  const workflow = readWorkflow("release.yml");
   assert.match(workflow, /tags:\n      - "v\*"/);
   assert.match(workflow, /workflow_call:/);
   assert.match(workflow, /if: needs.prepare.outputs.published != 'true'/);
