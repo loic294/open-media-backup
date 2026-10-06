@@ -4,6 +4,12 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 
 <img width="3204" height="2124" alt="CleanShot 2026-10-03 at 14 10 08@2x" src="https://github.com/user-attachments/assets/9de8f5bd-b0f2-44f1-a1ae-a512f4af3157" />
 
+## This project is completely free to use!
+
+Help me keep the lights on by making a donation via "Buy me a coffee". Any amount is appreciated!
+
+<a href="https://www.buymeacoffee.com/loicba" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
 ## Concepts
 
 | Term                     | Meaning                                                                                                                                                     |
