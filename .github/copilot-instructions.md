@@ -1,3 +1,9 @@
+# Completing changes
+
+After completing and validating changes, always commit the task's changes and push
+the commit to the current branch's remote. Do not include unrelated changes in the
+commit. If committing or pushing is blocked, report the blocker explicitly.
+
 # UI implementation workflow
 
 Implement UI changes directly using the app's existing components, patterns, and theme tokens. Validate behavior and update directly related documentation.
