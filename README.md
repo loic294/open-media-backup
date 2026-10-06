@@ -168,9 +168,15 @@ To publish signed releases:
    ```
 
 5. `wrangler.toml` declares `update-open-media-backup.loicba.me` as the Worker's custom domain, so `wrangler deploy` provisions DNS and TLS for it. The `loicba.me` zone must be in the same Cloudflare account. It must serve both `/:target/:arch/:current_version` update checks and `/download/:assetName` downloads. Changing the app's endpoint does not provision DNS, TLS, or Worker routing.
-6. Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds macOS universal and Windows bundles with `tauri-apps/tauri-action@v0`, signs updater artifacts from the secrets, and uploads `latest.json`.
+6. Push to `main`. Once the complete macOS/Windows CI test matrix passes, CI calls `.github/workflows/release.yml` to build signed macOS universal and Windows bundles for the exact tested commit. Each build gets a stable `v<major>.<minor>.<CI run number>` release (for example `v0.1.19`); major/minor come from `src-tauri/tauri.conf.json`. Failed runs may leave version gaps. The generated version is embedded in installers and `latest.json` without committing version bumps to the repository. Pull requests never publish releases.
 
-`src-tauri/tauri.conf.json` leaves `bundle.createUpdaterArtifacts` disabled, so local `npx tauri build` runs and the CI bundle job produce unsigned installers without needing `TAURI_SIGNING_PRIVATE_KEY`. The release workflow merges `src-tauri/tauri.release.conf.json`, which enables updater artifacts, and signs them with the repository secrets. To build signed updater artifacts locally, export `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and run `npx tauri build --config src-tauri/tauri.release.conf.json`.
+The release stays a draft until both platform builds finish and the workflow verifies the expected updater version, macOS Intel/Apple Silicon and Windows x64 entries, installer assets, and matching signatures. Platform uploads run sequentially to avoid overwriting each other's `latest.json`. Failed builds or validation leave the draft unpublished. Reruns reuse the same version and matching draft; already published releases are validated and left untouched. GitHub's version-aware latest selection keeps older reruns from replacing newer updates; the updater proxy caches GitHub responses for approximately five minutes.
+
+Explicit `vX.Y.Z` tag pushes still publish signed stable releases, with the tag's version embedded in the build. Avoid tags reserved by automatic CI numbering: an existing tag/release for another commit causes an explicit failure rather than replacing its assets. Versions must fit Windows MSI limits (`255.255.65535`); advance the checked-in major/minor before CI numbering would collide with a manually tagged patch version.
+
+`src-tauri/tauri.conf.json` leaves `bundle.createUpdaterArtifacts` disabled, so local `npx tauri build` runs produce unsigned installers without needing `TAURI_SIGNING_PRIVATE_KEY`. The release workflow merges `src-tauri/tauri.release.conf.json`, which enables updater artifacts, and signs them with the repository secrets. To build signed updater artifacts locally, export `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and run `npx tauri build --config src-tauri/tauri.release.conf.json`.
+
+Run the release automation regression tests with `node --test .github/scripts/release.test.mjs`.
 
 ## License
 

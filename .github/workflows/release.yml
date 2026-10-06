@@ -4,14 +4,64 @@ on:
   push:
     tags:
       - "v*"
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+      build-number:
+        required: true
+        type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      release-id: ${{ steps.prepare.outputs.release-id }}
+      published: ${{ steps.prepare.outputs.published }}
+      commit: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve tested commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Test release automation
+        run: node --test .github/scripts/release.test.mjs
+      - name: Prepare draft release
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ steps.commit.outputs.sha }}
+          RELEASE_BUILD_NUMBER: ${{ inputs.build-number }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node .github/scripts/release.mjs prepare
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.published != 'true'
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
+      # Both jobs merge latest.json on the shared draft.
+      max-parallel: 1
       matrix:
         include:
           - os: macos-latest
@@ -23,6 +73,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -34,16 +86,48 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      - name: Set installer and updater version
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node .github/scripts/release.mjs configure
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Open Media Backup ${{ github.ref_name }}
+          releaseId: ${{ needs.prepare.outputs.release-id }}
+          tagName: ${{ needs.prepare.outputs.tag }}
           releaseBody: See the assets below to download and install this version.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/nsis/*.exe
+            src-tauri/target/**/release/bundle/msi/*.msi
+
+  publish:
+    needs: [prepare, build]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate assets and publish stable release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release-id }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.commit }}
+        run: node .github/scripts/release.mjs publish
