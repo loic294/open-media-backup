@@ -222,7 +222,7 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
             )}
           </div>
         </section>
-        <fieldset class="fieldset">
+        <fieldset id="omb-space-temp-copies" class="fieldset min-w-0">
           <legend class="fieldset-legend">Temporary copies equal one final copy</legend>
           <select
             class="select w-full"
@@ -241,7 +241,7 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
                 </option>`,
             )}
           </select>
-          <p class="label">
+          <p class="label whitespace-normal">
             Final destinations always count one-for-one. Temporary destinations only contribute in complete
             groups, and temporary source devices still need at least one final destination copy before wiping.
           </p>

@@ -42,4 +42,19 @@ describe("space skipped-duplicate setting", () => {
       expect.objectContaining({ id: "travel", skip_counts_as_safe_copy: true }),
     );
   });
+
+  it("keeps the temporary-copies field constrained to the modal width", async () => {
+    store.snapshot = demoSnapshot();
+    dialog = new OmbSpaceDialog();
+    dialog.request = { type: "space-settings", spaceId: "travel" };
+    document.body.append(dialog);
+    await dialog.updateComplete;
+    await dialog.querySelector("omb-modal")!.updateComplete;
+
+    const fieldset = dialog.querySelector<HTMLFieldSetElement>("#omb-space-temp-copies")!;
+    expect(fieldset.classList).toContain("min-w-0");
+    expect(fieldset.querySelector("select")!.classList).toContain("w-full");
+    const hint = fieldset.querySelector<HTMLParagraphElement>("p.label")!;
+    expect(hint.classList).toContain("whitespace-normal");
+  });
 });
