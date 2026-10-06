@@ -68,6 +68,8 @@ pub struct PendingConflict {
 #[serde(rename_all = "snake_case")]
 pub enum CheckOutcome {
     Matched,
+    Verified,
+    Untracked,
     Missing,
     Conflict,
     Error,
@@ -85,6 +87,8 @@ pub struct CheckItem {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CheckResults {
     pub matched: usize,
+    pub verified: usize,
+    pub untracked: usize,
     pub missing: usize,
     pub conflicts: usize,
     pub errors: usize,

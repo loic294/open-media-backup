@@ -3,7 +3,7 @@ use crate::plan::WorkspaceContext;
 use crate::store::analysis::{
     AnalysisFilter, AnalysisJobPage, AnalysisJobsRequest, AnalysisSummary,
 };
-use crate::transfer::{ConflictDecision, TransferJob};
+use crate::transfer::{CheckScope, ConflictDecision, TransferJob};
 use crate::wipe::{WipeMethod, WipePlan};
 use tauri::State;
 
@@ -46,10 +46,14 @@ pub async fn check_workspace_destination(
     state: State<'_, Shared>,
     context: WorkspaceContext,
     destination_id: String,
+    scope: Option<CheckScope>,
 ) -> CmdResult<Vec<String>> {
     blocking(&state, move |s| {
-        s.core
-            .check_workspace_destination(&context, &destination_id)
+        s.core.check_workspace_destination_scoped(
+            &context,
+            &destination_id,
+            scope.unwrap_or_default(),
+        )
     })
     .await
 }

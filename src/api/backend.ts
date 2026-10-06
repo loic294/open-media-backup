@@ -1,4 +1,5 @@
 import type {
+  DestinationCheckScope,
   AnalysisFilter,
   AnalysisJobPage,
   AnalysisJobsRequest,
@@ -99,7 +100,11 @@ export interface Backend {
   runWorkspaceFlow(context: WorkspaceContext, flowId: string): Promise<void>;
   runWorkspaceAll(context: WorkspaceContext): Promise<void>;
   runWorkspaceDestination(context: WorkspaceContext, destinationId: string): Promise<string[]>;
-  checkWorkspaceDestination(context: WorkspaceContext, destinationId: string): Promise<string[]>;
+  checkWorkspaceDestination(
+    context: WorkspaceContext,
+    destinationId: string,
+    scope?: DestinationCheckScope,
+  ): Promise<string[]>;
   resolveTransferConflict(
     jobId: string,
     requestId: string,

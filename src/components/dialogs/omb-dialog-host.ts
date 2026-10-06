@@ -18,6 +18,7 @@ import "./wipe-dialog";
 import "./safe-copy-dialog";
 import "./transfer-conflict-dialog";
 import "./destination-check-results-dialog";
+import "./destination-check-dialog";
 import "../workspace/projects-page";
 
 type Renderer<T extends DialogType> = (r: Extract<DialogRequest, { type: T }>) => TemplateResult;
@@ -44,6 +45,8 @@ const RENDERERS: { [T in DialogType]: Renderer<T> } = {
     )}`,
   "destination-check-results": (r) =>
     html`<omb-destination-check-results-dialog .request=${r}></omb-destination-check-results-dialog>`,
+  "destination-check": (r) =>
+    html`${keyed(r, html`<omb-destination-check-dialog .request=${r}></omb-destination-check-dialog>`)}`,
 };
 
 /** Renders every open dialog (stacked) from store.dialogs. */

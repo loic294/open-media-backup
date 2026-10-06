@@ -3,6 +3,7 @@ import { demoCounts, demoSnapshot } from "../../api/mock/data";
 import { mockStatus } from "../../api/mock/status";
 import { store } from "../../state";
 import { OmbDestinationCard } from "./destination-card";
+import type { OmbCardContextMenu } from "./card-context-menu";
 import "../dialogs/omb-dialog-host";
 
 describe("app destination card", () => {
@@ -128,12 +129,13 @@ describe("app destination card", () => {
     );
   });
 
-  it("can check fully transferred destinations and dispatches one destination action", async () => {
+  it("opens the scope chooser for fully transferred destinations without starting jobs", async () => {
     const snapshot = demoSnapshot();
     store.snapshot = snapshot;
     store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
     store.transfers = [];
-    const check = vi.spyOn(store, "checkDestination").mockResolvedValue();
+    store.dialogs = [];
+    const check = vi.spyOn(store, "checkDestination").mockResolvedValue(true);
     card = new OmbDestinationCard();
     card.destination = snapshot.destinations.find((d) => d.id === "d1")!;
     document.body.append(card);
@@ -141,7 +143,12 @@ describe("app destination card", () => {
     const button = [...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check")!;
     expect(button.disabled).toBe(false);
     button.click();
-    expect(check).toHaveBeenCalledWith("d1");
+    expect(check).not.toHaveBeenCalled();
+    expect(store.dialogs[0]).toEqual({
+      type: "destination-check",
+      destinationId: "d1",
+      context: store.context,
+    });
   });
 
   it("runs all incoming flows in one queue and disables Check while starting", async () => {
@@ -172,7 +179,7 @@ describe("app destination card", () => {
     finish();
   });
 
-  it("disables Check for offline sources and active check jobs", async () => {
+  it("allows scanning with offline sources but disables Check for active check jobs", async () => {
     const snapshot = demoSnapshot();
     store.snapshot = snapshot;
     store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set(["card1", "card2"]));
@@ -183,7 +190,7 @@ describe("app destination card", () => {
     await card.updateComplete;
     expect(
       [...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check")!.disabled,
-    ).toBe(true);
+    ).toBe(false);
     store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
     store.transfers = [
       {
@@ -208,5 +215,30 @@ describe("app destination card", () => {
     expect(
       [...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check")!.disabled,
     ).toBe(true);
+  });
+
+  it("opens the same chooser from context-menu Check", async () => {
+    const snapshot = demoSnapshot();
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
+    store.transfers = [];
+    store.dialogs = [];
+    const check = vi.spyOn(store, "checkDestination").mockResolvedValue(true);
+    card = new OmbDestinationCard();
+    card.destination = snapshot.destinations.find((d) => d.id === "d2")!;
+    document.body.append(card);
+    await card.updateComplete;
+    card
+      .querySelector("article")!
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }),
+      );
+    await card.updateComplete;
+    await card.querySelector<OmbCardContextMenu>("omb-card-context-menu")!.updateComplete;
+    [...card.querySelectorAll<HTMLButtonElement>("omb-card-context-menu button")]
+      .find((b) => b.textContent?.trim() === "Check destination")!
+      .click();
+    expect(check).not.toHaveBeenCalled();
+    expect(store.dialogs[0]?.type).toBe("destination-check");
   });
 });

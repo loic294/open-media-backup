@@ -403,6 +403,11 @@ impl<'a> RecordWriter<'a> {
     pub(super) fn invalidate(&mut self, copy: &FileCopy) {
         self.invalidate_source_overrides(&copy.device_id, &copy.path, &copy.file_id);
         self.invalidate_destination_overrides(&copy.device_id, &copy.path);
+        self.invalidate_copy_only(copy);
+    }
+
+    /// Destination-only verification assesses acknowledgements independently.
+    pub(super) fn invalidate_copy_only(&mut self, copy: &FileCopy) {
         if self.removed.insert(copy.id.clone()) {
             self.copies.push(FileCopy {
                 removed: true,

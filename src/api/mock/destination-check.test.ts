@@ -42,6 +42,45 @@ describe("mock destination jobs", () => {
     await expect(backend.checkWorkspaceDestination(context, "d4")).rejects.toThrow("folder destination");
   });
 
+  it("filters selected sources and rejects invalid selections before enqueueing", async () => {
+    backend = createMockBackend({ tickMs: 2 });
+    const snapshot = await backend.getSnapshot();
+    const source = snapshot.flows.find((f) => f.id === "f4")!.source_id;
+    for (const sourceIds of [[], [source, "stale"], [source, "foreign"]]) {
+      await expect(
+        backend.checkWorkspaceDestination(context, "d2", {
+          kind: "selectedSources",
+          sourceIds,
+        }),
+      ).rejects.toThrow();
+      expect(await backend.listTransfers()).toHaveLength(0);
+    }
+    const ids = await backend.checkWorkspaceDestination(context, "d2", {
+      kind: "selectedSources",
+      sourceIds: [source, source],
+    });
+    expect(ids).toHaveLength(1);
+    expect((await backend.listTransfers())[0].flow_id).toBe("check:f4");
+  });
+
+  it("reports a distinct destination inventory with catalog verification and untracked files", async () => {
+    backend = createMockBackend({ tickMs: 2 });
+    const ids = await backend.checkWorkspaceDestination(context, "d2", { kind: "allDestination" });
+    expect(ids).toHaveLength(1);
+    const [job] = await until(backend, (jobs) => jobs.every((job) => job.state === "done"));
+    expect(job.flow_id).toBe("check:destination:d2");
+    expect(job.check_results).toMatchObject({
+      matched: 0,
+      verified: 1,
+      untracked: 1,
+      missing: 1,
+      conflicts: 1,
+      errors: 1,
+    });
+    expect(job.check_results!.items.every((item) => !item.source_path)).toBe(true);
+    expect(job.analysis).toBeUndefined();
+  });
+
   it("applies Skip to this queue's pending and future conflicts but prompts on the next run", async () => {
     backend = createMockBackend({ tickMs: 2, conflicts: { f4: 2, f5: 2 } });
     const initialSpeeds = (await backend.getSnapshot()).settings.transfer_speeds;

@@ -44,7 +44,9 @@ function checkSummary(items: DestinationCheckItem[]): DestinationCheckResults {
     missing: items.filter((item) => item.outcome === "missing").length,
     conflicts: items.filter((item) => item.outcome === "conflict").length,
     errors: items.filter((item) => item.outcome === "error").length,
-    items: items.filter((item) => item.outcome !== "matched"),
+    verified: items.filter((item) => item.outcome === "verified").length,
+    untracked: items.filter((item) => item.outcome === "untracked").length,
+    items: items.filter((item) => !["matched", "verified"].includes(item.outcome)),
   };
 }
 
@@ -105,6 +107,36 @@ export function createMockBackend(
       }
     }
     analysis.begin(job, flowId);
+  };
+
+  const startCheck = (key: string, label: string, items: DestinationCheckItem[], flowId?: string) => {
+    const existing = jobs.find(
+      (j) => j.flow_id === key && !["done", "failed", "cancelled"].includes(j.state),
+    );
+    if (existing) return existing.id;
+    const id = crypto.randomUUID();
+    const job: TransferJob = {
+      id,
+      flow_id: key,
+      label,
+      kind: "check",
+      state: "queued",
+      files_done: 0,
+      files_total: items.length,
+      bytes_done: 0,
+      bytes_total: items.length * AVG_FILE,
+      current_file: null,
+      speed_bps: 0,
+      bytes_per_sec: null,
+      eta_secs: null,
+      errors: [],
+      pending_conflict: null,
+      check_results: checkSummary([]),
+    };
+    jobs.push(job);
+    if (flowId) beginAnalysis(job, flowId);
+    checkItemsByJob.set(id, items);
+    return id;
   };
 
   const decide = (job: TransferJob, decision: ConflictDecision) => {
@@ -609,7 +641,7 @@ export function createMockBackend(
       if (!ids.length) throw new Error("No connected, runnable flows for this destination");
       return ids;
     },
-    checkWorkspaceDestination: async (context, destinationId) => {
+    checkWorkspaceDestination: async (context, destinationId, scope = { kind: "configuredSources" }) => {
       const destination = snapshot.destinations.find(
         (d) => d.id === destinationId && d.space_id === context.spaceId,
       );
@@ -617,27 +649,58 @@ export function createMockBackend(
       const status = workspaceStatus(context);
       if (!status.destinations.find((d) => d.destination_id === destinationId)?.available)
         throw new Error("Connect the destination device to check");
-      const ids: string[] = [];
-      for (const flow of snapshot.flows.filter(
-        (f) => f.space_id === context.spaceId && f.destination_id === destinationId,
-      )) {
-        const st = status.flows.find((f) => f.flow_id === flow.id)!;
-        if (
-          !status.sources.find((s) => s.source_id === flow.source_id)?.available ||
-          st.state === "unavailable" ||
-          (st.state === "error" && !st.runnable)
-        )
-          continue;
-        const total = st.transferred + st.to_transfer + st.failed;
-        if (!total) continue;
-        const key = `check:${flow.id}`;
-        const existing = jobs.find(
-          (j) => j.flow_id === key && !["done", "failed", "cancelled"].includes(j.state),
+      if (scope.kind === "allDestination") {
+        // Simulated filesystem/catalog inventory, independent of source availability.
+        const prefix = destination.path_template.split("{")[0].replace(/\/+$/, "");
+        const inventory: [string, DestinationCheckItem["outcome"], string | null][] = [
+          ["previous-project/verified.jpg", "verified", null],
+          ["previous-project/changed.jpg", "conflict", null],
+          ["previous-project/missing.jpg", "missing", null],
+          ["untracked-photo.jpg", "untracked", null],
+          ["linked-folder", "error", "Symlinks are not checked"],
+        ];
+        const items: DestinationCheckItem[] = inventory.map(([path, outcome, error]) => ({
+          source_path: "",
+          destination_path: [prefix, path].filter(Boolean).join("/"),
+          outcome,
+          error,
+        }));
+        const id = startCheck(
+          `check:destination:${destinationId}`,
+          `Check ${destination.task_name || snapshot.devices.find((d) => d.id === destination.device_id)?.name || destinationId}`,
+          items,
         );
-        if (existing) {
-          ids.push(existing.id);
-          continue;
+        timer ??= setInterval(tick, options.tickMs ?? 400);
+        events.emit("transfers", structuredClone(jobs));
+        return [id];
+      }
+      const incoming = snapshot.flows.filter(
+        (f) => f.space_id === context.spaceId && f.destination_id === destinationId,
+      );
+      const valid = incoming.filter((flow) => {
+        const st = status.flows.find((f) => f.flow_id === flow.id);
+        return (
+          snapshot.sources.some((s) => s.id === flow.source_id && s.space_id === context.spaceId) &&
+          status.sources.find((s) => s.source_id === flow.source_id)?.available &&
+          st &&
+          st.state !== "unavailable" &&
+          (st.state !== "error" || st.runnable)
+        );
+      });
+      if (scope.kind === "selectedSources") {
+        if (!scope.sourceIds.length) throw new Error("Select at least one source to check");
+        for (const id of scope.sourceIds) {
+          if (
+            !valid.some((flow) => flow.source_id === id) ||
+            incoming.some((flow) => flow.source_id === id && !valid.includes(flow))
+          )
+            throw new Error(`Source ${id} is not a valid incoming source for this destination`);
         }
+      }
+      const ids: string[] = [];
+      for (const flow of valid.filter(
+        (flow) => scope.kind !== "selectedSources" || scope.sourceIds.includes(flow.source_id),
+      )) {
         const items: DestinationCheckItem[] = [];
         for (const [category, outcome] of [
           ["transferred", "matched"],
@@ -672,28 +735,7 @@ export function createMockBackend(
             );
           }
         }
-        const id = crypto.randomUUID();
-        jobs.push({
-          id,
-          flow_id: key,
-          label: `Check ${flowLabel(snapshot, flow)}`,
-          kind: "check",
-          state: "queued",
-          files_done: 0,
-          files_total: items.length,
-          bytes_done: 0,
-          bytes_total: items.length * AVG_FILE,
-          current_file: null,
-          speed_bps: 0,
-          bytes_per_sec: null,
-          eta_secs: null,
-          errors: [],
-          pending_conflict: null,
-          check_results: checkSummary([]),
-        });
-        beginAnalysis(jobs[jobs.length - 1], flow.id);
-        checkItemsByJob.set(id, items);
-        ids.push(id);
+        ids.push(startCheck(`check:${flow.id}`, `Check ${flowLabel(snapshot, flow)}`, items, flow.id));
       }
       if (!ids.length) throw new Error("No connected, eligible files for this destination");
       timer ??= setInterval(tick, options.tickMs ?? 400);

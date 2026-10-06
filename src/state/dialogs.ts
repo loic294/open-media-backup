@@ -24,6 +24,11 @@ export type DialogRequest =
   | { type: "transfer-conflict"; jobId: string; requestId: string }
   | { type: "destination-check-results"; job: import("../api/types").TransferJob }
   | {
+      type: "destination-check";
+      destinationId: string;
+      context: import("../api/types").WorkspaceContext;
+    }
+  | {
       type: "confirm";
       title: string;
       message: string;

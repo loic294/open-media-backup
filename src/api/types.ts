@@ -426,10 +426,16 @@ export interface TransferConflict {
   destination_hash: string;
 }
 
+export type DestinationCheckScope =
+  | { kind: "configuredSources" }
+  | { kind: "selectedSources"; sourceIds: string[] }
+  | { kind: "allDestination" };
+
 export interface DestinationCheckItem {
+  /** Empty for a destination inventory with no fresh source comparison. */
   source_path: string;
   destination_path: string;
-  outcome: "matched" | "missing" | "conflict" | "error";
+  outcome: "matched" | "verified" | "untracked" | "missing" | "conflict" | "error";
   error: string | null;
 }
 
@@ -438,7 +444,11 @@ export interface DestinationCheckResults {
   missing: number;
   conflicts: number;
   errors: number;
-  /** Paths needing attention; matching files are counted without adding snapshot payload. */
+  /** Destination-only matches against recorded catalog evidence, not fresh source matches. */
+  verified: number;
+  /** Present files without a comparable catalog hash; never counted as verified. */
+  untracked: number;
+  /** Paths needing attention; matches and catalog verifications are count-only. */
   items: DestinationCheckItem[];
 }
 

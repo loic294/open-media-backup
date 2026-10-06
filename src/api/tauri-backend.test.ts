@@ -67,9 +67,24 @@ describe("destination job command adapters", () => {
     expect(invoke).toHaveBeenLastCalledWith("check_workspace_destination", {
       context,
       destinationId: "destination",
+      scope: { kind: "configuredSources" },
     });
   });
 
+  it("passes selected source ids and full destination scope intact", async () => {
+    vi.mocked(invoke).mockResolvedValue(["job"]);
+    for (const scope of [
+      { kind: "selectedSources" as const, sourceIds: ["source"] },
+      { kind: "allDestination" as const },
+    ]) {
+      await tauriBackend.checkWorkspaceDestination(context, "destination", scope);
+      expect(invoke).toHaveBeenLastCalledWith("check_workspace_destination", {
+        context,
+        destinationId: "destination",
+        scope,
+      });
+    }
+  });
   it("passes the live request and queue-only apply-all decision to Rust", async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
     await tauriBackend.resolveTransferConflict("job", "request", "keep_both", true);

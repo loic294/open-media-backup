@@ -97,6 +97,8 @@ describe("destination job dialogs", () => {
           missing: 1,
           conflicts: 1,
           errors: 1,
+          verified: 0,
+          untracked: 0,
           items: [
             { source_path: "a.jpg", destination_path: "/nas/a.jpg", outcome: "matched", error: null },
             {

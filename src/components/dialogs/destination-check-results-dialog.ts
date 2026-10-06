@@ -6,6 +6,8 @@ import { DialogBase } from "./dialog-base";
 
 const OUTCOME_LABEL: Record<DestinationCheckItem["outcome"], string> = {
   matched: "Hash matches",
+  verified: "Catalog hash verified",
+  untracked: "Untracked / no comparable catalog hash",
   missing: "Missing",
   conflict: "Different hash",
   error: "Could not check",
@@ -15,6 +17,8 @@ const OUTCOME_ORDER: Record<DestinationCheckItem["outcome"], number> = {
   conflict: 1,
   missing: 2,
   matched: 3,
+  verified: 4,
+  untracked: 3,
 };
 
 @customElement("omb-destination-check-results-dialog")
@@ -37,19 +41,26 @@ export class OmbDestinationCheckResultsDialog extends DialogBase<
       @close=${this.onClosed}
       .body=${html`
         <p class="text-sm text-base-content/70 mb-4">
-          Only expected destination paths were checked. No media files were copied or changed.
+          ${
+            job.flow_id.startsWith("check:destination:")
+              ? "Destination contents were inventoried against recorded catalog evidence. Catalog verification is not a fresh source comparison."
+              : "Expected destination paths were compared with configured sources."
+          }
+          No media files were copied or changed.
           ${job.state === "cancelled" ? "These are partial results." : ""}
         </p>
         ${
           result
             ? html`<p class="font-semibold mb-4">
                 ${result.matched} matching · ${result.missing} missing · ${result.conflicts} different ·
-                ${result.errors} errors
+                ${result.errors} errors · ${result.verified ?? 0} catalog verified · ${result.untracked ?? 0}
+                untracked
               </p>`
             : nothing
         }
         <p class="text-xs text-base-content/60 mb-3">
-          Matching files are counted above. Only paths needing attention are listed below.
+          Matching and catalog-verified files are counted above. Untracked files have no comparable evidence;
+          they are not a pass. Only paths needing attention are listed below.
         </p>
         ${job.errors.map((error) => html`<p class="text-sm text-error break-all mb-2">${error}</p>`)}
         <ul class="divide-y divide-base-300">
@@ -62,7 +73,11 @@ export class OmbDestinationCheckResultsDialog extends DialogBase<
                   ${OUTCOME_LABEL[item.outcome]}
                 </p>
                 <p class="break-all">${item.destination_path}</p>
-                <p class="text-xs text-base-content/60 break-all">Source: ${item.source_path}</p>
+                ${
+                  item.source_path
+                    ? html`<p class="text-xs text-base-content/60 break-all">Source: ${item.source_path}</p>`
+                    : nothing
+                }
                 ${item.error ? html`<p class="text-error break-all">${item.error}</p>` : nothing}
               </li>
             `,

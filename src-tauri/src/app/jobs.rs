@@ -2,8 +2,8 @@ use super::AppCore;
 use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
 use crate::plan::{resolve_workspace_flow, workspace_status, Catalog, FlowState, WorkspaceContext};
 use crate::transfer::{
-    run_workspace_check, run_workspace_transfer, AnalysisContext, ConflictQueue, JobKind, JobSpec,
-    ResourceClaim,
+    prepare_destination_check, run_destination_check, run_workspace_check, run_workspace_transfer,
+    AnalysisContext, CheckScope, ConflictQueue, JobKind, JobSpec, ResourceClaim,
 };
 use crate::wipe::{wipe, WipeMethod};
 use std::sync::Arc;
@@ -170,26 +170,99 @@ impl AppCore {
         context: &WorkspaceContext,
         destination_id: &str,
     ) -> Result<Vec<String>, String> {
-        self.folder_destination(context, destination_id)?;
+        self.check_workspace_destination_scoped(context, destination_id, CheckScope::default())
+    }
+
+    pub fn check_workspace_destination_scoped(
+        &self,
+        context: &WorkspaceContext,
+        destination_id: &str,
+        scope: CheckScope,
+    ) -> Result<Vec<String>, String> {
+        let destination = self.folder_destination(context, destination_id)?;
         context.load(&self.store).map_err(|e| e.to_string())?;
+        if scope == CheckScope::AllDestination {
+            let prepared = prepare_destination_check(
+                &self.store,
+                self.resolver.as_ref(),
+                context,
+                &destination,
+            )?;
+            let (store, resolver) = (self.store.clone(), self.resolver.clone());
+            let (context, destination) = (context.clone(), destination.clone());
+            let id = self.transfers.enqueue(JobSpec {
+                key: format!("check:destination:{}", destination.id),
+                label: format!("Check {}", destination.resolved_task_name(&prepared.device)),
+                // A full scan overlaps every path on this device, including paths of
+                // other destinations. Device-exclusive locking prevents concurrent writes.
+                resources: vec![ResourceClaim::exclusive(format!(
+                    "device:{}",
+                    prepared.device.id
+                ))],
+                kind: JobKind::Check,
+                queue: None,
+                work: Box::new(move |handle| {
+                    run_destination_check(&store, resolver.as_ref(), &context, &destination, handle)
+                }),
+            });
+            return Ok(vec![id]);
+        }
+        let selected = match &scope {
+            CheckScope::SelectedSources { source_ids } => {
+                if source_ids.is_empty() {
+                    return Err("Select at least one source to check".into());
+                }
+                Some(source_ids.iter().collect::<std::collections::HashSet<_>>())
+            }
+            _ => None,
+        };
         let flows: Vec<Flow> = self
             .store
             .list_by("space_id", &context.space_id)
             .map_err(|e| e.to_string())?;
-        let mut ids = Vec::new();
-        for flow in flows.iter().filter(|f| f.destination_id == destination_id) {
+        // Resolve and validate the complete request before enqueueing any work.
+        let mut valid = Vec::new();
+        for flow in flows.iter().filter(|f| {
+            f.destination_id == destination_id
+                && selected
+                    .as_ref()
+                    .is_none_or(|ids| ids.contains(&f.source_id))
+        }) {
             let ctx =
                 resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, &flow.id)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|error| error.to_string())?;
             if ctx.config_error.is_some()
                 || !ctx.source_path_valid
                 || ctx.source_root.is_none()
                 || ctx.dest_root.is_none()
             {
+                if selected.is_some() {
+                    return Err(format!(
+                        "Source {} is not valid and connected for this destination",
+                        flow.source_id
+                    ));
+                }
                 continue;
             }
+            valid.push(ctx);
+        }
+        if let Some(selected) = &selected {
+            if let Some(id) = selected
+                .iter()
+                .find(|id| !valid.iter().any(|ctx| &ctx.source.id == **id))
+            {
+                return Err(format!(
+                    "Source {id} is not a valid incoming source for this destination"
+                ));
+            }
+        }
+        if valid.is_empty() {
+            return Err("Connect the source and destination devices to check".into());
+        }
+        let mut ids = Vec::new();
+        for ctx in valid {
             let (store, resolver) = (self.store.clone(), self.resolver.clone());
-            let (context, flow_id) = (context.clone(), flow.id.clone());
+            let (context, flow_id) = (context.clone(), ctx.flow.id.clone());
             let destination_path = format!(
                 "destination-path:{}:{}",
                 ctx.dest_device.id, ctx.dest_folder_rel
@@ -197,7 +270,7 @@ impl AppCore {
             let analysis = AnalysisContext::from_flow(&ctx);
             ids.push(self.transfers.enqueue_with_analysis(
                 JobSpec {
-                    key: format!("check:{}", flow.id),
+                    key: format!("check:{}", ctx.flow.id),
                     label: ctx.label(),
                     resources: vec![
                         ResourceClaim::shared(format!("device:{}", ctx.source_device.id)),
@@ -212,9 +285,6 @@ impl AppCore {
                 },
                 Some(analysis),
             ));
-        }
-        if ids.is_empty() {
-            return Err("Connect the source and destination devices to check".into());
         }
         Ok(ids)
     }

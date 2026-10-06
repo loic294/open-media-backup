@@ -1,7 +1,7 @@
 import { html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Destination, DestinationStatus, FileCategory } from "../../api/types";
-import { destinationStatus, flowStatus, isActive, isRunnable, sourceStatus } from "../../state/derived";
+import { destinationStatus, flowStatus, isActive, isRunnable } from "../../state/derived";
 import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
@@ -50,35 +50,19 @@ export class OmbDestinationCard extends OmbElement {
       this.store.transfers.some(
         (job) =>
           isActive(job) &&
-          this.#incoming.some((flow) => job.flow_id === flow.id || job.flow_id === `check:${flow.id}`),
+          (job.flow_id === `check:destination:${this.destination.id}` ||
+            this.#incoming.some((flow) => job.flow_id === flow.id || job.flow_id === `check:${flow.id}`)),
       )
     );
   }
 
   #canCheck() {
-    return (
-      !this.#busy() &&
-      (destinationStatus(this.store.status, this.destination.id)?.available ?? false) &&
-      this.#incoming.some((flow) => {
-        const st = flowStatus(this.store.status, flow.id);
-        return (
-          sourceStatus(this.store.status, flow.source_id)?.available &&
-          st &&
-          st.state !== "unavailable" &&
-          (st.state !== "error" || isRunnable(st)) &&
-          st.transferred + st.to_transfer + st.failed > 0
-        );
-      })
-    );
+    return !this.#busy() && (destinationStatus(this.store.status, this.destination.id)?.available ?? false);
   }
 
-  async #check() {
-    this.actionBusy = true;
-    try {
-      await this.store.checkDestination(this.destination.id);
-    } finally {
-      this.actionBusy = false;
-    }
+  #check() {
+    const context = this.store.context;
+    if (context) this.store.open({ type: "destination-check", destinationId: this.destination.id, context });
   }
 
   async #openInApp() {
@@ -400,7 +384,7 @@ export class OmbDestinationCard extends OmbElement {
             </button>
             <button
               class="btn btn-sm gap-1.5"
-              title="Compare source and destination hashes at the expected file paths"
+              title="Choose which destination files to check"
               ?disabled=${!this.#canCheck()}
               @click=${() => this.#check()}
             >

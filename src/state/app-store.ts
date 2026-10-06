@@ -2,6 +2,7 @@ import type { Backend, EntityByKind } from "../api/backend";
 import type {
   AppSettings,
   ConflictDecision,
+  DestinationCheckScope,
   EntityKind,
   HashServer,
   Status,
@@ -360,9 +361,15 @@ export class AppStore extends EventTarget {
     if (context) await this.#guard(() => this.backend.runWorkspaceDestination(context, destinationId));
   }
 
-  async checkDestination(destinationId: string): Promise<void> {
-    const context = this.context;
-    if (context) await this.#guard(() => this.backend.checkWorkspaceDestination(context, destinationId));
+  async checkDestination(
+    destinationId: string,
+    scope: DestinationCheckScope = { kind: "configuredSources" },
+    context = this.context,
+  ): Promise<boolean> {
+    return this.#guard(async () => {
+      if (!context) throw new Error("Select a workspace before checking");
+      await this.backend.checkWorkspaceDestination(context, destinationId, scope);
+    });
   }
 
   async resolveTransferConflict(

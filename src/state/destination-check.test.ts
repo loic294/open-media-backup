@@ -55,7 +55,7 @@ describe("destination actions and job snapshots", () => {
     await store.checkDestination("d2");
     expect(run).toHaveBeenCalledOnce();
     expect(run).toHaveBeenCalledWith({ spaceId: "travel", projectId: null }, "d2");
-    expect(check).toHaveBeenCalledWith(store.context, "d2");
+    expect(check).toHaveBeenCalledWith(store.context, "d2", { kind: "configuredSources" });
     expect(flow).not.toHaveBeenCalled();
   });
 
@@ -104,7 +104,15 @@ describe("destination actions and job snapshots", () => {
       kind: "check",
       state: "cancelled",
       pending_conflict: null,
-      check_results: { matched: 1, missing: 1, conflicts: 0, errors: 0, items: [] },
+      check_results: {
+        matched: 1,
+        missing: 1,
+        conflicts: 0,
+        errors: 0,
+        verified: 0,
+        untracked: 0,
+        items: [],
+      },
     });
     events.emit("transfers", [check]);
     expect(store.dialogs).toEqual([{ type: "destination-check-results", job: check }]);

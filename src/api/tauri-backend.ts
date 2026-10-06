@@ -52,8 +52,8 @@ export const tauriBackend: Backend = {
   runWorkspaceAll: (context) => invoke("run_workspace_all", { context }),
   runWorkspaceDestination: (context, destinationId) =>
     invoke("run_workspace_destination", { context, destinationId }),
-  checkWorkspaceDestination: (context, destinationId) =>
-    invoke("check_workspace_destination", { context, destinationId }),
+  checkWorkspaceDestination: (context, destinationId, scope = { kind: "configuredSources" }) =>
+    invoke("check_workspace_destination", { context, destinationId, scope }),
   resolveTransferConflict: (jobId, requestId, decision, applyToRemaining) =>
     invoke("resolve_transfer_conflict", { jobId, requestId, decision, applyToRemaining }),
   setTransferPaused: (jobId, paused) => invoke("set_transfer_paused", { jobId, paused }),

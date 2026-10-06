@@ -10,6 +10,20 @@ use crate::store::Store;
 
 const BATCH: usize = 50;
 
+/// IPC check selection. Source checks compare freshly read source and destination
+/// content; a full scan compares destination content only with catalog evidence.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum CheckScope {
+    #[default]
+    ConfiguredSources,
+    SelectedSources {
+        #[serde(rename = "sourceIds")]
+        source_ids: Vec<String>,
+    },
+    AllDestination,
+}
+
 /// Hashes every eligible source file against its expected destination path. Media files
 /// and backup markers are never written; verified matches are recorded in the catalog and
 /// location claims that are demonstrably wrong are invalidated. Check throughput is not
@@ -189,7 +203,7 @@ fn check_one(
     }
 }
 
-struct HashProgress<'a> {
+pub(super) struct HashProgress<'a> {
     handle: &'a JobHandle,
     before: u64,
     budget: u64,
@@ -197,7 +211,7 @@ struct HashProgress<'a> {
 }
 
 impl<'a> HashProgress<'a> {
-    fn new(handle: &'a JobHandle, before: u64, budget: u64) -> Self {
+    pub(super) fn new(handle: &'a JobHandle, before: u64, budget: u64) -> Self {
         Self {
             handle,
             before,
@@ -206,7 +220,7 @@ impl<'a> HashProgress<'a> {
         }
     }
 
-    fn add(&mut self, bytes: u64, total: u64) {
+    pub(super) fn add(&mut self, bytes: u64, total: u64) {
         self.read = self.read.saturating_add(bytes);
         let done = if total == 0 {
             self.budget
@@ -231,12 +245,17 @@ fn differs(
 }
 
 impl CheckResults {
-    fn add(&mut self, item: CheckItem) {
+    pub(super) fn add(&mut self, item: CheckItem) {
         match item.outcome {
             CheckOutcome::Matched => {
                 self.matched += 1;
                 return;
             }
+            CheckOutcome::Verified => {
+                self.verified += 1;
+                return;
+            }
+            CheckOutcome::Untracked => self.untracked += 1,
             CheckOutcome::Missing => self.missing += 1,
             CheckOutcome::Conflict => self.conflicts += 1,
             CheckOutcome::Error => self.errors += 1,
