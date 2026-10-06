@@ -10,6 +10,7 @@ import { OmbFooter } from "../footer/omb-footer";
 import { OmbMediaBrowserDialog } from "../dialogs/media-browser-dialog";
 import { OmbPreviewDialog } from "../dialogs/preview-dialog";
 import { OmbWipeDialog } from "../dialogs/wipe-dialog";
+import { summarizeDirectories } from "../../utils/transfer-tree";
 
 async function until(condition: () => boolean) {
   for (let n = 0; n < 100; n++) {
@@ -120,11 +121,15 @@ describe("project-free workspace UI", () => {
   });
 
   it("loads source media and flow previews without a project", async () => {
-    const list = vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) => ({
-      items: req.category === "to_transfer" ? [file] : [],
-      total: req.category === "to_transfer" ? 1 : 0,
-      total_bytes: req.category === "to_transfer" ? 100 : 0,
-    }));
+    const list = vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) => {
+      const items = req.category === "to_transfer" ? [file] : [];
+      return {
+        items,
+        total: items.length,
+        total_bytes: items.reduce((sum, item) => sum + item.size, 0),
+        directories: summarizeDirectories(items),
+      };
+    });
     const browser = new OmbMediaBrowserDialog();
     browser.request = { type: "media-browser", sourceId: "s1" };
     document.body.append(browser);

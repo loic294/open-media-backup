@@ -107,8 +107,10 @@ describe("device settings", () => {
     expect(document.activeElement).toBe(button(settings, "General"));
     expect(button(settings, "Devices").tabIndex).toBe(-1);
     button(settings, "General").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    await until(() => settings.querySelector('[aria-selected="true"]')?.textContent?.trim() === "Devices");
-    expect(document.activeElement).toBe(button(settings, "Devices"));
+    await until(
+      () => settings.querySelector('[aria-selected="true"]')?.textContent?.trim() === "Speed Analysis",
+    );
+    expect(document.activeElement).toBe(button(settings, "Speed Analysis"));
   });
 
   it("confirms removal with usage and preserves tasks, connections and history", async () => {
