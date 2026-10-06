@@ -101,11 +101,15 @@ pub fn validate_project_ranges(projects: &[Project], allow_overlap: bool) -> Res
     if allow_overlap {
         return Ok(());
     }
-    for (index, project) in projects.iter().enumerate() {
+    let active: Vec<&Project> = projects
+        .iter()
+        .filter(|project| !project.archived)
+        .collect();
+    for (index, project) in active.iter().enumerate() {
         let Some((start, end)) = project.capture_range()? else {
             continue;
         };
-        for other in &projects[index + 1..] {
+        for other in &active[index + 1..] {
             let Some((other_start, other_end)) = other.capture_range()? else {
                 continue;
             };

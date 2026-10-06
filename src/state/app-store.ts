@@ -17,7 +17,7 @@ import { checkForUpdateOnLaunch } from "./updater";
 import { debounce } from "../utils/debounce";
 import { applyTheme } from "../utils/theme";
 import type { DialogRequest } from "./dialogs";
-import { activeProject, activeSpace } from "./selectors";
+import { activeSpace } from "./selectors";
 import { validateProjectConfiguration } from "./projects";
 
 export interface Toast {
@@ -74,13 +74,9 @@ export class AppStore extends EventTarget {
     return this.snapshot ? activeSpace(this.snapshot) : null;
   }
 
-  get project() {
-    return this.snapshot ? activeProject(this.snapshot, this.space?.id) : null;
-  }
-
   get context(): WorkspaceContext | null {
     const space = this.space;
-    return space ? { spaceId: space.id, projectId: this.project?.id ?? null } : null;
+    return space ? { spaceId: space.id, projectId: null } : null;
   }
 
   async init(): Promise<void> {
@@ -200,11 +196,7 @@ export class AppStore extends EventTarget {
     });
     this.#statusContextKey = key;
     try {
-      const status = context
-        ? context.projectId
-          ? await this.backend.getProjectStatus(context.projectId)
-          : await this.backend.getWorkspaceStatus(context)
-        : null;
+      const status = context ? await this.backend.getWorkspaceStatus(context) : null;
       if (current()) this.#set({ status, statusLoading: false });
     } catch (e) {
       if (!current()) return;
@@ -215,10 +207,7 @@ export class AppStore extends EventTarget {
   }
 
   listWorkspaceFiles(req: WorkspaceFilesRequest) {
-    const { context, ...args } = req;
-    return context.projectId
-      ? this.backend.listFiles({ ...args, projectId: context.projectId })
-      : this.backend.listWorkspaceFiles(req);
+    return this.backend.listWorkspaceFiles(req);
   }
 
   // ---- selection & settings ----
@@ -234,16 +223,6 @@ export class AppStore extends EventTarget {
   async selectSpace(spaceId: string): Promise<void> {
     this.status = null;
     await this.saveSettings({ active_space_id: spaceId });
-    await this.#loadStatus();
-  }
-
-  async selectProject(projectId: string): Promise<void> {
-    const space = this.space;
-    if (!space || !this.snapshot) return;
-    this.status = null;
-    await this.saveSettings({
-      active_project_by_space: { ...this.snapshot.settings.active_project_by_space, [space.id]: projectId },
-    });
     await this.#loadStatus();
   }
 
@@ -394,30 +373,18 @@ export class AppStore extends EventTarget {
 
   async runFlow(flowId: string): Promise<void> {
     const context = this.context;
-    if (context)
-      await this.#guard(() =>
-        context.projectId
-          ? this.backend.runFlow(context.projectId, flowId)
-          : this.backend.runWorkspaceFlow(context, flowId),
-      );
+    if (context) await this.#guard(() => this.backend.runWorkspaceFlow(context, flowId));
   }
 
   async runAll(): Promise<void> {
     const context = this.context;
-    if (context)
-      await this.#guard(() =>
-        context.projectId ? this.backend.runAll(context.projectId) : this.backend.runWorkspaceAll(context),
-      );
+    if (context) await this.#guard(() => this.backend.runWorkspaceAll(context));
   }
 
   async openFlowInApp(flowId: string): Promise<void> {
     const context = this.context;
     if (!context) return;
-    const opened = await this.#guardResult(() =>
-      context.projectId
-        ? this.backend.openFlowInApp(context.projectId, flowId)
-        : this.backend.openWorkspaceFlowInApp(context, flowId),
-    );
+    const opened = await this.#guardResult(() => this.backend.openWorkspaceFlowInApp(context, flowId));
     if (!opened) return;
     const count = opened.files.length;
     this.open({
@@ -427,9 +394,7 @@ export class AppStore extends EventTarget {
       confirmLabel: "Mark as transferred",
       cancelLabel: "Not yet",
       onConfirm: async () => {
-        const marked = await (context.projectId
-          ? this.backend.confirmAppImport(context.projectId, flowId, opened.token)
-          : this.backend.confirmWorkspaceAppImport(context, flowId, opened.token));
+        const marked = await this.backend.confirmWorkspaceAppImport(context, flowId, opened.token);
         this.toast(
           "success",
           `${marked.toLocaleString("en-US")} ${marked === 1 ? "file" : "files"} marked transferred`,

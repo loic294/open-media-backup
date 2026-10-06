@@ -29,13 +29,6 @@ export function spaceProjects(s: Snapshot, spaceId: string): Project[] {
     .sort((a, b) => Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name));
 }
 
-export function activeProject(s: Snapshot, spaceId: string | undefined): Project | null {
-  if (!spaceId) return null;
-  const projects = spaceProjects(s, spaceId);
-  const chosen = s.settings.active_project_by_space[spaceId];
-  return projects.find((p) => p.id === chosen) ?? projects.find((p) => !p.archived) ?? null;
-}
-
 const byPosition = <T extends { position: number }>(a: T, b: T) => a.position - b.position;
 
 export function spaceSources(s: Snapshot, spaceId: string): Source[] {
@@ -51,11 +44,7 @@ export function spaceFlows(s: Snapshot, spaceId: string): Flow[] {
 }
 
 /** Stable ordering for items whose associated device is currently mounted here. */
-export function mountedFirst<T>(
-  items: T[],
-  volumes: Volume[],
-  deviceId: (item: T) => string | null,
-): T[] {
+export function mountedFirst<T>(items: T[], volumes: Volume[], deviceId: (item: T) => string | null): T[] {
   const mounted = new Set(volumes.flatMap((volume) => (volume.device_id ? [volume.device_id] : [])));
   return [...items].sort(
     (a, b) => Number(mounted.has(deviceId(b) ?? "")) - Number(mounted.has(deviceId(a) ?? "")),

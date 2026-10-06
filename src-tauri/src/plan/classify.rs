@@ -87,7 +87,8 @@ pub fn classify_files(
     let mut errors = failures.cloned().unwrap_or_default();
     let needs_capture = ctx.source_root.is_some()
         && ctx.projects.iter().any(|project| {
-            ctx.source.project_scope.allows(&project.id)
+            !project.archived
+                && ctx.source.project_scope.allows(&project.id)
                 && project.start_time.is_some()
                 && project.end_time.is_some()
         });
@@ -157,7 +158,8 @@ pub fn classify_files_with_capture_times(
                 .projects
                 .iter()
                 .filter(|project| {
-                    ctx.source.project_scope.allows(&project.id)
+                    !project.archived
+                        && ctx.source.project_scope.allows(&project.id)
                         && file_capture_times
                             .iter()
                             .any(|time| project.matches_capture_time(Some(*time)))

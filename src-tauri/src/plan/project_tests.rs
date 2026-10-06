@@ -95,6 +95,9 @@ fn overlap_validation_includes_shared_endpoints_and_mixed_granularity() {
     );
     assert!(validate_project_ranges(&[a.clone(), b.clone()], true).is_ok());
     assert!(validate_project_ranges(&[a.clone(), b.clone()], false).is_err());
+    let mut archived = b.clone();
+    archived.archived = true;
+    assert!(validate_project_ranges(&[a.clone(), archived], false).is_ok());
     b.start_time = Some(time("2026-01-01T12:01:00Z"));
     assert!(validate_project_ranges(&[a.clone(), b.clone()], false).is_ok());
     a.granularity = ProjectGranularity::Day;
@@ -123,7 +126,10 @@ fn routes_each_matching_project_using_its_values_not_the_selection() {
     b.id = "b".into();
     b.name = "b".into();
     b.values.insert("client".into(), "Bob".into());
-    fx.store.put_all(&[a, b]).unwrap();
+    let mut archived = a.clone();
+    archived.id = "archived".into();
+    archived.archived = true;
+    fx.store.put_all(&[a, b, archived]).unwrap();
     let mut destination = fx.destination.clone();
     destination.path_template = "{client}/{project_name}".into();
     destination.subfolder_per_source = false;
@@ -188,9 +194,19 @@ fn routes_each_matching_project_using_its_values_not_the_selection() {
     };
     fx.store.put(&source).unwrap();
     let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
-    let selected = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
+    let selected =
+        classify_files_with_capture_times(&ctx, &catalog, files.clone(), &captures, None);
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].target_path.as_deref(), Some("Bob/b/A.JPG"));
+
+    source.project_scope = ProjectScope::Selected {
+        project_ids: vec!["archived".into()],
+    };
+    fx.store.put(&source).unwrap();
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let archived = classify_files_with_capture_times(&ctx, &catalog, files, &captures, None);
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].project_id, None);
 }
 
 #[test]

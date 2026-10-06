@@ -307,14 +307,8 @@ fn project_free_workspace_ipc_copies_files_and_rejects_wipe_without_project() {
                 })
             )
             .is_err());
-        assert!(ui
-            .call(
-                "plan_wipe",
-                json!({
-                    "projectId": project_id, "sourceId": "src"
-                })
-            )
-            .is_err());
+        let plan = ui.ok("plan_wipe", json!({ "sourceId": "src" }));
+        assert_eq!(plan["eligible"], false);
     }
     assert!(card.path().join("DCIM/A.JPG").exists());
     assert!(ui.ok("get_snapshot", json!({}))["projects"]
@@ -377,7 +371,6 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     );
     let mut settings = snapshot["settings"].clone();
     settings["active_space_id"] = json!("sp");
-    settings["active_project_by_space"] = json!({ "sp": "pr" });
     ui.ok("save_settings", json!({ "settings": settings }));
 
     // newDevice + registerDevice (writes a marker and maps the folder on this computer)
@@ -454,7 +447,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
         "{copied:?}"
     );
 
-    let plan = ui.ok("plan_wipe", json!({ "projectId": "pr", "sourceId": "src" }));
+    let plan = ui.ok("plan_wipe", json!({ "sourceId": "src" }));
     assert_eq!(
         (
             plan["files_total"].as_u64(),
@@ -466,7 +459,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     );
     ui.ok(
         "wipe",
-        json!({ "projectId": "pr", "sourceId": "src", "method": "delete_files" }),
+        json!({ "sourceId": "src", "method": "delete_files" }),
     );
     ui.wait_idle();
     assert!(!card.path().join("DCIM/100MSDCF/IMG_0001.ARW").exists());

@@ -765,10 +765,15 @@ export function createMockBackend(
     pickFolder: async () => window.prompt("Folder path (demo mode)", "/Volumes/Untitled") ?? null,
     pickPreviewApp: async () =>
       window.prompt("Preview app path (demo mode)", "/Applications/Preview.app") ?? null,
-    planWipe: async (projectId, sourceId) => {
-      const status = mockStatus(snapshot, projectId, counts, offline).sources.find(
-        (s) => s.source_id === sourceId,
+    planWipe: async (sourceId) => {
+      const source = snapshot.sources.find((item) => item.id === sourceId);
+      const projects = snapshot.projects.filter(
+        (project) => project.space_id === source?.space_id && !project.archived,
       );
+      const statuses = projects.map((project) =>
+        mockStatus(snapshot, project.id, counts, offline).sources.find((s) => s.source_id === sourceId),
+      );
+      const status = statuses[0];
       const finals = snapshot.devices.filter((d) => d.role === "final");
       return {
         source_id: sourceId,
@@ -780,18 +785,24 @@ export function createMockBackend(
           verified: status?.wipe_eligible ? (status.file_count ?? 0) : 0,
           total: status?.file_count ?? 0,
         })),
-        eligible: status?.wipe_eligible ?? false,
-        reason: status?.blocking_reason ?? null,
+        eligible: statuses.length > 0 && statuses.every((item) => item?.wipe_eligible),
+        reason: statuses.find((item) => !item?.wipe_eligible)?.blocking_reason ?? null,
       };
     },
-    wipe: async (projectId, sourceId) => {
-      const status = mockStatus(snapshot, projectId, counts, offline).sources.find(
-        (s) => s.source_id === sourceId,
+    wipe: async (sourceId) => {
+      const source = snapshot.sources.find((item) => item.id === sourceId);
+      const projects = snapshot.projects.filter(
+        (project) => project.space_id === source?.space_id && !project.archived,
       );
-      if (!status?.wipe_eligible) throw new Error(status?.blocking_reason || "Not safe to wipe this source");
-      const source = snapshot.sources.find((s) => s.id === sourceId);
+      const statuses = projects.map((project) =>
+        mockStatus(snapshot, project.id, counts, offline).sources.find((s) => s.source_id === sourceId),
+      );
+      const blocked = statuses.find((item) => !item?.wipe_eligible);
+      if (statuses.length === 0 || blocked)
+        throw new Error(blocked?.blocking_reason || "No active project applies to this source");
+      const currentSource = snapshot.sources.find((s) => s.id === sourceId);
       snapshot.flows.filter((f) => f.source_id === sourceId).forEach((f) => (counts[f.id] = [0, 0, 0, 0]));
-      if (source) source.offer_wipe = true;
+      if (currentSource) currentSource.offer_wipe = true;
       changed();
     },
     syncStatus: async () => demoSync(),

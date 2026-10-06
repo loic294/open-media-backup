@@ -47,7 +47,7 @@ describe("device management backend", () => {
         limit: 20,
       }),
     ).rejects.toThrow("source");
-    await expect(backend.wipe(original.projects[0].id, "s1", "delete_files")).rejects.toThrow("source");
+    await expect(backend.wipe("s1", "delete_files")).rejects.toThrow("source");
   });
 
   it("registers offline devices and can locate them later without duplicating devices or mappings", async () => {

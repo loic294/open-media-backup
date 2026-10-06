@@ -274,7 +274,7 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
           <omb-template-input
             .value=${d.backup_marker_template}
             placeholder="{date}_{project_name}"
-            .vars=${previewVars(d, this.store.project)}
+            .vars=${previewVars(d, null)}
             @value-change=${(e: CustomEvent<string>) => (this.draft = { ...d, backup_marker_template: e.detail })}
           ></omb-template-input>
         </section>

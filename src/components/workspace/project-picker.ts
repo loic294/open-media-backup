@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 import { customElement } from "lit/decorators.js";
 import { OmbElement } from "../ui/omb-element";
 
-/** Opens project management actions while keeping active project state internal. */
+/** Opens project management actions from the workspace header. */
 @customElement("omb-project-picker")
 export class OmbProjectPicker extends OmbElement {
   override render() {

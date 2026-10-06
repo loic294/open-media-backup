@@ -158,7 +158,6 @@ describe("source media browser components", () => {
     store.snapshot.sources = [source];
     store.snapshot.flows = [flow];
     store.snapshot.settings.active_space_id = space.id;
-    store.snapshot.settings.active_project_by_space = { [space.id]: project.id };
     store.dialogs = [];
     vi.spyOn(store.backend, "thumbnail").mockResolvedValue(null);
     vi.spyOn(store.backend, "getMediaMetadata").mockResolvedValue(metadata);
@@ -197,7 +196,7 @@ describe("source media browser components", () => {
   it("bounds page requests, advances raw offsets despite duplicates, and never requests unrelated source flows", async () => {
     store.snapshot!.flows.push({ ...store.snapshot!.flows[0], id: "unrelated", source_id: "other-source" });
     const list = vi
-      .spyOn(store.backend, "listFiles")
+      .spyOn(store.backend, "listWorkspaceFiles")
       .mockImplementation(async (req) =>
         req.category === "to_transfer" ? page([file("a", 0), file("a", 0)], 3) : page([]),
       );
@@ -219,7 +218,7 @@ describe("source media browser components", () => {
     for (let index = 0; index < 10; index++) {
       store.snapshot!.flows.push({ ...store.snapshot!.flows[0], id: `flow-${index}` });
     }
-    const list = vi.spyOn(store.backend, "listFiles").mockResolvedValue(page([file("a", 0)], 1000));
+    const list = vi.spyOn(store.backend, "listWorkspaceFiles").mockResolvedValue(page([file("a", 0)], 1000));
     const element = await browser();
     await until(() => !element.querySelector(".loading"));
     expect(list).toHaveBeenCalledTimes(4);
@@ -239,7 +238,7 @@ describe("source media browser components", () => {
 
   it("discards outstanding route pages when the search changes", async () => {
     let resolveOld!: (value: FilePage) => void;
-    const list = vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) => {
+    const list = vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) => {
       if (req.category !== "to_transfer") return page([]);
       if (req.filter) return page([file("filtered", 100)]);
       return new Promise((resolve) => (resolveOld = resolve));
@@ -261,7 +260,7 @@ describe("source media browser components", () => {
   });
 
   it("selects inclusive Shift-click ranges, shows project chips, and prefills project creation with capture bounds", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer"
         ? page([file("c", 200), file("a", 0), file("b", 100), file("unknown")])
         : page([]),
@@ -297,7 +296,7 @@ describe("source media browser components", () => {
 
   it("refreshes thumbnail project tags when the project list changes", async () => {
     const capture = Date.UTC(2026, 0, 14, 9, 5);
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("new-project.jpg", capture)]) : page([]),
     );
     const element = await browser();
@@ -322,7 +321,7 @@ describe("source media browser components", () => {
   });
 
   it("uses the first project tag color for unselected thumbnail borders", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("tagged.jpg", 0)]) : page([]),
     );
     const element = await browser();
@@ -332,7 +331,7 @@ describe("source media browser components", () => {
   });
 
   it("keeps selected thumbnails distinguishable with a primary offset ring", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("selected.jpg", 0)]) : page([]),
     );
     const element = await browser();
@@ -347,7 +346,7 @@ describe("source media browser components", () => {
   });
 
   it("enables project creation for selected files and reads their embedded capture times on demand", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("a"), file("b")]) : page([]),
     );
     vi.mocked(store.backend.getMediaMetadata).mockImplementation(async (path) => ({
@@ -382,7 +381,7 @@ describe("source media browser components", () => {
   });
 
   it("keeps the action usable for missing metadata but explains when capture time or timezone is unavailable", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("unknown")]) : page([]),
     );
     const element = await browser();
@@ -401,7 +400,7 @@ describe("source media browser components", () => {
   });
 
   it("creates a project from the dated files when other selected files are undated or unreadable", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer"
         ? page([file("late", 500), file("early", 100), file("sidecar.xml"), file("broken")])
         : page([]),
@@ -462,7 +461,7 @@ describe("source media browser components", () => {
   });
 
   it("pins the media browser inspector while the gallery scrolls independently on large screens", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("photo", 0)]) : page([]),
     );
     const element = await browser();
@@ -496,7 +495,7 @@ describe("source media browser components", () => {
 
   it("shows system-specific open labels and opens the inspected file in the configured app", async () => {
     store.snapshot!.settings.preview_apps = { photos: "/Applications/Pixelmator Pro.app", videos: null };
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("photo", 0)]) : page([]),
     );
     const openMedia = vi.mocked(store.backend.openMedia);
@@ -514,7 +513,7 @@ describe("source media browser components", () => {
   });
 
   it("double-clicks thumbnails to open files while leaving the tile selected", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer" ? page([file("photo", 0)]) : page([]),
     );
     const openMedia = vi.mocked(store.backend.openMedia);
@@ -529,7 +528,7 @@ describe("source media browser components", () => {
   });
 
   it("shows folders before thumbnails and navigates with breadcrumbs and Up", async () => {
-    vi.spyOn(store.backend, "listFiles").mockImplementation(async (req) =>
+    vi.spyOn(store.backend, "listWorkspaceFiles").mockImplementation(async (req) =>
       req.category === "to_transfer"
         ? page([
             file("DCIM/100MSDCF/DSC07412.ARW", 0),

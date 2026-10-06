@@ -71,8 +71,8 @@ export const tauriBackend: Backend = {
     return typeof picked === "string" ? invoke("validate_app_path", { appPath: picked }) : null;
   },
 
-  planWipe: (projectId, sourceId) => invoke("plan_wipe", { projectId, sourceId }),
-  wipe: (projectId, sourceId, method) => invoke("wipe", { projectId, sourceId, method }),
+  planWipe: (sourceId) => invoke("plan_wipe", { sourceId }),
+  wipe: (sourceId, method) => invoke("wipe", { sourceId, method }),
 
   syncStatus: () => invoke("sync_status"),
   addPeer: (address, token) => invoke("add_peer", { address, token }),

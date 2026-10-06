@@ -54,13 +54,17 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
   }
 
   override render() {
-    const { snapshot, space, project } = this.store;
+    const { snapshot, space } = this.store;
     if (!snapshot || !space) return nothing;
     const d = this.draft;
     const device = deviceById(snapshot, d.device_id);
     const set = (patch: Partial<Source>) => (this.draft = { ...d, ...patch });
-    const projects = snapshot.projects.filter((p) => p.space_id === space.id);
+    const projects = snapshot.projects.filter((p) => p.space_id === space.id && !p.archived);
     const scope = d.project_scope ?? { mode: "all" as const };
+    const project =
+      scope.mode === "selected"
+        ? (projects.find((item) => scope.project_ids.includes(item.id)) ?? projects[0])
+        : projects[0];
     const setScopeMode = (mode: "all" | "selected" | "none") => {
       if (mode === "selected") {
         const projectIds = scope.mode === "selected" ? scope.project_ids : [];
@@ -129,8 +133,8 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
                   <span>
                     <span class="font-medium">Offer to wipe once safe</span>
                     <span class="block text-sm text-base-content/60">
-                      After every file is verified on ${project?.final_copies_required ?? 2} final
-                      destinations, a “Wipe card” button appears. Final devices are never wiped.
+                      Before wiping, every active project must meet its own final-copy requirement. Final
+                      devices are never wiped.
                     </span>
                   </span>
                 </label>

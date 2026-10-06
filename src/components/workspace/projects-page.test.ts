@@ -35,14 +35,13 @@ describe("project management page", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows project action buttons without the active project display", async () => {
+  it("shows project management without a single active-project selector", async () => {
     store.snapshot = demoSnapshot();
     store.dialogs = [];
     picker = new OmbProjectPicker();
     document.body.append(picker);
     await picker.updateComplete;
     expect(picker.querySelector("details.dropdown")).toBeNull();
-    expect(picker.textContent).not.toContain(store.project!.name);
     [...picker.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Projects"))!
       .click();
@@ -51,6 +50,13 @@ describe("project management page", () => {
       .find((button) => button.textContent?.includes("New project"))!
       .click();
     expect(store.dialogs.at(-1)).toMatchObject({ type: "project", projectId: null });
+    page = new OmbProjectsPage();
+    page.request = { type: "projects" };
+    document.body.append(page);
+    await page.updateComplete;
+    expect(page.textContent).not.toContain("Active");
+    expect(page.textContent).not.toContain("Use");
+    expect(page.querySelector('[aria-label^="Use "]')).toBeNull();
   });
 
   it("lays out the workspace header with space identity, pending status, and project actions", async () => {
@@ -58,7 +64,7 @@ describe("project management page", () => {
     store.dialogs = [];
     store.status = mockStatus(
       store.snapshot,
-      store.project!.id,
+      store.snapshot!.projects[0].id,
       structuredClone(demoCounts),
       new Set(demoOffline),
     );
@@ -91,8 +97,8 @@ describe("project management page", () => {
     store.snapshot = demoSnapshot();
     vi.spyOn(store.backend, "saveEntity").mockResolvedValue();
     vi.spyOn(store.backend, "saveSettings").mockResolvedValue();
-    vi.spyOn(store.backend, "getProjectStatus").mockResolvedValue({
-      project_id: "",
+    vi.spyOn(store.backend, "getWorkspaceStatus").mockResolvedValue({
+      context: { spaceId: store.space!.id, projectId: null },
       flows: [],
       sources: [],
       destinations: [],
@@ -124,10 +130,9 @@ describe("project management page", () => {
       .filter((button) => button.textContent?.includes("Create project"))
       .at(-1)!
       .click();
-    await until(() => store.project?.name === "New workspace project");
     const created = store.snapshot!.projects.find((project) => project.name === "New workspace project")!;
     expect(created.color).toBe(expectedColor);
-    expect(store.project?.id).toBe(created.id);
+    expect(store.context?.projectId).toBeNull();
     expect(page.textContent).toContain("Projects in Travel");
     expect(page.textContent).toContain("Project variables");
   });

@@ -54,7 +54,7 @@ describe("destination actions and job snapshots", () => {
     await store.runDestination("d2");
     await store.checkDestination("d2");
     expect(run).toHaveBeenCalledOnce();
-    expect(run).toHaveBeenCalledWith({ spaceId: "travel", projectId: "trip" }, "d2");
+    expect(run).toHaveBeenCalledWith({ spaceId: "travel", projectId: null }, "d2");
     expect(check).toHaveBeenCalledWith(store.context, "d2");
     expect(flow).not.toHaveBeenCalled();
   });

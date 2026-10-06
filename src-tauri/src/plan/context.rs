@@ -144,15 +144,20 @@ pub fn resolve_workspace_flow(
         .flatten();
 
     let mut errors = Vec::new();
-    let projects: Vec<Project> = store.list_by("space_id", &space.id)?;
-    if let Err(error) = validate_project_ranges(&projects, space.allow_project_overlap) {
+    let all_projects: Vec<Project> = store.list_by::<Project>("space_id", &space.id)?;
+    let projects: Vec<Project> = all_projects
+        .iter()
+        .filter(|project| !project.archived)
+        .cloned()
+        .collect();
+    if let Err(error) = validate_project_ranges(&all_projects, space.allow_project_overlap) {
         errors.push(error);
     }
     if let Err(error) = super::validate_source_destination(&source, &destination, &space, &projects)
     {
         errors.push(error);
     }
-    if let Err(error) = source.validate_projects(&projects) {
+    if let Err(error) = source.validate_projects(&all_projects) {
         errors.push(error);
     }
     let mut vars = if matches!(source.project_scope, crate::domain::ProjectScope::None) {
@@ -253,7 +258,8 @@ impl FlowContext {
         self.projects
             .iter()
             .filter(|project| {
-                self.source.project_scope.allows(&project.id)
+                !project.archived
+                    && self.source.project_scope.allows(&project.id)
                     && project.matches_capture_time(capture_time)
             })
             .collect()

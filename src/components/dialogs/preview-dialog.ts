@@ -554,7 +554,7 @@ export class OmbPreviewDialog extends DialogBase<Extract<DialogRequest, { type: 
     return html`<omb-modal
       size="xl"
       heading="Preview"
-      subheading=${this.store.project?.name ?? ""}
+      subheading=${this.store.space?.name ?? ""}
       icon="images"
       @close=${this.onClosed}
       .body=${body}

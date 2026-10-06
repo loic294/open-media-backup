@@ -150,7 +150,6 @@ export interface AppSettings {
   auto_sync_minutes: number;
   sync_port: number;
   active_space_id: string | null;
-  active_project_by_space: Record<string, string>;
   /** Per-device custom apps. Missing on older snapshots means system defaults. */
   preview_apps?: PreviewAppSettings;
   /** Missing in older snapshots means mounted devices appear first in device lists. */

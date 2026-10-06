@@ -31,19 +31,22 @@ describe("project dialog prefill", () => {
 
   it("populates the range for a new project created from selected media", async () => {
     const element = await mount(null);
-    expect(element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range start"]')!.value)
-      .toBe("2026-06-15T18:27");
-    expect(element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range end"]')!.value)
-      .toBe("2026-06-16T19:28");
+    expect(
+      element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range start"]')!.value,
+    ).toBe("2026-06-15T18:27");
+    expect(element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range end"]')!.value).toBe(
+      "2026-06-16T19:28",
+    );
   });
 
   it("does not replace an existing project's range with prefill", async () => {
     const snapshot = demoSnapshot();
-    const projectId = snapshot.settings.active_project_by_space[snapshot.settings.active_space_id!];
+    const projectId = snapshot.projects.find((project) => !project.archived)!.id;
     const element = await mount(projectId);
     const project = store.snapshot!.projects.find((p) => p.id === projectId)!;
-    expect(element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range start"]')!.value)
-      .toBe(formatProjectTime(project.start_time, project.granularity ?? "minute"));
+    expect(
+      element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range start"]')!.value,
+    ).toBe(formatProjectTime(project.start_time, project.granularity ?? "minute"));
   });
 });
 

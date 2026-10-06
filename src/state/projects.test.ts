@@ -29,9 +29,9 @@ describe("project capture ranges", () => {
     }));
     expect(nextProjectColor([])).toBe(PROJECT_COLORS[0]);
     expect(nextProjectColor(projects)).not.toBe("");
-    expect(projects.some((project) => project.color?.toLowerCase() === nextProjectColor(projects).toLowerCase())).toBe(
-      false,
-    );
+    expect(
+      projects.some((project) => project.color?.toLowerCase() === nextProjectColor(projects).toLowerCase()),
+    ).toBe(false);
     expect(nextProjectColor(projects.slice(0, 3))).toBe(PROJECT_COLORS[3]);
   });
 
@@ -68,6 +68,7 @@ describe("project capture ranges", () => {
     const b = range("b", "2026-01-01T12:00:00Z", "2026-01-01T13:00:00Z");
     expect(() => validateProjectRanges([a, b])).not.toThrow();
     expect(() => validateProjectRanges([a, b], false)).toThrow("overlap");
+    expect(() => validateProjectRanges([a, { ...b, archived: true }], false)).not.toThrow();
     b.start_time = time("2026-01-01T12:01:00Z");
     expect(() => validateProjectRanges([a, b], false)).not.toThrow();
     a.granularity = "day";
@@ -87,9 +88,11 @@ describe("project capture ranges", () => {
       { ...a, id: "foreign", space_id: "other" },
     ];
     const captureTime = a.start_time;
-    expect(matchingProjects(snapshot, source, captureTime).map((p) => p.id)).toEqual(["a", "b", "archived"]);
+    expect(matchingProjects(snapshot, source, captureTime).map((p) => p.id)).toEqual(["a", "b"]);
     source.project_scope = { mode: "selected", project_ids: ["b"] };
     expect(matchingProjects(snapshot, source, captureTime).map((p) => p.id)).toEqual(["b"]);
+    source.project_scope = { mode: "selected", project_ids: ["archived"] };
+    expect(matchingProjects(snapshot, source, captureTime)).toEqual([]);
     expect(matchingProjects(snapshot, source, null)).toEqual([]);
     source.project_scope = { mode: "none" };
     expect(matchingProjects(snapshot, source, captureTime)).toEqual([]);

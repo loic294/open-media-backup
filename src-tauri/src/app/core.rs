@@ -2,7 +2,7 @@ use super::{
     entities, files, resolve_reveal_path, reveal_space_id, AppSettings, FilePage, ListFilesRequest,
     ListWorkspaceFilesRequest, RevealKind, Snapshot,
 };
-use crate::domain::{Destination, DestinationKind};
+use crate::domain::{Destination, DestinationKind, Project};
 use crate::plan::{
     workspace_status, Catalog, FailureMap, ProjectStatus, RootResolver, WorkspaceContext,
     WorkspaceStatus,
@@ -231,24 +231,20 @@ impl AppCore {
         kind: RevealKind,
         id: &str,
     ) -> Result<PathBuf, String> {
-        let project_id = project_id.map(str::to_string).or_else(|| {
-            reveal_space_id(&self.store, kind, id)
-                .ok()
-                .and_then(|space_id| {
-                    self.settings()
-                        .active_project_by_space
-                        .get(&space_id)
-                        .cloned()
-                })
-        });
-        resolve_reveal_path(
-            &self.store,
-            self.resolver.as_ref(),
-            project_id.as_deref(),
-            kind,
-            id,
-        )
-        .map(|path| nearest_existing(&path))
+        let fallback_project_id = if project_id.is_none() {
+            let space_id = reveal_space_id(&self.store, kind, id)?;
+            self.store
+                .list_by::<Project>("space_id", &space_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|project| !project.archived)
+                .map(|project| project.id)
+        } else {
+            None
+        };
+        let project_id = project_id.or(fallback_project_id.as_deref());
+        resolve_reveal_path(&self.store, self.resolver.as_ref(), project_id, kind, id)
+            .map(|path| nearest_existing(&path))
     }
 
     pub fn prepare_app_import(

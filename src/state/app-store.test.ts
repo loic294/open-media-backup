@@ -23,11 +23,12 @@ describe("AppStore with the mock backend", () => {
     return store;
   };
 
-  it("loads the snapshot, active space/project and status", async () => {
+  it("loads the snapshot, active space and all-project workspace status", async () => {
     await setup();
     expect(store.error).toBeNull();
     expect(store.space).not.toBeNull();
-    expect(store.project).not.toBeNull();
+    expect(store.context?.projectId).toBeNull();
+    expect(store.status && "context" in store.status && store.status.context.projectId).toBeNull();
     expect(store.status?.flows.length).toBeGreaterThan(0);
     expect(document.documentElement.dataset.theme).toMatch(/^omb-/);
   });
@@ -66,7 +67,6 @@ describe("AppStore with the mock backend", () => {
       const statusRequest = vi.spyOn(backend, "getWorkspaceStatus");
       store = new AppStore(backend);
       await store.init();
-      expect(store.project).toBeNull();
       expect(store.context).toEqual({ spaceId: "travel", projectId: null });
       expect(statusRequest).toHaveBeenCalledWith(store.context);
       expect(store.status?.sources.length).toBe(3);
@@ -88,16 +88,15 @@ describe("AppStore with the mock backend", () => {
       expect((await backend.getSnapshot()).projects).toEqual([]);
     });
 
-    it("uses project status after first creation and workspace status after last deletion", async () => {
+    it("keeps workspace status across project creation and deletion", async () => {
       store = new AppStore(await backendWithoutProjects());
       await store.init();
       const project = newProject(store.space!, "First shoot");
       expect(await store.save("project", project)).toBe(true);
-      await store.selectProject(project.id);
-      expect(store.status && "project_id" in store.status && store.status.project_id).toBe(project.id);
+      await store.retryStatus();
+      expect(store.status && "context" in store.status && store.status.context.projectId).toBeNull();
       await store.remove("project", project.id);
       await store.retryStatus();
-      expect(store.project).toBeNull();
       expect(store.status && "context" in store.status && store.status.context.projectId).toBeNull();
       expect(store.statusLoading).toBe(false);
     });

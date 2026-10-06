@@ -24,9 +24,9 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
 
   override connectedCallback(): void {
     super.connectedCallback();
-    const { project, snapshot, space } = this.store;
+    const { snapshot, space } = this.store;
     const projects = snapshot && space ? spaceProjects(snapshot, space.id) : [];
-    const initial = projects.find((item) => item.id === project?.id) ?? projects[0];
+    const initial = projects[0];
     if (initial) this.draft = structuredClone(initial);
   }
 
@@ -49,9 +49,6 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
       });
       if (!saved) return;
       this.draft = structuredClone(this.store.snapshot!.projects.find((item) => item.id === this.draft!.id)!);
-      if (!this.store.project || this.draft.id !== this.store.project.id) {
-        await this.store.selectProject(this.draft.id);
-      }
       this.store.toast("success", "Project saved");
     } finally {
       this.saving = false;
@@ -93,7 +90,7 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
   }
 
   override render() {
-    const { snapshot, space, project: activeProject } = this.store;
+    const { snapshot, space } = this.store;
     if (!snapshot || !space) return nothing;
     const projects = spaceProjects(snapshot, space.id);
     const draft = this.draft;
@@ -141,15 +138,6 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
                             ${item.granularity ?? "minute"} grouping
                           </span>
                           ${item.archived ? html`<span class="badge badge-ghost badge-xs mt-1">Archived</span>` : nothing}
-                        </button>
-                        ${item.id === activeProject?.id ? html`<span class="badge badge-primary badge-soft badge-sm">Active</span>` : nothing}
-                        <button
-                          class="btn btn-xs"
-                          ?disabled=${item.id === activeProject?.id}
-                          aria-label=${`Use ${item.name} project`}
-                          @click=${() => void this.store.selectProject(item.id)}
-                        >
-                          ${item.id === activeProject?.id ? "Active" : "Use"}
                         </button>
                       </div>`;
                     })

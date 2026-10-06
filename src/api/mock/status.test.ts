@@ -135,7 +135,6 @@ const snapshot = (
     auto_sync_minutes: 5,
     sync_port: 0,
     active_space_id: "space",
-    active_project_by_space: { space: "project" },
     preview_apps: { photos: null, videos: null },
   },
 });

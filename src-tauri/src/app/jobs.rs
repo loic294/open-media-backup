@@ -253,4 +253,41 @@ impl AppCore {
             }),
         }))
     }
+
+    pub fn start_workspace_wipe(
+        &self,
+        source_id: &str,
+        method: WipeMethod,
+    ) -> Result<String, String> {
+        let source: Source = self
+            .store
+            .get(source_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("source not found")?;
+        let device: Device = self
+            .store
+            .get(&source.device_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Select a device in source settings before wiping")?;
+        let plan =
+            crate::wipe::plan_workspace_wipe(&self.store, self.resolver.as_ref(), source_id)?;
+        if let Some(reason) = plan.reason {
+            return Err(reason);
+        }
+        let (store, resolver, source_id) = (
+            self.store.clone(),
+            self.resolver.clone(),
+            source_id.to_string(),
+        );
+        Ok(self.transfers.enqueue(JobSpec {
+            key: format!("wipe:{source_id}"),
+            label: format!("Wipe {}", device.name),
+            resources: vec![ResourceClaim::exclusive(format!("device:{}", device.id))],
+            kind: JobKind::Wipe,
+            queue: None,
+            work: Box::new(move |handle| {
+                crate::wipe::wipe_workspace(&store, resolver.as_ref(), &source_id, method, handle)
+            }),
+        }))
+    }
 }

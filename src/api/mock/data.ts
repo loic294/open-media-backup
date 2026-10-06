@@ -209,7 +209,6 @@ export function demoSnapshot(): Snapshot {
       auto_sync_minutes: 5,
       sync_port: 47821,
       active_space_id: "travel",
-      active_project_by_space: { travel: "trip" },
       preview_apps: { photos: null, videos: null },
       show_mounted_devices_first: true,
       keep_awake_during_transfers: true,

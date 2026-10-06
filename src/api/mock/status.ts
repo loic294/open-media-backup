@@ -41,6 +41,7 @@ export function mockWorkspaceStatus(
   const { spaceId, projectId } = context;
   const space = snapshot.spaces.find((s) => s.id === spaceId);
   const project = projectId ? snapshot.projects.find((p) => p.id === projectId) : undefined;
+  const activeProjects = snapshot.projects.filter((p) => p.space_id === spaceId && !p.archived);
   if (!space) throw new Error(`Space ${spaceId} not found`);
   if (projectId !== null && !project) throw new Error(`Project ${projectId} not found`);
   if (project && project.space_id !== spaceId) throw new Error("Project must belong to the workspace space");
@@ -70,10 +71,10 @@ export function mockWorkspaceStatus(
     let configError: string | null = null;
     if (space && src && dest) {
       try {
-        const projects = snapshot.projects.filter((p) => p.space_id === spaceId);
+        const projects = snapshot.projects.filter((p) => p.space_id === spaceId && !p.archived);
         validateProjectRanges(projects, space.allow_project_overlap ?? true);
         validateSourceDestination(src, dest, space, projects);
-        if (!project) {
+        if (!project && !snapshot.projects.some((p) => p.space_id === spaceId && !p.archived)) {
           const vars = previewVars(space, null, sourceBackupName(src, deviceOf(src.device_id)));
           if (templateVars(src.path_template).some((name) => !(name in vars)))
             throw new Error("Source path requires project values or an unknown variable");
@@ -194,6 +195,10 @@ export function mockWorkspaceStatus(
       const safe =
         finalSafe + (temporaryCopiesPerFinal > 0 ? Math.floor(temporarySafe / temporaryCopiesPerFinal) : 0);
       const required = project?.final_copies_required ?? null;
+      const scope = s.project_scope ?? { mode: "all" };
+      const hasApplicableProject = activeProjects.some(
+        (item) => scope.mode !== "none" && (scope.mode !== "selected" || scope.project_ids.includes(item.id)),
+      );
       const missing = safeCopyFlows
         .filter((f) => !complete(f))
         .map((f) => {
@@ -216,7 +221,9 @@ export function mockWorkspaceStatus(
         : offline.has(s.device_id)
           ? `${sourceDevice.name} not mounted`
           : required === null
-            ? "Create a project to set card-wiping safety requirements"
+            ? hasApplicableProject
+              ? "Wipe safety is checked against every active project"
+              : "Create a project to set card-wiping safety requirements"
             : total === 0
               ? "No files"
               : sourceDevice?.role === "final"

@@ -132,7 +132,6 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
     const previous = this.store.snapshot;
     await this.store.save("project", { ...this.draft, name: this.draft.name.trim() });
     if (this.store.snapshot === previous) return;
-    if (this.#isNew) await this.store.selectProject(this.draft.id);
     this.dismiss();
   }
 
@@ -245,7 +244,9 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
               const device = deviceById(snapshot, dest.device_id);
               const root = mappingFor(snapshot, dest.device_id)?.root_path ?? device?.name ?? "?";
               return html`<li class="truncate">
-                <span class="text-base-content/50">${destinationTaskName(dest, device, configuredDestinationApp(snapshot.settings, dest.id))}:</span>
+                <span class="text-base-content/50"
+                  >${destinationTaskName(dest, device, configuredDestinationApp(snapshot.settings, dest.id))}:</span
+                >
                 ${root}/${expandTemplate(dest.path_template, vars)}
               </li>`;
             })}

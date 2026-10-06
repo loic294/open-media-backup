@@ -96,19 +96,22 @@ export function matchesCaptureTime(project: Project, time: number | null | undef
 export function validateProjectRanges(projects: Project[], allowOverlap = true): void {
   const ranges = projects.map(projectRange);
   if (allowOverlap) return;
-  for (let i = 0; i < projects.length; i++) {
-    const range = ranges[i];
+  const active = projects
+    .map((project, index) => ({ project, range: ranges[index] }))
+    .filter(({ project }) => !project.archived);
+  for (let i = 0; i < active.length; i++) {
+    const { project, range } = active[i];
     if (!range) continue;
-    for (let j = i + 1; j < projects.length; j++) {
-      const other = ranges[j];
+    for (let j = i + 1; j < active.length; j++) {
+      const other = active[j].range;
       if (!other) continue;
       if (
-        matchesCaptureTime(projects[i], other[0]) ||
-        matchesCaptureTime(projects[i], other[1]) ||
-        matchesCaptureTime(projects[j], range[0]) ||
-        matchesCaptureTime(projects[j], range[1])
+        matchesCaptureTime(project, other[0]) ||
+        matchesCaptureTime(project, other[1]) ||
+        matchesCaptureTime(active[j].project, range[0]) ||
+        matchesCaptureTime(active[j].project, range[1])
       ) {
-        throw new Error(`Project ranges overlap: ${projects[i].name} and ${projects[j].name}`);
+        throw new Error(`Project ranges overlap: ${project.name} and ${active[j].project.name}`);
       }
     }
   }
@@ -124,6 +127,7 @@ export function matchingProjects(
   return snapshot.projects.filter(
     (project) =>
       project.space_id === source.space_id &&
+      !project.archived &&
       (scope.mode === "all" || scope.project_ids.includes(project.id)) &&
       matchesCaptureTime(project, captureTime),
   );

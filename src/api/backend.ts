@@ -111,8 +111,8 @@ export interface Backend {
   pickFolder(defaultPath?: string): Promise<string | null>;
   pickPreviewApp(os: string): Promise<string | null>;
 
-  planWipe(projectId: string, sourceId: string): Promise<WipePlan>;
-  wipe(projectId: string, sourceId: string, method: WipeMethod): Promise<void>;
+  planWipe(sourceId: string): Promise<WipePlan>;
+  wipe(sourceId: string, method: WipeMethod): Promise<void>;
 
   syncStatus(): Promise<SyncStatus>;
   addPeer(address: string, token: string): Promise<void>;

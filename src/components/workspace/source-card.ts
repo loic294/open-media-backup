@@ -23,6 +23,15 @@ export class OmbSourceCard extends OmbElement {
   @property({ attribute: false }) source!: Source;
   @state() private menuAt: { x: number; y: number } | null = null;
 
+  #canOfferWipe(): boolean {
+    return (
+      this.source.offer_wipe &&
+      !!this.store.snapshot?.projects.some(
+        (project) => project.space_id === this.source.space_id && !project.archived,
+      )
+    );
+  }
+
   #runnableFlows() {
     const { snapshot, status } = this.store;
     return (snapshot?.flows ?? [])
@@ -87,6 +96,7 @@ export class OmbSourceCard extends OmbElement {
       return html`
         <span class="badge badge-ghost gap-1.5">${st.safe_copies} safe copies</span>
         <span class="text-sm text-base-content/60">${st.blocking_reason}</span>
+        ${this.#canOfferWipe() ? this.#wipeButton() : nothing}
       `;
     const icon =
       st.safe_copies >= st.required_copies ? "shield-check" : st.safe_copies > 0 ? "shield" : "shield-alert";
@@ -95,16 +105,20 @@ export class OmbSourceCard extends OmbElement {
         <omb-icon name=${icon} class="size-3.5"></omb-icon>${st.safe_copies}/${st.required_copies} safe copies
       </span>
       ${
-        st.wipe_eligible && this.store.project
-          ? html`<button
-              class="btn btn-sm btn-error btn-soft gap-1.5"
-              @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "wipe-card", sourceId: this.source.id }))}
-            >
-              <omb-icon name="eraser"></omb-icon>Wipe card
-            </button>`
+        this.#canOfferWipe()
+          ? this.#wipeButton()
           : html`<span class="text-sm text-base-content/60 truncate">${st.blocking_reason ?? ""}</span>`
       }
     `;
+  }
+
+  #wipeButton() {
+    return html`<button
+      class="btn btn-sm btn-error btn-soft gap-1.5"
+      @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "wipe-card", sourceId: this.source.id }))}
+    >
+      <omb-icon name="eraser"></omb-icon>Wipe card
+    </button>`;
   }
 
   override render() {

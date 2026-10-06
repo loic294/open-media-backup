@@ -105,8 +105,9 @@ export class OmbDestinationDialog extends DialogBase<
   }
 
   override render() {
-    const { snapshot, space, project } = this.store;
+    const { snapshot, space } = this.store;
     if (!snapshot || !space) return nothing;
+    const project = snapshot.projects.find((item) => item.space_id === space.id && !item.archived) ?? null;
     const d = this.draft;
     const isApp = (d.kind ?? "folder") === "app";
     const localAppPath =
@@ -116,10 +117,20 @@ export class OmbDestinationDialog extends DialogBase<
     const device = deviceById(snapshot, d.device_id);
     const set = (patch: Partial<Destination>) => (this.draft = { ...d, ...patch });
     const vars = previewVars(space, project);
-    const projectVariableNames = space.variables.map((variable) => variable.name);
+    const projectVariableNames = [
+      ...new Set([
+        ...space.variables.map((variable) => variable.name),
+        ...snapshot.projects
+          .filter((item) => item.space_id === space.id && !item.archived)
+          .flatMap((item) => Object.keys(item.values)),
+      ]),
+    ];
+    const knownTemplateVariables = new Set(["project", "project_name", ...projectVariableNames]);
     if (d.use_backup_marker)
       vars.backup_folder = `${vars.date}_${vars.project_name ?? "project"} (from card marker)`;
-    const unknownVars = isApp ? [] : templateVars(d.path_template).filter((v) => !(v in vars));
+    const unknownVars = isApp
+      ? []
+      : templateVars(d.path_template).filter((v) => !(v in vars) && !knownTemplateVariables.has(v));
     const invalid =
       d.rules.some((r) => ruleError(r)) ||
       unknownVars.length > 0 ||
@@ -230,7 +241,7 @@ export class OmbDestinationDialog extends DialogBase<
                           .prefix=${mappingFor(snapshot, device.id)?.root_path ?? device.name}
                           .value=${d.path_template}
                           .vars=${vars}
-                          hint="Use {variables} from the space; values come from the selected project."
+                          hint="Use {variables} from the space; values come from the matching active project."
                           @value-change=${(e: CustomEvent<string>) => set({ path_template: e.detail })}
                         ></omb-template-input>
                         ${

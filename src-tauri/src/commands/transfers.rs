@@ -135,18 +135,9 @@ pub async fn list_speed_analysis_jobs(
 }
 
 #[tauri::command]
-pub async fn plan_wipe(
-    state: State<'_, Shared>,
-    project_id: String,
-    source_id: String,
-) -> CmdResult<WipePlan> {
+pub async fn plan_wipe(state: State<'_, Shared>, source_id: String) -> CmdResult<WipePlan> {
     blocking(&state, move |s| {
-        crate::wipe::plan_wipe(
-            &s.core.store,
-            s.core.resolver.as_ref(),
-            &project_id,
-            &source_id,
-        )
+        crate::wipe::plan_workspace_wipe(&s.core.store, s.core.resolver.as_ref(), &source_id)
     })
     .await
 }
@@ -154,12 +145,11 @@ pub async fn plan_wipe(
 #[tauri::command]
 pub async fn wipe(
     state: State<'_, Shared>,
-    project_id: String,
     source_id: String,
     method: WipeMethod,
 ) -> CmdResult<String> {
     blocking(&state, move |s| {
-        s.core.start_wipe(&project_id, &source_id, method)
+        s.core.start_workspace_wipe(&source_id, method)
     })
     .await
 }

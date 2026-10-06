@@ -13,6 +13,8 @@ describe("app destination card", () => {
   const previousBackend = {
     openFlowInApp: store.backend.openFlowInApp,
     confirmAppImport: store.backend.confirmAppImport,
+    openWorkspaceFlowInApp: store.backend.openWorkspaceFlowInApp,
+    confirmWorkspaceAppImport: store.backend.confirmWorkspaceAppImport,
   };
   let card: OmbDestinationCard | undefined;
   let host: HTMLElement | undefined;
@@ -27,6 +29,8 @@ describe("app destination card", () => {
     vi.restoreAllMocks();
     store.backend.openFlowInApp = previousBackend.openFlowInApp;
     store.backend.confirmAppImport = previousBackend.confirmAppImport;
+    store.backend.openWorkspaceFlowInApp = previousBackend.openWorkspaceFlowInApp;
+    store.backend.confirmWorkspaceAppImport = previousBackend.confirmWorkspaceAppImport;
   });
 
   it("renders manual app import details", async () => {
@@ -95,12 +99,12 @@ describe("app destination card", () => {
     store.snapshot = snapshot;
     store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
     store.dialogs = [];
-    store.backend.openFlowInApp = vi.fn(async () => ({
+    store.backend.openWorkspaceFlowInApp = vi.fn(async () => ({
       token: "token",
       app_name: "Lightroom",
       files: [{ rel_path: "100MSDCF/IMG_07412.JPG", project_id: null }],
     }));
-    store.backend.confirmAppImport = vi.fn(async () => 1);
+    store.backend.confirmWorkspaceAppImport = vi.fn(async () => 1);
 
     card = new OmbDestinationCard();
     card.destination = snapshot.destinations.find((d) => d.id === "d4")!;
@@ -117,7 +121,11 @@ describe("app destination card", () => {
       .find((button) => button.textContent?.includes("Mark as transferred"))!
       .click();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(store.backend.confirmAppImport).toHaveBeenCalledWith("trip", "f7", "token");
+    expect(store.backend.confirmWorkspaceAppImport).toHaveBeenCalledWith(
+      { spaceId: "travel", projectId: null },
+      "f7",
+      "token",
+    );
   });
 
   it("can check fully transferred destinations and dispatches one destination action", async () => {

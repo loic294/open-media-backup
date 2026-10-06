@@ -3,7 +3,7 @@ use super::{
     classify_files, resolve_workspace_flow, Catalog, Category, FailureMap, PlanError, RootResolver,
     WorkspaceContext,
 };
-use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
+use crate::domain::{Destination, DestinationKind, Device, Flow, Project, Source};
 use crate::scan::ScannedFile;
 use crate::store::Store;
 use serde::Serialize;
@@ -150,6 +150,22 @@ pub fn workspace_status(
         source_statuses.push(assessment.status);
         let files = assessment.files;
         files_by_source.insert(source.id.clone(), files);
+    }
+    if project.is_none()
+        && store
+            .list_by::<Project>("space_id", &space.id)?
+            .iter()
+            .any(|project| !project.archived)
+    {
+        for status in &mut source_statuses {
+            if status.required_copies.is_none()
+                && status.blocking_reason.as_deref()
+                    == Some("Create a project to set card-wiping safety requirements")
+            {
+                status.blocking_reason =
+                    Some("Wipe safety is checked against every active project".into());
+            }
+        }
     }
 
     let flows: Vec<Flow> = store.list_by("space_id", &space.id)?;
