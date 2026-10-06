@@ -2,7 +2,7 @@ import { html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { Source } from "../../api/types";
 import { flowStatus, isRunnable, sourceStatus } from "../../state/derived";
-import { deviceById, mappingFor } from "../../state/selectors";
+import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, plural } from "../../utils/format";
 import { sourceTaskName } from "../../utils/names";
@@ -99,6 +99,18 @@ export class OmbSourceCard extends OmbElement {
       return this.store.statusLoading
         ? html`<span class="skeleton h-6 w-32"></span>`
         : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
+    return html`
+      ${
+        this.#canOfferWipe()
+          ? this.#wipeButton()
+          : html`<span class="text-sm text-base-content/60 truncate">${st.blocking_reason ?? ""}</span>`
+      }
+    `;
+  }
+
+  #safeCopiesIndicator() {
+    const st = sourceStatus(this.store.status, this.source.id);
+    if (!st) return nothing;
     if (st.required_copies === null)
       return html`
         <button
@@ -109,8 +121,6 @@ export class OmbSourceCard extends OmbElement {
         >
           <span class="badge badge-ghost gap-1.5">${st.safe_copies} safe copies</span>
         </button>
-        <span class="text-sm text-base-content/60">${st.blocking_reason}</span>
-        ${this.#canOfferWipe() ? this.#wipeButton() : nothing}
       `;
     const icon =
       st.safe_copies >= st.required_copies ? "shield-check" : st.safe_copies > 0 ? "shield" : "shield-alert";
@@ -126,11 +136,58 @@ export class OmbSourceCard extends OmbElement {
           copies
         </span>
       </button>
-      ${
-        this.#canOfferWipe()
-          ? this.#wipeButton()
-          : html`<span class="text-sm text-base-content/60 truncate">${st.blocking_reason ?? ""}</span>`
-      }
+    `;
+  }
+
+  #mountIndicator() {
+    const { snapshot, status } = this.store;
+    const st = sourceStatus(status, this.source.id);
+    const device = snapshot ? deviceById(snapshot, this.source.device_id) : undefined;
+    if (!device || !st)
+      return html`<span class="text-sm text-base-content/60"
+        >${!device ? "Select a device" : this.store.statusLoading ? "Checking" : "Status unavailable"}</span
+      >`;
+
+    const volume = this.store.volumes.find((item) => item.device_id === device.id);
+    const mappedRoot = snapshot ? mappingFor(snapshot, device.id)?.root_path : undefined;
+    const hostNames = snapshot ? deviceHosts(snapshot, device.id) : [];
+    const details = st.available
+      ? [
+          volume?.name ? `Volume: ${volume.name}` : null,
+          volume?.mount_path || st.root_path
+            ? `Mounted at ${volume?.mount_path ?? st.root_path}`
+            : "Device is available in this workspace.",
+          volume?.free_bytes != null && volume.total_bytes != null
+            ? `${formatBytes(volume.free_bytes)} free of ${formatBytes(volume.total_bytes)}`
+            : null,
+        ].filter((line): line is string => !!line)
+      : [
+          `${device.name} is not currently available on this computer.`,
+          mappedRoot ? `Configured location: ${mappedRoot}` : null,
+          hostNames.length ? `Known on: ${hostNames.join(", ")}` : null,
+        ].filter((line): line is string => !!line);
+    const tooltipId = `source-mount-tooltip-${this.source.id}`;
+    const label = st.available ? "Mounted" : "Not mounted";
+    return html`
+      <span class="tooltip tooltip-top tooltip-center">
+        <span
+          id=${tooltipId}
+          role="tooltip"
+          class="tooltip-content pointer-events-none z-50 max-w-[calc(100vw-2rem)] rounded-box bg-neutral p-3 text-left text-neutral-content shadow-lg"
+        >
+          <span class="block font-semibold">${device.name} · ${label}</span>
+          ${details.map((line) => html`<span class="block break-words">${line}</span>`)}
+        </span>
+        <span
+          class="badge badge-soft ${st.available ? "badge-success" : "badge-ghost"} cursor-help"
+          tabindex="0"
+          role="status"
+          aria-label=${label}
+          aria-describedby=${tooltipId}
+        >
+          <span class="status ${st.available ? "status-success" : "status-neutral"}"></span>${label}
+        </span>
+      </span>
     `;
   }
 
@@ -170,10 +227,6 @@ export class OmbSourceCard extends OmbElement {
                 ${st?.available ? `${plural(st.file_count, "file")} · ${formatBytes(st.total_bytes)}` : this.source.path_template || "Whole device"}
               </div>
             </div>
-            <span class="flex items-center gap-2 text-sm text-base-content/70">
-              <span class="status ${st?.available ? "status-success" : "status-neutral"}"></span
-              >${!device ? "Select a device" : !st ? (this.store.statusLoading ? "Checking" : "Status unavailable") : st.available ? "Mounted" : "Not mounted"}
-            </span>
             <button
               class="btn btn-ghost btn-xs btn-square"
               title="Source settings"
@@ -182,12 +235,17 @@ export class OmbSourceCard extends OmbElement {
               <omb-icon name="sliders"></omb-icon>
             </button>
           </div>
-          <button
-            class="btn btn-sm self-start"
-            @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "media-browser", sourceId: this.source.id }))}
-          >
-            <omb-icon name="images"></omb-icon>Browse media
-          </button>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <button
+              class="btn btn-sm"
+              @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "media-browser", sourceId: this.source.id }))}
+            >
+              <omb-icon name="images"></omb-icon>Browse media
+            </button>
+            <div class="flex flex-wrap items-center justify-end gap-1">
+              ${this.#safeCopiesIndicator()} ${this.#mountIndicator()}
+            </div>
+          </div>
           <div class="flex items-center justify-between gap-3 min-h-8">${this.#footer()}</div>
         </div>
         <span
