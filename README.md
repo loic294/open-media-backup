@@ -187,6 +187,45 @@ npm run lint && npm run typecheck
 npx tauri build      # installers (.dmg / .msi / .exe)
 ```
 
+### Before committing or pushing
+
+Use the same desktop preflight as the macOS and Windows CI jobs:
+
+```sh
+npm ci
+rustup component add clippy rustfmt
+npm run ci:local
+```
+
+The preflight runs release/tooling regression tests, TypeScript checking, ESLint,
+Vitest, the production frontend build, workspace Rust formatting checks, Clippy
+on all workspace targets with warnings denied, and locked workspace Rust tests.
+It stops at the first failure. Fix it and rerun the preflight; do not rely on
+`npm test` alone. It does not format files or update lockfiles automatically.
+Use `cargo fmt --manifest-path src-tauri/Cargo.toml --all` to fix Rust formatting.
+
+Both `npm run ci:local` and `npm run test:rust` use the Windows test runner on
+Windows x64 MSVC. It embeds the common-controls manifest using Windows SDK
+`mt.exe` and removes stale API-set DLL directories from the child PATH. Install
+the Tauri Windows prerequisites, including the Windows SDK. The launcher passes
+an **absolute** PowerShell script path: Cargo runs workspace-member tests in
+their package directories, so `.cargo/run-test.ps1` relative to the workspace
+does not work. The tooling tests check path escaping/spaces and exercise Cargo
+runner resolution from a workspace member on the host OS. To invoke Rust tests
+from another directory, use `node /absolute/path/to/open-media-backup/.github/scripts/local-ci.mjs --rust-only`.
+The runner is test-only and does not affect `cargo run` or desktop launches.
+
+A green macOS preflight is **not** a Windows validation (or vice versa). Run this
+preflight on both platforms, especially after runner, dependency, filesystem or
+platform-specific changes; the Windows run must execute tests for `omb-hash`,
+`omb-hash-server` and the desktop crate, not merely compile them. CI remains the
+cross-platform gate: local tests cannot guarantee another OS, SDK or runner image
+will pass. The separate Linux hash-server job also runs
+`cargo test --locked --manifest-path src-tauri/Cargo.toml -p omb-hash -p omb-hash-server`
+and `docker build -f docker/hash-server/Dockerfile .`; run those when changing the
+server/container. Signed releases, universal builds and installers have separate
+prerequisites and are not covered by this desktop preflight.
+
 ### Demo mode
 
 Normal builds never contain sample data: the in-memory demo backend is only bundled when Vite runs in `demo` mode (`.env.demo` sets `VITE_OMB_DEMO=1`). Demo mode shows a "Demo data" badge and makes no changes on disk, so it's a safe way for people and LLM agents to try the UI.

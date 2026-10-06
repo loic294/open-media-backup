@@ -23,24 +23,13 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
       - run: npm ci
-      - name: Test release automation
-        run: node --test .github/scripts/release.test.mjs
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
-      - name: Run cargo test
-        if: runner.os == 'Windows'
-        working-directory: src-tauri
-        run: cargo test --workspace --config .cargo/test-runner.toml
-      - name: Run cargo test
-        if: runner.os != 'Windows'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace
+      - name: Desktop CI preflight
+        run: npm run ci:local
 
   hash-server:
     runs-on: ubuntu-latest

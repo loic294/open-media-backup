@@ -14,7 +14,8 @@
     "format": "prettier --write \"src/**/*.{ts,css,html}\"",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --workspace",
+    "ci:local": "node .github/scripts/local-ci.mjs",
+    "test:rust": "node .github/scripts/local-ci.mjs --rust-only",
     "tauri:demo": "tauri dev --config src-tauri/tauri.demo.conf.json"
   },
   "author": "Loïc",

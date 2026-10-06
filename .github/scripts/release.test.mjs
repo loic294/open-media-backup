@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { preflightCommands } from "./local-ci.mjs";
 import {
   assertProvenance,
   githubClient,
@@ -338,7 +339,8 @@ test("CI gates publishing on tests and main pushes, and passes the caller run nu
   assert.match(ci, /uses: \.\/\.github\/workflows\/release.yml/);
   assert.match(ci, /commit: \$\{\{ github.sha \}\}/);
   assert.match(ci, /build-number: \$\{\{ github.run_number \}\}/);
-  assert.match(ci, /node --test \.github\/scripts\/release.test.mjs/);
+  assert.match(ci, /run: npm run ci:local/);
+  assert.ok(preflightCommands()[0].includes(".github/scripts/release.test.mjs"));
   const workflow = readWorkflow("release.yml");
   assert.match(workflow, /tags:\n      - "v\*"/);
   assert.match(workflow, /workflow_call:/);
