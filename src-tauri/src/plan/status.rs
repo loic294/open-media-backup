@@ -106,7 +106,7 @@ pub fn workspace_status(
         .into_iter()
         .map(|d| (d.id.clone(), d))
         .collect();
-    let final_set = FinalSet::load(store)?;
+    let final_set = FinalSet::load_for_space(store, &space.id)?;
     let finals = final_set.targets();
 
     let mut sources: Vec<Source> = store.list_by("space_id", &space.id)?;

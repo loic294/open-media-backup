@@ -1,4 +1,4 @@
-use super::safe_copies::{device_safe_copy_report, SourceCopyFiles};
+use super::safe_copies::{device_safe_copy_report, SafeCopyFile, SafeCopyState, SourceCopyFiles};
 use super::{
     safe_copy_report, source_files, Catalog, FinalTarget, RootResolver, SafeCopyReport,
     SourceStatus,
@@ -21,23 +21,36 @@ pub struct FinalSet {
 impl FinalSet {
     pub fn load(store: &Store) -> StoreResult<Self> {
         let destinations = store.list::<Destination>()?;
+        Self::load_destinations(store, destinations, false)
+    }
+
+    fn load_destinations(
+        store: &Store,
+        destinations: Vec<Destination>,
+        scoped: bool,
+    ) -> StoreResult<Self> {
         let rules: Vec<(String, RuleSet)> = destinations
             .iter()
             .filter(|d| d.counts_as_safe_copy)
-            .filter_map(|d| {
+            .map(|d| {
                 let id = if d.kind == DestinationKind::App {
                     &d.id
                 } else {
                     &d.device_id
                 };
-                Some((id.clone(), RuleSet::compile(&d.rules).ok()?))
+                RuleSet::compile(&d.rules)
+                    .map(|rules| (id.clone(), rules))
+                    .map_err(|error| {
+                        crate::store::StoreError::Invalid(format!("Destination {}: {error}", d.id))
+                    })
             })
-            .collect();
+            .collect::<StoreResult<_>>()?;
         let mut devices: Vec<Device> = store
             .list::<Device>()?
             .into_iter()
             .filter(|d| {
-                d.role == DeviceRole::Final
+                (d.role == DeviceRole::Final
+                    && (!scoped || rules.iter().any(|(device_id, _)| device_id == &d.id)))
                     || (d.role == DeviceRole::Temporary
                         && rules.iter().any(|(device_id, _)| device_id == &d.id))
             })
@@ -71,6 +84,11 @@ impl FinalSet {
         Ok(Self { devices, rules })
     }
 
+    pub fn load_for_space(store: &Store, space_id: &str) -> StoreResult<Self> {
+        let destinations = store.list_by::<Destination>("space_id", space_id)?;
+        Self::load_destinations(store, destinations, true)
+    }
+
     pub fn targets(&self) -> Vec<FinalTarget<'_>> {
         self.devices
             .iter()
@@ -98,6 +116,8 @@ pub struct SourceAssessment {
     pub known: Vec<(String, Option<String>)>,
     /// Source-scoped coverage for wipe previews; status uses the shared device count.
     pub report: SafeCopyReport,
+    pub device_files: Vec<SafeCopyFile>,
+    safe_copy_rules: Option<RuleSet>,
     path_error: Option<String>,
 }
 
@@ -143,6 +163,7 @@ pub fn assess_workspace_source(
     let root = resolver.device_root(&device.id).filter(|p| p.exists());
     let vars = super::source_template_vars(space, project, device, source);
     let expanded = expand(&source.path_template, &vars);
+    let safe_copy_rules = RuleSet::compile(&source.safe_copy_rules);
     let folder = expanded
         .as_ref()
         .map(|s| s.trim_matches('/').to_string())
@@ -177,10 +198,18 @@ pub fn assess_workspace_source(
             space.skip_counts_as_safe_copy,
             &space.id,
         ),
-        path_error: expanded
+        device_files: Vec::new(),
+        path_error: safe_copy_rules
             .as_ref()
             .err()
-            .map(|error| format!("Source path: {error}")),
+            .map(|error| format!("Source safe-copy rules: {error}"))
+            .or_else(|| {
+                expanded
+                    .as_ref()
+                    .err()
+                    .map(|error| format!("Source path: {error}"))
+            }),
+        safe_copy_rules: safe_copy_rules.ok(),
     };
     assessment.known = files
         .iter()
@@ -206,11 +235,15 @@ pub fn assess_workspace_source(
             rules: t.rules.clone(),
         })
         .collect();
-    let report = safe_copy_report(
-        &assessment.known,
+    let report = device_safe_copy_report(
+        &[SourceCopyFiles {
+            folder: &assessment.folder,
+            files: &assessment.known,
+            vars: &vars,
+            safe_copy_rules: assessment.safe_copy_rules.as_ref(),
+        }],
         &targets,
         catalog,
-        &vars,
         space.temporary_copies_per_final,
         space.skip_counts_as_safe_copy,
         &space.id,
@@ -251,6 +284,7 @@ pub fn assess_workspace_device(
             folder: &assessment.folder,
             files: &assessment.known,
             vars,
+            safe_copy_rules: assessment.safe_copy_rules.as_ref(),
         })
         .collect();
     let targets: Vec<_> = finals
@@ -276,7 +310,54 @@ pub fn assess_workspace_device(
             .as_ref()
             .map(|error| format!("Source {}: {error}", source.id))
     });
-    for (source, assessment) in &mut assessments {
+    let scoped_reports: Vec<_> = assessments
+        .iter()
+        .map(|(_, assessment)| {
+            let paths: std::collections::HashSet<_> = assessment
+                .known
+                .iter()
+                .map(|(rel, _)| assessment.device_path(rel))
+                .collect();
+            let scoped_files: Vec<Vec<_>> = files
+                .iter()
+                .map(|source| {
+                    source
+                        .files
+                        .iter()
+                        .filter(|(rel, _)| {
+                            let path = if source.folder.is_empty() {
+                                rel.clone()
+                            } else {
+                                format!("{}/{rel}", source.folder)
+                            };
+                            paths.contains(&path)
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .collect();
+            let scoped_views: Vec<_> = files
+                .iter()
+                .zip(&scoped_files)
+                .map(|(source, known)| SourceCopyFiles {
+                    folder: source.folder,
+                    files: known,
+                    vars: source.vars,
+                    safe_copy_rules: source.safe_copy_rules,
+                })
+                .collect();
+            device_safe_copy_report(
+                &scoped_views,
+                &targets,
+                catalog,
+                space.temporary_copies_per_final,
+                space.skip_counts_as_safe_copy,
+                &space.id,
+            )
+        })
+        .collect();
+    for ((source, assessment), scoped_report) in assessments.iter_mut().zip(scoped_reports) {
+        assessment.report = scoped_report;
         apply_safety(
             assessment,
             project,
@@ -303,7 +384,25 @@ fn apply_safety(
         .filter(|c| c.verified < c.total)
         .map(|c| c.device_name.as_str())
         .collect();
-    let enough = project.is_some_and(|p| report.safe_copies as u32 >= p.final_copies_required);
+    let all_excluded = report.files_total > 0 && report.files_total == report.ignored;
+    let uncovered = report.files.iter().any(|file| {
+        file.state != SafeCopyState::Excluded
+            && file.verified_destinations.is_empty()
+            && file.acknowledged_destinations.is_empty()
+            && file
+                .reasons
+                .iter()
+                .any(|reason| reason.starts_with("No eligible"))
+    });
+    let unidentified = report.files.iter().any(|file| {
+        file.state != SafeCopyState::Excluded
+            && file
+                .reasons
+                .iter()
+                .any(|reason| reason.starts_with("File identity is not verified"))
+    });
+    let enough = project
+        .is_some_and(|p| all_excluded || report.safe_copies as u32 >= p.final_copies_required);
     let blocking_reason = if let Some(error) = group_error {
         Some(error.to_owned())
     } else if let Some(error) = &assessment.path_error {
@@ -316,17 +415,63 @@ fn apply_safety(
         Some("No files".into())
     } else if device.role == DeviceRole::Final {
         Some("Final devices are never wiped".into())
-    } else if device.role == DeviceRole::Temporary && report.final_safe_copies == 0 {
+    } else if device.role == DeviceRole::Temporary && !all_excluded && report.final_safe_copies == 0
+    {
         Some("Needs a final destination".into())
+    } else if uncovered {
+        Some("Some files have no eligible safe-copy destination rule coverage".into())
     } else if !enough {
         Some(match missing.as_slice() {
+            [] if report.copies.iter().any(|copy| copy.total > 0)
+                && report.copies.iter().all(|copy| copy.total < report.files_total - report.ignored) =>
+            {
+                "No destination covers every required file; change destination rules or add a complete backup destination".to_string()
+            }
             [] => "No safe destination".to_string(),
             many => format!("Needs {}", many.join(", ")),
         })
+    } else if unidentified {
+        Some("Some files have no verified identity; transfer or check them before wiping".into())
     } else {
         None
     };
     assessment.status.safe_copies = report.safe_copies;
     assessment.status.wipe_eligible = blocking_reason.is_none() && source.offer_wipe;
     assessment.status.blocking_reason = blocking_reason;
+    assessment.device_files = report.files.clone();
+    for file in &mut assessment.device_files {
+        if file.state == SafeCopyState::Excluded {
+            continue;
+        }
+        let threshold_met =
+            project.is_some_and(|p| file.safe_copies as u32 >= p.final_copies_required);
+        let identity_known = !file
+            .reasons
+            .iter()
+            .any(|reason| reason.starts_with("File identity is not verified"));
+        let has_coverage = !file
+            .reasons
+            .iter()
+            .any(|reason| reason.starts_with("No eligible"));
+        let needs_final = device.role == DeviceRole::Temporary && file.final_copies == 0;
+        if threshold_met && identity_known && has_coverage && !needs_final {
+            file.state = SafeCopyState::Safe;
+        } else {
+            if !threshold_met {
+                file.reasons.push(match project {
+                    Some(project) => format!(
+                        "Needs {} safe copies; currently {}",
+                        project.final_copies_required, file.safe_copies
+                    ),
+                    None => "Create or select a project to set safe-copy requirements".into(),
+                });
+            }
+            if needs_final {
+                file.reasons.push(
+                    "Needs a final destination copy before this temporary device can be wiped"
+                        .into(),
+                );
+            }
+        }
+    }
 }

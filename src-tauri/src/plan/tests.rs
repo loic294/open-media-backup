@@ -94,7 +94,10 @@ fn classifies_pending_transferred_and_ignored() {
     assert_eq!(flow.state, FlowState::Pending);
     let src = &s.sources[0];
     assert_eq!((src.file_count, src.safe_copies), (3, 0));
-    assert_eq!(src.blocking_reason.as_deref(), Some("Needs Home NAS"));
+    assert_eq!(
+        src.blocking_reason.as_deref(),
+        Some("Some files have no eligible safe-copy destination rule coverage")
+    );
 }
 
 #[test]

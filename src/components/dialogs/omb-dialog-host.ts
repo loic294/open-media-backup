@@ -15,6 +15,7 @@ import "./space-dialog";
 import "./sync-dialog";
 import "./update-dialog";
 import "./wipe-dialog";
+import "./safe-copy-dialog";
 import "./transfer-conflict-dialog";
 import "./destination-check-results-dialog";
 import "../workspace/projects-page";
@@ -33,6 +34,7 @@ const RENDERERS: { [T in DialogType]: Renderer<T> } = {
   "source-settings": (r) => html`<omb-source-dialog .request=${r}></omb-source-dialog>`,
   "destination-settings": (r) => html`<omb-destination-dialog .request=${r}></omb-destination-dialog>`,
   "wipe-card": (r) => html`<omb-wipe-dialog .request=${r}></omb-wipe-dialog>`,
+  "safe-copy": (r) => html`<omb-safe-copy-dialog .request=${r}></omb-safe-copy-dialog>`,
   preview: (r) => html`<omb-preview-dialog .request=${r}></omb-preview-dialog>`,
   "media-browser": (r) => html`<omb-media-browser-dialog .request=${r}></omb-media-browser-dialog>`,
   "transfer-conflict": (r) =>

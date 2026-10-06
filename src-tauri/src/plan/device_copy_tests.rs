@@ -52,6 +52,292 @@ fn status(fx: &Fixture) -> ProjectStatus {
 }
 
 #[test]
+fn source_exclusion_is_relative_and_overlapping_required_view_wins() {
+    let fx = Fixture::new();
+    let mut source = fx.source.clone();
+    source.safe_copy_rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "A.JPG",
+    )];
+    fx.store.put(&source).unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
+    let assess = |sources: &[Source]| {
+        assess_workspace_device(
+            &fx.resolver,
+            &Catalog::load(&fx.store).unwrap(),
+            &fx.space,
+            Some(&fx.project),
+            &fx.card,
+            sources,
+            &finals.targets(),
+        )
+    };
+    let excluded = assess(&[source.clone()]);
+    assert!(excluded[0].1.status.wipe_eligible);
+    assert_eq!(excluded[0].1.report.ignored, 1);
+    assert_eq!(excluded[0].1.device_files[0].path, "DCIM/A.JPG");
+    assert_eq!(excluded[0].1.device_files[0].state, SafeCopyState::Excluded);
+    let parent = Source {
+        id: "parent".into(),
+        path_template: "".into(),
+        safe_copy_rules: vec![],
+        ..source.clone()
+    };
+    let overlap = assess(&[source, parent]);
+    assert!(overlap
+        .iter()
+        .all(|(_, assessment)| !assessment.status.wipe_eligible));
+    assert_eq!(overlap[0].1.device_files.len(), 1);
+    assert_eq!(overlap[0].1.device_files[0].state, SafeCopyState::Unsafe);
+    assert_eq!(overlap[0].1.report.ignored, 0);
+}
+
+#[test]
+fn destination_exclusion_does_not_exempt_required_files_or_lower_threshold() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    fx.write_card_file("DCIM/B.JPG", b"b");
+    copy(&fx, "a", "card", "DCIM/A.JPG");
+    copy(&fx, "b", "card", "DCIM/B.JPG");
+    copy(&fx, "a", "nas", "A.JPG");
+    let mut destination = fx.destination.clone();
+    destination.rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "B.JPG",
+    )];
+    fx.store.put(&destination).unwrap();
+    let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
+    let assessed = assess_workspace_device(
+        &fx.resolver,
+        &Catalog::load(&fx.store).unwrap(),
+        &fx.space,
+        Some(&fx.project),
+        &fx.card,
+        std::slice::from_ref(&fx.source),
+        &finals.targets(),
+    );
+    let assessment = &assessed[0].1;
+    assert_eq!(assessment.report.ignored, 0);
+    assert_eq!(assessment.status.safe_copies, 0);
+    assert!(!assessment.status.wipe_eligible);
+    assert_eq!(assessment.device_files[1].state, SafeCopyState::Unsafe);
+    assert!(assessment.device_files[1]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("No eligible")));
+    assert_eq!(assessment.device_files[0].state, SafeCopyState::Safe);
+}
+
+#[test]
+fn acknowledgments_count_by_policy_but_are_never_reported_as_verified() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    copy(&fx, "a", "card", "DCIM/A.JPG");
+    let file_id = FileRecord::id_for(HashAlgo::Xxh64, "a");
+    fx.store
+        .put(&crate::domain::SafeCopyOverride {
+            id: "ack".into(),
+            space_id: "space".into(),
+            file_id,
+            source_device_id: "card".into(),
+            source_path: "DCIM/A.JPG".into(),
+            destination_device_id: "nas".into(),
+            destination_path: "A.JPG".into(),
+            destination_hash: "different".into(),
+        })
+        .unwrap();
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
+    let assess = |space: &Space| {
+        assess_workspace_device(
+            &fx.resolver,
+            &catalog,
+            space,
+            Some(&fx.project),
+            &fx.card,
+            std::slice::from_ref(&fx.source),
+            &finals.targets(),
+        )
+    };
+    let mut space = fx.space.clone();
+    space.skip_counts_as_safe_copy = false;
+    let disabled = assess(&space);
+    assert!(!disabled[0].1.status.wipe_eligible);
+    assert_eq!(disabled[0].1.device_files[0].safe_copies, 0);
+    space.skip_counts_as_safe_copy = true;
+    let enabled = assess(&space);
+    let file = &enabled[0].1.device_files[0];
+    assert!(enabled[0].1.status.wipe_eligible);
+    assert_eq!(file.state, SafeCopyState::Safe);
+    assert!(file.verified_destinations.is_empty());
+    assert_eq!(file.acknowledged_destinations, vec!["Home NAS"]);
+    assert!(file
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("not byte-verified")));
+}
+
+#[test]
+fn missing_destination_in_this_space_and_invalid_rules_fail_conservatively() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    copy(&fx, "a", "card", "DCIM/A.JPG");
+    copy(&fx, "a", "nas", "A.JPG");
+    let mut destination = fx.destination.clone();
+    destination.space_id = "elsewhere".into();
+    fx.store.put(&destination).unwrap();
+    let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
+    let assessment = assess_workspace_source(
+        &fx.resolver,
+        &Catalog::load(&fx.store).unwrap(),
+        &fx.space,
+        Some(&fx.project),
+        &fx.card,
+        &fx.source,
+        &finals.targets(),
+    );
+    assert_eq!(assessment.status.safe_copies, 0);
+    assert!(!assessment.status.wipe_eligible);
+    destination.space_id = "space".into();
+    destination.rules = vec![FileRule::path(RuleAction::Exclude, RuleSyntax::Regex, "(")];
+    fx.store.put(&destination).unwrap();
+    assert!(FinalSet::load_for_space(&fx.store, "space").is_err());
+}
+
+#[test]
+fn partial_destination_rule_views_do_not_manufacture_complete_copies() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    fx.write_card_file("DCIM/B.JPG", b"b");
+    copy(&fx, "a", "card", "DCIM/A.JPG");
+    copy(&fx, "b", "card", "DCIM/B.JPG");
+    copy(&fx, "a", "nas", "A.JPG");
+    let other = Device {
+        id: "other".into(),
+        name: "Other".into(),
+        ..fx.nas.clone()
+    };
+    fx.store.put(&other).unwrap();
+    copy(&fx, "b", "other", "B.JPG");
+    let mut destination = fx.destination.clone();
+    destination.rules = vec![FileRule::path(
+        RuleAction::Include,
+        RuleSyntax::Glob,
+        "A.JPG",
+    )];
+    fx.store.put(&destination).unwrap();
+    destination.id = "other-dest".into();
+    destination.device_id = "other".into();
+    destination.rules = vec![FileRule::path(
+        RuleAction::Include,
+        RuleSyntax::Glob,
+        "B.JPG",
+    )];
+    fx.store.put(&destination).unwrap();
+    let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
+    let assessed = assess_workspace_device(
+        &fx.resolver,
+        &Catalog::load(&fx.store).unwrap(),
+        &fx.space,
+        Some(&fx.project),
+        &fx.card,
+        std::slice::from_ref(&fx.source),
+        &finals.targets(),
+    );
+    assert_eq!(assessed[0].1.status.safe_copies, 0);
+    assert!(!assessed[0].1.status.wipe_eligible);
+    assert!(assessed[0]
+        .1
+        .device_files
+        .iter()
+        .all(|file| { file.safe_copies == 1 && file.state == SafeCopyState::Safe }));
+}
+
+#[test]
+fn temporary_device_needs_a_real_final_destination_even_with_a_temporary_group() {
+    let fx = Fixture::new();
+    let mut space = fx.space.clone();
+    space.temporary_copies_per_final = 2;
+    let mut card = fx.card.clone();
+    card.role = DeviceRole::Temporary;
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    copy(&fx, "a", "card", "DCIM/A.JPG");
+    let temporaries: Vec<_> = (0..2)
+        .map(|i| Device {
+            id: format!("temp{i}"),
+            role: DeviceRole::Temporary,
+            ..fx.nas.clone()
+        })
+        .collect();
+    for device in &temporaries {
+        copy(&fx, "a", &device.id, "A.JPG");
+    }
+    let targets: Vec<_> = temporaries
+        .iter()
+        .map(|device| FinalTarget {
+            device,
+            rules: vec![],
+        })
+        .collect();
+    let assessed = assess_workspace_source(
+        &fx.resolver,
+        &Catalog::load(&fx.store).unwrap(),
+        &space,
+        Some(&fx.project),
+        &card,
+        &fx.source,
+        &targets,
+    );
+    assert_eq!(assessed.status.safe_copies, 1);
+    assert!(!assessed.status.wipe_eligible);
+    assert_eq!(assessed.device_files[0].safe_copies, 1);
+    assert_eq!(assessed.device_files[0].state, SafeCopyState::Unsafe);
+    assert_eq!(
+        assessed.status.blocking_reason.as_deref(),
+        Some("Needs a final destination")
+    );
+}
+
+#[test]
+fn zero_threshold_still_requires_rule_coverage_and_source_hash_identity() {
+    let fx = Fixture::new();
+    let mut project = fx.project.clone();
+    project.final_copies_required = 0;
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
+    let unknown = assess_workspace_source(
+        &fx.resolver,
+        &catalog,
+        &fx.space,
+        Some(&project),
+        &fx.card,
+        &fx.source,
+        &finals.targets(),
+    );
+    assert!(!unknown.status.wipe_eligible);
+    assert_eq!(unknown.device_files[0].state, SafeCopyState::Unsafe);
+    let uncovered = assess_workspace_source(
+        &fx.resolver,
+        &catalog,
+        &fx.space,
+        Some(&project),
+        &fx.card,
+        &fx.source,
+        &[],
+    );
+    assert!(!uncovered.status.wipe_eligible);
+    assert!(uncovered
+        .status
+        .blocking_reason
+        .unwrap()
+        .contains("coverage"));
+}
+
+#[test]
 fn sibling_sources_share_only_complete_device_coverage() {
     let fx = Fixture::new();
     sibling(&fx, "VIDEO");
@@ -178,11 +464,13 @@ fn overlapping_sources_keep_relative_rules_and_variables_and_deduplicate_paths()
             folder: "",
             files: &parent_files,
             vars: &parent_vars,
+            safe_copy_rules: None,
         },
         SourceCopyFiles {
             folder: "DCIM",
             files: &child_files,
             vars: &child_vars,
+            safe_copy_rules: None,
         },
     ];
     let report = device_safe_copy_report(&sources, &targets, &catalog, 0, false, "space");
@@ -192,7 +480,7 @@ fn overlapping_sources_keep_relative_rules_and_variables_and_deduplicate_paths()
     );
     assert_eq!((report.copies[0].verified, report.copies[0].total), (1, 1));
     let parent_only = device_safe_copy_report(&sources[..1], &targets, &catalog, 0, false, "space");
-    assert_eq!((parent_only.ignored, parent_only.safe_copies), (1, 0));
+    assert_eq!((parent_only.ignored, parent_only.safe_copies), (0, 0));
 }
 
 #[test]

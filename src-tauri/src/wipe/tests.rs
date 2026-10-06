@@ -48,6 +48,144 @@ fn backed_up() -> Fixture {
 }
 
 #[test]
+fn delete_wipe_preserves_excluded_unknown_and_changed_files_without_affecting_transfers() {
+    use crate::domain::{FileRule, RuleAction, RuleSyntax};
+    let fx = backed_up();
+    fx.write_card_file("DCIM/PRIVATE/UNKNOWN.JPG", b"never backed up");
+    fx.write_card_file("DCIM/B.JPG", b"changed since backup");
+    let mut source = fx.source.clone();
+    source.safe_copy_rules = vec![
+        FileRule::path(RuleAction::Exclude, RuleSyntax::Glob, "B.JPG"),
+        FileRule::path(RuleAction::Exclude, RuleSyntax::Glob, "PRIVATE/"),
+    ];
+    fx.store.put(&source).unwrap();
+    let plan = plan_wipe(&fx.store, &fx.resolver, "project", "src").unwrap();
+    assert!(plan.eligible);
+    assert_eq!((plan.files_total, plan.ignored), (3, 2));
+    let ctx = crate::plan::resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let files =
+        crate::plan::classify_flow(&ctx, &crate::plan::Catalog::load(&fx.store).unwrap(), None);
+    assert!(files
+        .iter()
+        .any(|file| file.rel_path == "PRIVATE/UNKNOWN.JPG"
+            && file.category == crate::plan::Category::ToTransfer));
+    wipe(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle(),
+    )
+    .unwrap();
+    assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
+    assert!(fx.card_dir.path().join("DCIM/B.JPG").exists());
+    assert!(fx.card_dir.path().join("DCIM/PRIVATE/UNKNOWN.JPG").exists());
+    assert!(crate::plan::Catalog::load(&fx.store)
+        .unwrap()
+        .file_at("card", "DCIM/B.JPG", None)
+        .is_some());
+}
+
+#[test]
+fn exclusions_do_not_weaken_hash_guard_for_still_required_files() {
+    use crate::domain::{FileRule, RuleAction, RuleSyntax};
+    let fx = backed_up();
+    let mut source = fx.source.clone();
+    source.safe_copy_rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "B.JPG",
+    )];
+    fx.store.put(&source).unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"x");
+    assert!(wipe(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle()
+    )
+    .unwrap_err()
+    .contains("changed"));
+    assert!(fx.card_dir.path().join("DCIM/A.JPG").exists());
+    assert!(fx.card_dir.path().join("DCIM/B.JPG").exists());
+}
+
+#[test]
+fn overlapping_required_view_prevents_exemption_in_wipe_report_and_runtime() {
+    use crate::domain::{FileRule, RuleAction, RuleSyntax, Source};
+    let fx = backed_up();
+    let mut source = fx.source.clone();
+    source.safe_copy_rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "*.JPG",
+    )];
+    fx.store.put(&source).unwrap();
+    fx.store
+        .put(&Source {
+            id: "parent".into(),
+            path_template: "".into(),
+            ..fx.source.clone()
+        })
+        .unwrap();
+    let plan = plan_wipe(&fx.store, &fx.resolver, "project", "src").unwrap();
+    assert_eq!(plan.ignored, 0);
+    assert!(plan.eligible);
+    fx.write_card_file("DCIM/A.JPG", b"x");
+    assert!(wipe(
+        &fx.store,
+        &fx.resolver,
+        "project",
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle()
+    )
+    .unwrap_err()
+    .contains("changed"));
+    assert!(fx.card_dir.path().join("DCIM/B.JPG").exists());
+}
+
+#[test]
+fn workspace_delete_preserves_files_excluded_in_any_active_project() {
+    use crate::domain::{FileRule, Project, RuleExpr};
+    let fx = backed_up();
+    let mut project = fx.project.clone();
+    project.values.insert("keep".into(), "yes".into());
+    fx.store.put(&project).unwrap();
+    fx.store
+        .put(&Project {
+            id: "other-project".into(),
+            values: std::collections::BTreeMap::from([("keep".into(), "no".into())]),
+            ..project.clone()
+        })
+        .unwrap();
+    let mut source = fx.source.clone();
+    source.safe_copy_rules = vec![FileRule::condition(RuleExpr::Eq {
+        var: "keep".into(),
+        value: "yes".into(),
+    })];
+    fx.store.put(&source).unwrap();
+    assert!(
+        plan_workspace_wipe(&fx.store, &fx.resolver, "src")
+            .unwrap()
+            .eligible
+    );
+    wipe_workspace(
+        &fx.store,
+        &fx.resolver,
+        "src",
+        WipeMethod::DeleteFiles,
+        &handle(),
+    )
+    .unwrap();
+    assert!(fx.card_dir.path().join("DCIM/A.JPG").exists());
+    assert!(fx.card_dir.path().join("DCIM/B.JPG").exists());
+}
+
+#[test]
 fn manual_wipe_retires_whole_device_and_resets_offline_and_reused_filename_status() {
     use crate::domain::{Flow, Source, Space};
     use crate::plan::{classify_flow, project_status, resolve_flow, Catalog, Category};

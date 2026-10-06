@@ -23,6 +23,7 @@ import { flowLabel } from "../../state/selectors";
 import { sanitizeBackupName, sourceBackupName } from "../../utils/names";
 import { expandTemplate, previewVars, templateVars } from "../../utils/template";
 import { manuallyWipedCounts } from "./manual-wipe";
+import { mockSafeCopyDetails } from "./safe-copies";
 
 const COLLECTION: Record<EntityKind, keyof Snapshot> = {
   space: "spaces",
@@ -358,6 +359,37 @@ export function createMockBackend(
     },
     getProjectStatus: async (projectId) => mockStatus(snapshot, projectId, counts, offline, safeSkipCounts()),
     getWorkspaceStatus: async (context) => workspaceStatus(context),
+    getSourceSafeCopyDetails: async (context, sourceId) => {
+      const details = mockSafeCopyDetails(snapshot, context, sourceId, counts, offline, safeSkipCounts());
+      const projects = snapshot.projects.filter(
+        (project) => project.space_id === context.spaceId && !project.archived,
+      );
+      const policies = projects.map((project) =>
+        mockSafeCopyDetails(
+          snapshot,
+          { ...context, projectId: project.id },
+          sourceId,
+          counts,
+          offline,
+          safeSkipCounts(),
+        ),
+      );
+      const blocked = policies.find((policy) => !policy.wipe_eligible);
+      details.wipe_eligible = policies.length > 0 && !blocked;
+      details.blocking_reason =
+        blocked?.blocking_reason ?? (policies.length ? null : "No active project applies to this source");
+      return details;
+    },
+    saveSourceSafeCopyRules: async (context, sourceId, rules) => {
+      const details = mockSafeCopyDetails(snapshot, context, sourceId, counts, offline, safeSkipCounts());
+      if (!details.editable)
+        throw new Error("Safe-copy rules can only be edited for a device mapped on this computer");
+      for (const rule of rules) {
+        if (!("kind" in rule) && rule.syntax === "regex") new RegExp(rule.pattern, "i");
+      }
+      snapshot.sources.find((source) => source.id === sourceId)!.safe_copy_rules = structuredClone(rules);
+      changed();
+    },
     listWorkspaceFiles: async (req) => {
       const { flow, status } = workspaceFlow(req.context, req.flowId);
       const source = snapshot.sources.find((s) => s.id === flow.source_id)!;

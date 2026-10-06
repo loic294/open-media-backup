@@ -28,6 +28,10 @@ export const tauriBackend: Backend = {
 
   getProjectStatus: (projectId) => invoke("get_project_status", { projectId }),
   getWorkspaceStatus: (context) => invoke("get_workspace_status", { context }),
+  getSourceSafeCopyDetails: (context, sourceId) =>
+    invoke("get_source_safe_copy_details", { context, sourceId }),
+  saveSourceSafeCopyRules: (context, sourceId, rules) =>
+    invoke("save_source_safe_copy_rules", { context, sourceId, rules }),
   listWorkspaceFiles: (req) => invoke("list_workspace_files", { req }),
   listFiles: (req) => invoke("list_files", { req }),
   thumbnail: (absPath) => thumbnailUrl(absPath),

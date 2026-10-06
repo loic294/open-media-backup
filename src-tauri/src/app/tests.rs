@@ -27,6 +27,228 @@ fn wait_idle(core: &AppCore) {
 }
 
 #[test]
+fn safe_copy_rules_require_local_mapping_context_and_valid_rules_and_sync_as_source() {
+    use crate::domain::{DeviceMapping, FileRule, RuleAction, RuleSyntax};
+    use crate::plan::WorkspaceContext;
+    use crate::store::{Store, VersionVector};
+    let fx = Fixture::new();
+    let (core, _t) = core(&fx);
+    let context = WorkspaceContext::for_project(&fx.store, "project").unwrap();
+    let rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "*.THM",
+    )];
+    assert!(
+        !core
+            .source_safe_copy_details(&context, "src")
+            .unwrap()
+            .editable
+    );
+    assert!(core
+        .save_source_safe_copy_rules(&context, "src", rules.clone())
+        .is_err());
+    let mut mapping = DeviceMapping {
+        id: format!("card@{}", fx.store.computer_id()),
+        device_id: "card".into(),
+        computer_id: "peer".into(),
+        root_path: fx.card_dir.path().display().to_string(),
+    };
+    fx.store.put(&mapping).unwrap();
+    assert!(core
+        .save_source_safe_copy_rules(&context, "src", rules.clone())
+        .is_err());
+    mapping.computer_id = fx.store.computer_id().into();
+    fx.store.put(&mapping).unwrap();
+    assert!(
+        core.source_safe_copy_details(&context, "src")
+            .unwrap()
+            .editable
+    );
+    let wrong = WorkspaceContext {
+        space_id: "missing".into(),
+        project_id: Some("project".into()),
+    };
+    assert!(core
+        .save_source_safe_copy_rules(&wrong, "src", rules.clone())
+        .is_err());
+    assert!(core
+        .save_source_safe_copy_rules(&context, "/arbitrary/path", rules.clone())
+        .is_err());
+    assert!(core
+        .save_source_safe_copy_rules(
+            &context,
+            "src",
+            vec![FileRule::path(RuleAction::Exclude, RuleSyntax::Regex, "(")]
+        )
+        .is_err());
+    assert!(fx
+        .store
+        .get::<Source>("src")
+        .unwrap()
+        .unwrap()
+        .safe_copy_rules
+        .is_empty());
+    core.save_source_safe_copy_rules(&context, "src", rules.clone())
+        .unwrap();
+    let source: Source = fx.store.get("src").unwrap().unwrap();
+    assert_eq!(source.safe_copy_rules, rules);
+    let peer = Store::open_in_memory().unwrap();
+    peer.apply_remote(&fx.store.ops_since(&VersionVector::new(), 10000).unwrap())
+        .unwrap();
+    assert_eq!(
+        peer.get::<Source>("src").unwrap().unwrap().safe_copy_rules,
+        rules
+    );
+    let mut old_json = serde_json::to_value(&source).unwrap();
+    old_json.as_object_mut().unwrap().remove("safe_copy_rules");
+    assert!(serde_json::from_value::<Source>(old_json)
+        .unwrap()
+        .safe_copy_rules
+        .is_empty());
+    let mut bypass = source.clone();
+    bypass.safe_copy_rules.clear();
+    assert!(core
+        .save_entity("source", serde_json::to_value(bypass).unwrap())
+        .unwrap_err()
+        .contains("save_source_safe_copy_rules"));
+    let mut moved = source.clone();
+    moved.path_template = "PRIVATE".into();
+    assert!(core
+        .save_entity("source", serde_json::to_value(moved).unwrap())
+        .is_err());
+    core.save_entity("source", serde_json::to_value(source).unwrap())
+        .unwrap();
+}
+
+#[test]
+fn safe_copy_details_share_sorted_device_scope_and_do_not_discredit_offline_verified_copies() {
+    use crate::domain::{FileCopy, FileRecord, HashAlgo};
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/Z.JPG", b"z");
+    fx.write_card_file("VIDEO/A.MP4", b"a");
+    fx.store
+        .put(&Source {
+            id: "sibling".into(),
+            path_template: "VIDEO".into(),
+            ..fx.source.clone()
+        })
+        .unwrap();
+    for (path, hash) in [("DCIM/Z.JPG", "z"), ("VIDEO/A.MP4", "a")] {
+        let id = FileRecord::id_for(HashAlgo::Xxh64, hash);
+        fx.store
+            .put(&FileRecord {
+                id: id.clone(),
+                hash: hash.into(),
+                size: 1,
+                ..Default::default()
+            })
+            .unwrap();
+        for device in ["card", "nas"] {
+            fx.store
+                .put(&FileCopy {
+                    id: FileCopy::id_for(&id, device, path),
+                    file_id: id.clone(),
+                    device_id: device.into(),
+                    path: path.into(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+    }
+    fx.unmount("nas");
+    let (core, _t) = core(&fx);
+    let context = crate::plan::WorkspaceContext::for_project(&fx.store, "project").unwrap();
+    let details = core.source_safe_copy_details(&context, "src").unwrap();
+    assert_eq!(
+        details
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["DCIM/Z.JPG", "VIDEO/A.MP4"]
+    );
+    assert!(details.wipe_eligible);
+    assert_eq!(details.safe_copies, 1);
+    assert!(details
+        .files
+        .iter()
+        .all(|file| file.state == crate::plan::SafeCopyState::Safe
+            && file.verified_destinations == vec!["Home NAS"]
+            && !file.reasons.iter().any(|reason| reason.contains("offline"))));
+    let status = core.workspace_status(&context).unwrap();
+    assert_eq!(status.sources[0].safe_copies, details.safe_copies);
+    assert_eq!(status.sources[0].blocking_reason, details.blocking_reason);
+}
+
+#[test]
+fn file_safety_is_independent_of_pending_siblings_and_wipe_checks_every_project() {
+    use crate::domain::{FileCopy, FileRecord, HashAlgo};
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/SAFE.JPG", b"a");
+    let id = FileRecord::id_for(HashAlgo::Xxh64, "a");
+    fx.store
+        .put(&FileRecord {
+            id: id.clone(),
+            hash: "a".into(),
+            size: 1,
+            ..Default::default()
+        })
+        .unwrap();
+    for device in ["card", "nas"] {
+        fx.store
+            .put(&FileCopy {
+                id: FileCopy::id_for(&id, device, "DCIM/SAFE.JPG"),
+                file_id: id.clone(),
+                device_id: device.into(),
+                path: "DCIM/SAFE.JPG".into(),
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    let (core, _t) = core(&fx);
+    let context = crate::plan::WorkspaceContext::for_project(&fx.store, "project").unwrap();
+    assert!(
+        core.source_safe_copy_details(&context, "src")
+            .unwrap()
+            .wipe_eligible
+    );
+    let mut strict = fx.project.clone();
+    strict.id = "strict".into();
+    strict.final_copies_required = 2;
+    fx.store.put(&strict).unwrap();
+    let details = core.source_safe_copy_details(&context, "src").unwrap();
+    assert!(!details.wipe_eligible);
+    assert_eq!(details.files[0].state, crate::plan::SafeCopyState::Safe);
+    assert_eq!(
+        details.blocking_reason,
+        crate::wipe::plan_workspace_wipe(&fx.store, core.resolver.as_ref(), "src")
+            .unwrap()
+            .reason
+    );
+    fx.write_card_file("DCIM/PENDING.JPG", b"pending");
+    let details = core.source_safe_copy_details(&context, "src").unwrap();
+    assert_eq!(
+        details
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("SAFE.JPG"))
+            .unwrap()
+            .state,
+        crate::plan::SafeCopyState::Safe
+    );
+    assert_eq!(
+        details
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("PENDING.JPG"))
+            .unwrap()
+            .state,
+        crate::plan::SafeCopyState::Unsafe
+    );
+}
+
+#[test]
 fn manual_wipe_rejects_device_jobs_and_clears_only_related_failures_after_success() {
     use crate::transfer::{JobKind, JobSpec, ResourceClaim};
     use std::collections::HashMap;

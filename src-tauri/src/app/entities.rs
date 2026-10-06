@@ -17,6 +17,29 @@ fn put<E: Entity>(store: &Store, value: Value) -> Result<()> {
 
 /// Saves a configuration entity coming from the UI. Catalog entities are engine-owned.
 pub fn save_entity(store: &Store, kind: &str, value: Value) -> Result<()> {
+    if kind == "source" {
+        let source: Source = serde_json::from_value(value.clone())
+            .map_err(|error| format!("invalid source: {error}"))?;
+        let existing: Option<Source> = store.get(&source.id).map_err(|error| error.to_string())?;
+        let previous = existing
+            .as_ref()
+            .map(|source| source.safe_copy_rules.as_slice())
+            .unwrap_or_default();
+        if source.safe_copy_rules != previous {
+            return Err("Use save_source_safe_copy_rules to change source safe-copy rules".into());
+        }
+        if !previous.is_empty()
+            && existing.as_ref().is_some_and(|existing| {
+                existing.device_id != source.device_id
+                    || existing.space_id != source.space_id
+                    || existing.path_template != source.path_template
+            })
+        {
+            return Err(
+                "Clear source safe-copy rules before changing its device, space, or path".into(),
+            );
+        }
+    }
     validate_save(store, kind, &value)?;
     match EntityKind::parse(kind).ok_or_else(|| format!("unknown kind {kind}"))? {
         EntityKind::Space => put::<Space>(store, value),

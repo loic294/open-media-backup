@@ -47,6 +47,8 @@ macro_rules! omb_handlers {
             $crate::commands::catalog::validate_app_path,
             $crate::commands::catalog::get_project_status,
             $crate::commands::catalog::get_workspace_status,
+            $crate::commands::catalog::get_source_safe_copy_details,
+            $crate::commands::catalog::save_source_safe_copy_rules,
             $crate::commands::catalog::list_files,
             $crate::commands::catalog::list_workspace_files,
             $crate::commands::catalog::get_media_metadata,

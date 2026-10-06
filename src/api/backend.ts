@@ -10,6 +10,7 @@ import type {
   DeviceMapping,
   EntityKind,
   FileCategory,
+  FileRule,
   FileDirectory,
   FilePage,
   Flow,
@@ -20,6 +21,7 @@ import type {
   RevealKind,
   Snapshot,
   Source,
+  SourceSafeCopyDetails,
   Space,
   SyncStatus,
   TransferJob,
@@ -65,6 +67,8 @@ export interface Backend {
 
   getProjectStatus(projectId: string): Promise<ProjectStatus>;
   getWorkspaceStatus(context: WorkspaceContext): Promise<WorkspaceStatus>;
+  getSourceSafeCopyDetails(context: WorkspaceContext, sourceId: string): Promise<SourceSafeCopyDetails>;
+  saveSourceSafeCopyRules(context: WorkspaceContext, sourceId: string, rules: FileRule[]): Promise<void>;
   listWorkspaceFiles(req: WorkspaceFilesRequest): Promise<FilePage>;
   listFiles(req: {
     projectId: string;

@@ -17,7 +17,9 @@ pub use classify::{
     source_files, Category, PlannedFile,
 };
 pub use context::{resolve_flow, resolve_workspace_flow, FlowContext, PlanError, WorkspaceContext};
-pub use safe_copies::{safe_copy_report, DeviceCopies, FinalTarget, SafeCopyReport};
+pub use safe_copies::{
+    safe_copy_report, DeviceCopies, FinalTarget, SafeCopyFile, SafeCopyReport, SafeCopyState,
+};
 pub use status::{
     project_status, workspace_status, DestinationStatus, FlowState, FlowStatus, ProjectStatus,
     SourceStatus, WorkspaceStatus,

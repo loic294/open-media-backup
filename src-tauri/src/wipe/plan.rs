@@ -48,7 +48,7 @@ pub fn assess(
         return Err("source and project belong to different spaces".into());
     }
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
-    let finals = FinalSet::load(store).map_err(|e| e.to_string())?;
+    let finals = FinalSet::load_for_space(store, &space.id).map_err(|e| e.to_string())?;
     let sources = store
         .list_by::<Source>("space_id", &space.id)
         .map_err(|e| e.to_string())?;
@@ -197,11 +197,34 @@ pub fn wipe_workspace(
         .get(source_id)
         .map_err(|e| e.to_string())?
         .ok_or("source not found")?;
-    let project: Project = store
+    let projects: Vec<Project> = store
         .list_by::<Project>("space_id", &source.space_id)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .find(|project| !project.archived)
+        .filter(|project| !project.archived)
+        .collect();
+    let project = projects
+        .first()
         .ok_or("No active project applies to this source")?;
-    super::run::wipe(store, resolver, &project.id, source_id, method, handle)
+    let mut preserve = std::collections::HashSet::new();
+    for project in &projects {
+        let assessed = assess(store, resolver, &project.id, source_id)?;
+        preserve.extend(
+            assessed
+                .assessment
+                .device_files
+                .into_iter()
+                .filter(|file| file.state == crate::plan::SafeCopyState::Excluded)
+                .map(|file| file.path),
+        );
+    }
+    super::run::wipe_preserving(
+        store,
+        resolver,
+        &project.id,
+        source_id,
+        method,
+        handle,
+        &preserve,
+    )
 }

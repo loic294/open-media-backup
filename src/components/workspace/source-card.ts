@@ -101,16 +101,31 @@ export class OmbSourceCard extends OmbElement {
         : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
     if (st.required_copies === null)
       return html`
-        <span class="badge badge-ghost gap-1.5">${st.safe_copies} safe copies</span>
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost"
+          aria-label="View safe-copy details"
+          @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "safe-copy", sourceId: this.source.id }))}
+        >
+          <span class="badge badge-ghost gap-1.5">${st.safe_copies} safe copies</span>
+        </button>
         <span class="text-sm text-base-content/60">${st.blocking_reason}</span>
         ${this.#canOfferWipe() ? this.#wipeButton() : nothing}
       `;
     const icon =
       st.safe_copies >= st.required_copies ? "shield-check" : st.safe_copies > 0 ? "shield" : "shield-alert";
     return html`
-      <span class="badge badge-soft ${safeTone(st.safe_copies, st.required_copies)} gap-1.5">
-        <omb-icon name=${icon} class="size-3.5"></omb-icon>${st.safe_copies}/${st.required_copies} safe copies
-      </span>
+      <button
+        type="button"
+        class="btn btn-xs btn-ghost"
+        aria-label="View safe-copy details"
+        @click=${(e: Event) => (e.stopPropagation(), this.store.open({ type: "safe-copy", sourceId: this.source.id }))}
+      >
+        <span class="badge badge-soft ${safeTone(st.safe_copies, st.required_copies)} gap-1.5">
+          <omb-icon name=${icon} class="size-3.5"></omb-icon>${st.safe_copies}/${st.required_copies} safe
+          copies
+        </span>
+      </button>
       ${
         this.#canOfferWipe()
           ? this.#wipeButton()

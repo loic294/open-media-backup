@@ -10,6 +10,23 @@ describe("destination job command adapters", () => {
   });
   const context = { spaceId: "space", projectId: null };
 
+  it("requests safe-copy evidence and persists rules by stored source id only", async () => {
+    vi.mocked(invoke).mockResolvedValue({});
+    await tauriBackend.getSourceSafeCopyDetails(context, "source");
+    expect(invoke).toHaveBeenLastCalledWith("get_source_safe_copy_details", { context, sourceId: "source" });
+    const rules = [{ action: "exclude" as const, syntax: "glob" as const, pattern: "*.THM" }];
+    await tauriBackend.saveSourceSafeCopyRules(context, "source", rules);
+    expect(invoke).toHaveBeenLastCalledWith("save_source_safe_copy_rules", {
+      context,
+      sourceId: "source",
+      rules,
+    });
+    vi.mocked(invoke).mockRejectedValue(new Error("Device is busy"));
+    await expect(tauriBackend.saveSourceSafeCopyRules(context, "source", rules)).rejects.toThrow(
+      "Device is busy",
+    );
+  });
+
   it("marks manual wipe by stored source id only and propagates persistence failure", async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
     await tauriBackend.markSourceManuallyWiped("source");

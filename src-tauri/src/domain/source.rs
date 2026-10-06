@@ -37,6 +37,8 @@ pub struct Source {
     pub offer_wipe: bool,
     pub position: i64,
     pub project_scope: ProjectScope,
+    /// Source-relative rules used only for safe-copy assessment and wiping.
+    pub safe_copy_rules: Vec<super::FileRule>,
 }
 impl_entity!(Source, Source);
 

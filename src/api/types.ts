@@ -111,6 +111,29 @@ export interface Source {
   position: number;
   /** Missing in older snapshots means all projects. */
   project_scope?: ProjectScope;
+  /** Synced rules for safety requirements only; do not filter transfers. */
+  safe_copy_rules?: FileRule[];
+}
+
+export interface SafeCopyFile {
+  path: string;
+  state: "safe" | "unsafe" | "excluded";
+  safe_copies: number;
+  verified_destinations: string[];
+  acknowledged_destinations: string[];
+  reasons: string[];
+}
+
+export interface SourceSafeCopyDetails {
+  source_id: string;
+  device_id: string;
+  device_name: string;
+  required_copies: number | null;
+  safe_copies: number;
+  wipe_eligible: boolean;
+  blocking_reason: string | null;
+  editable: boolean;
+  files: SafeCopyFile[];
 }
 
 export interface Destination {

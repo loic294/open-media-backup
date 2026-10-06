@@ -86,6 +86,93 @@ fn write(root: &std::path::Path, rel: &str, bytes: &[u8]) {
 }
 
 #[test]
+fn safe_copy_details_and_rule_save_ipc_contract_and_authorization() {
+    use crate::domain::{DeviceMapping, Source};
+    use crate::store::VersionVector;
+    use crate::testing::Fixture;
+    use tauri::Manager;
+    let ui = Ui::start();
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    let state = ui.webview.state::<super::Shared>();
+    state
+        .core
+        .store
+        .apply_remote(&fx.store.ops_since(&VersionVector::new(), 10000).unwrap())
+        .unwrap();
+    let args = json!({"context": {"spaceId": "space", "projectId": "project"}, "sourceId": "src"});
+    let details = ui.ok("get_source_safe_copy_details", args.clone());
+    assert_eq!(details["source_id"], "src");
+    assert_eq!(details["device_id"], "card");
+    assert_eq!(details["device_name"], "Camera A Card 1");
+    assert_eq!(details["required_copies"], 1);
+    assert_eq!(details["safe_copies"], 0);
+    assert_eq!(details["wipe_eligible"], false);
+    assert_eq!(details["editable"], false);
+    let rules = json!([{"action": "exclude", "syntax": "glob", "pattern": "A.JPG"}]);
+    let mut save = args.clone();
+    save["rules"] = rules.clone();
+    assert!(ui
+        .call("save_source_safe_copy_rules", save.clone())
+        .is_err());
+    state
+        .core
+        .store
+        .put(&DeviceMapping {
+            id: format!("card@{}", state.core.store.computer_id()),
+            device_id: "card".into(),
+            computer_id: state.core.store.computer_id().into(),
+            root_path: fx.card_dir.path().display().to_string(),
+        })
+        .unwrap();
+    let details = ui.ok("get_source_safe_copy_details", args.clone());
+    assert_eq!(details["files"][0]["path"], "DCIM/A.JPG");
+    assert_eq!(details["files"][0]["state"], "unsafe");
+    assert_eq!(details["files"][0]["verified_destinations"], json!([]));
+    assert_eq!(details["files"][0]["acknowledged_destinations"], json!([]));
+    assert_eq!(details["files"][0].as_object().unwrap().len(), 6);
+    assert_eq!(details.as_object().unwrap().len(), 9);
+    ui.ok("save_source_safe_copy_rules", save.clone());
+    let excluded = ui.ok("get_source_safe_copy_details", args.clone());
+    assert_eq!(excluded["files"][0]["state"], "excluded");
+    assert_eq!(excluded["wipe_eligible"], true);
+    assert!(!excluded["files"][0]["reasons"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let mut invalid = save.clone();
+    invalid["rules"] = json!([{"action":"exclude","syntax":"regex","pattern":"("}]);
+    assert!(ui.call("save_source_safe_copy_rules", invalid).is_err());
+    let mut wrong_context = args.clone();
+    wrong_context["context"]["spaceId"] = json!("elsewhere");
+    assert!(ui
+        .call("get_source_safe_copy_details", wrong_context)
+        .is_err());
+    let mut wrong_source = save.clone();
+    wrong_source["sourceId"] = json!("/arbitrary/path");
+    assert!(ui
+        .call("save_source_safe_copy_rules", wrong_source)
+        .is_err());
+    let mut source =
+        serde_json::to_value(state.core.store.get::<Source>("src").unwrap().unwrap()).unwrap();
+    source["safe_copy_rules"] = json!([]);
+    assert!(ui
+        .call("save_entity", json!({"kind": "source", "entity": source}))
+        .is_err());
+    assert_eq!(
+        state
+            .core
+            .store
+            .get::<Source>("src")
+            .unwrap()
+            .unwrap()
+            .safe_copy_rules
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn manual_wipe_ipc_accepts_only_a_stored_source_id_and_persists_removal() {
     use crate::domain::{Device, FileCopy, Source};
     use tauri::Manager;
@@ -491,6 +578,23 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
         "{copied:?}"
     );
 
+    let blocked = ui.ok("plan_wipe", json!({ "sourceId": "src" }));
+    assert_eq!(
+        blocked["eligible"], false,
+        "Destination rules do not exclude source safety requirements"
+    );
+    ui.ok(
+        "save_source_safe_copy_rules",
+        json!({
+            "context": {"spaceId": "sp", "projectId": "pr"},
+            "sourceId": "src",
+            "rules": [
+                {"action":"exclude","syntax":"glob","pattern":"PRIVATE/"},
+                {"action":"exclude","syntax":"glob","pattern":"*.THM"},
+                {"action":"exclude","syntax":"glob","pattern":"*.MP4"}
+            ]
+        }),
+    );
     let plan = ui.ok("plan_wipe", json!({ "sourceId": "src" }));
     assert_eq!(
         (

@@ -62,6 +62,32 @@ pub async fn get_workspace_status(
 }
 
 #[tauri::command]
+pub async fn get_source_safe_copy_details(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    source_id: String,
+) -> CmdResult<crate::app::SourceSafeCopyDetails> {
+    blocking(&state, move |s| {
+        s.core.source_safe_copy_details(&context, &source_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn save_source_safe_copy_rules(
+    state: State<'_, Shared>,
+    context: WorkspaceContext,
+    source_id: String,
+    rules: Vec<crate::domain::FileRule>,
+) -> CmdResult<()> {
+    blocking(&state, move |s| {
+        s.core
+            .save_source_safe_copy_rules(&context, &source_id, rules)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn list_files(state: State<'_, Shared>, req: ListFilesRequest) -> CmdResult<FilePage> {
     blocking(&state, move |s| s.core.list_files(&req)).await
 }

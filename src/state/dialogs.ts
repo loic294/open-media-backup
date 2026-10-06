@@ -18,6 +18,7 @@ export type DialogRequest =
   | { type: "source-settings"; sourceId: string | null; mountPath?: string }
   | { type: "destination-settings"; destinationId: string | null }
   | { type: "wipe-card"; sourceId: string }
+  | { type: "safe-copy"; sourceId: string }
   | { type: "preview"; flowId: string | null; category?: "to_transfer" | "transferred" | "ignored" | "error" }
   | { type: "media-browser"; sourceId: string }
   | { type: "transfer-conflict"; jobId: string; requestId: string }

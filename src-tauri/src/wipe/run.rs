@@ -27,6 +27,26 @@ pub fn wipe(
     method: WipeMethod,
     handle: &JobHandle,
 ) -> Result<(), String> {
+    wipe_preserving(
+        store,
+        resolver,
+        project_id,
+        source_id,
+        method,
+        handle,
+        &Default::default(),
+    )
+}
+
+pub(super) fn wipe_preserving(
+    store: &Store,
+    resolver: &dyn RootResolver,
+    project_id: &str,
+    source_id: &str,
+    method: WipeMethod,
+    handle: &JobHandle,
+    preserve: &std::collections::HashSet<String>,
+) -> Result<(), String> {
     let Assessed {
         device,
         catalog,
@@ -43,6 +63,13 @@ pub fn wipe(
     let known: Vec<(String, String)> = assessment
         .known
         .iter()
+        .filter(|(rel, _)| {
+            !preserve.contains(&assessment.device_path(rel))
+                && assessment.device_files.iter().any(|file| {
+                    file.path == assessment.device_path(rel)
+                        && file.state != crate::plan::SafeCopyState::Excluded
+                })
+        })
         .filter_map(|(rel, id)| Some((assessment.device_path(rel), id.clone()?)))
         .collect();
     handle.update(|j| {
