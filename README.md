@@ -103,6 +103,23 @@ npm run build:demo   # static demo build in dist/
 
 Running `npm run dev` without demo mode in a plain browser only shows a hint to start the desktop app.
 
+### Window header
+
+The 64px app header is a Tauri deep drag region: its background, branding, icons,
+and non-interactive status text can move the window. Buttons, links, inputs, and
+other interactive descendants remain clickable, and double-click behavior is
+handled by Tauri for each OS. Do not add self-only drag markers to descendants:
+they prevent nested content from reaching the header's deep region.
+
+On macOS, both normal and demo window configurations use a traffic-light inset
+of `(20, 30)` logical pixels. AppKit's button frame is 16px tall with a 6px
+bottom offset; Tauri's inset positions its container, so the button center is
+`30 + 16 / 2 - 6 = 32`, aligned with the header. Windows uses the existing
+vertically centered custom window buttons; Linux retains its native decorations.
+Browser demo previews (`?ombChrome=macos`, `windows`, or `linux`) show layout only.
+Verify actual dragging, native button alignment, double-clicking, and
+fullscreen/restore on desktop hardware, including Retina/scaled displays.
+
 ### Layout
 
 ```

@@ -40,14 +40,13 @@ export class OmbTopBar extends OmbElement {
     return html`
       <header
         class="relative grid grid-cols-[1fr_auto_1fr] items-center gap-4 ${headerPadding} h-16 border-b border-base-300 bg-base-200"
-        data-tauri-drag-region
+        data-tauri-drag-region="deep"
       >
         ${
           showPreviewTrafficLights
             ? html`<div
                 class="absolute left-5 top-1/2 flex -translate-y-1/2 items-center gap-2"
                 aria-hidden="true"
-                data-tauri-drag-region
               >
                 <span class="size-3 rounded-full bg-[#ff5f57]"></span>
                 <span class="size-3 rounded-full bg-[#febc2e]"></span>
@@ -55,18 +54,13 @@ export class OmbTopBar extends OmbElement {
               </div>`
             : nothing
         }
-        <div class="flex items-center gap-3 min-w-0" data-tauri-drag-region>
-          <span
-            class="grid place-items-center size-9 rounded-box bg-primary text-primary-content shrink-0"
-            data-tauri-drag-region
-          >
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="grid place-items-center size-9 rounded-box bg-primary text-primary-content shrink-0">
             <omb-icon name="shield-check" class="size-5"></omb-icon>
           </span>
-          <div class="min-w-0 leading-tight" data-tauri-drag-region>
-            <div class="font-semibold truncate" data-tauri-drag-region>Open Media Backup</div>
-            <div class="text-xs text-base-content/60 truncate" data-tauri-drag-region>
-              ${computer?.name ?? ""}
-            </div>
+          <div class="min-w-0 leading-tight">
+            <div class="font-semibold truncate">Open Media Backup</div>
+            <div class="text-xs text-base-content/60 truncate">${computer?.name ?? ""}</div>
           </div>
         </div>
         <omb-space-pills></omb-space-pills>
