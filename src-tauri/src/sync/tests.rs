@@ -14,7 +14,9 @@ fn space(id: &str, name: &str) -> Space {
 async fn real_server_syncs_and_rejects_wrong_token() {
     let a = Arc::new(Store::open_in_memory().unwrap());
     let b = Arc::new(Store::open_in_memory().unwrap());
-    a.put(&space("a", "from-a")).unwrap();
+    let mut synced_space = space("a", "from-a");
+    synced_space.skip_counts_as_safe_copy = true;
+    a.put(&synced_space).unwrap();
     b.put(&space("b", "from-b")).unwrap();
 
     let service_a = SyncService::new(a.clone(), |_| {});
@@ -36,4 +38,10 @@ async fn real_server_syncs_and_rejects_wrong_token() {
     assert_eq!(a.version_vector().unwrap(), b.version_vector().unwrap());
     assert!(a.get::<Space>("b").unwrap().is_some());
     assert!(b.get::<Space>("a").unwrap().is_some());
+    assert!(
+        b.get::<Space>("a")
+            .unwrap()
+            .unwrap()
+            .skip_counts_as_safe_copy
+    );
 }

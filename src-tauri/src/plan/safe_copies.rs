@@ -46,6 +46,8 @@ pub fn safe_copy_report(
     catalog: &Catalog,
     rule_vars: &TemplateVars,
     temporary_copies_per_final: u32,
+    skip_counts_as_safe_copy: bool,
+    space_id: &str,
 ) -> SafeCopyReport {
     device_safe_copy_report(
         &[SourceCopyFiles {
@@ -56,6 +58,8 @@ pub fn safe_copy_report(
         finals,
         catalog,
         temporary_copies_per_final,
+        skip_counts_as_safe_copy,
+        space_id,
     )
 }
 
@@ -64,6 +68,8 @@ pub fn device_safe_copy_report(
     finals: &[FinalTarget],
     catalog: &Catalog,
     temporary_copies_per_final: u32,
+    skip_counts_as_safe_copy: bool,
+    space_id: &str,
 ) -> SafeCopyReport {
     let required = |target: &FinalTarget, rel: &str, vars: &TemplateVars| {
         target.rules.is_empty() || target.rules.iter().any(|r| r.allows_with_vars(rel, vars))
@@ -94,8 +100,15 @@ pub fn device_safe_copy_report(
                 .iter()
                 .filter(|(_, views)| {
                     views.iter().all(|(_, id, _)| {
-                        id.as_ref()
-                            .is_some_and(|id| catalog.has_copy_on(id, &target.device.id))
+                        id.as_ref().is_some_and(|id| {
+                            catalog.has_copy_on(id, &target.device.id)
+                                || (skip_counts_as_safe_copy
+                                    && catalog.has_safe_copy_override(
+                                        id,
+                                        &target.device.id,
+                                        space_id,
+                                    ))
+                        })
                     })
                 })
                 .count();

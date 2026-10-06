@@ -1,7 +1,7 @@
-use super::copy::{copy_resolving, CopyError};
+use super::copy::{copy_resolving, CopyError, SkipEvidence};
 use super::handle::{JobHandle, JobState};
 use crate::app::AppSettings;
-use crate::domain::{FileCopy, FileRecord};
+use crate::domain::{FileCopy, FileRecord, SafeCopyOverride};
 use crate::paths::{ensure_backup_folder, join_relative, to_relative};
 use crate::plan::{
     classify_flow, resolve_workspace_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile,
@@ -75,13 +75,25 @@ pub fn run_workspace_transfer(
         }
         handle.update(|j| j.current_file = Some(file.rel_path.clone()));
         match transfer_one(&ctx, file, handle) {
-            Ok(Some((hash, dest_rel))) => {
+            Ok(TransferOneOutcome::Copied {
+                hash,
+                destination_path,
+            }) => {
                 flow_failures.remove(&file.rel_path);
                 flow_failures.remove(&file.failure_key());
-                writer.add(&ctx, file, hash, dest_rel);
+                writer.add(&ctx, file, hash, destination_path);
             }
             // Skipped by the user: stays pending and is not a failure.
-            Ok(None) => skipped_any = true,
+            Ok(TransferOneOutcome::Skipped {
+                evidence: Some(evidence),
+            }) => {
+                skipped_any = true;
+                if ctx.space.skip_counts_as_safe_copy && ctx.destination.counts_as_safe_copy {
+                    let target = file.target_path.as_deref().expect("transfer target");
+                    writer.add_skip_safe_copy(&ctx, file, target, evidence);
+                }
+            }
+            Ok(TransferOneOutcome::Skipped { evidence: None }) => skipped_any = true,
             Err(CopyError::Cancelled) => break,
             Err(e) => {
                 let message = e.to_string();
@@ -152,11 +164,21 @@ pub(super) fn prepare(
     Ok(ctx)
 }
 
+enum TransferOneOutcome {
+    Copied {
+        hash: String,
+        destination_path: String,
+    },
+    Skipped {
+        evidence: Option<SkipEvidence>,
+    },
+}
+
 fn transfer_one(
     ctx: &FlowContext,
     file: &PlannedFile,
     handle: &JobHandle,
-) -> Result<Option<(String, String)>, CopyError> {
+) -> Result<TransferOneOutcome, CopyError> {
     let src = file.abs_path.as_ref().ok_or(CopyError::SourceChanged)?;
     let root = ctx.dest_root.as_ref().ok_or(CopyError::SourceChanged)?;
     let target = file
@@ -180,7 +202,9 @@ fn transfer_one(
     handle.update(|j| j.bytes_done = before + file.size);
     let outcome = outcome?;
     if outcome.skipped {
-        return Ok(None);
+        return Ok(TransferOneOutcome::Skipped {
+            evidence: outcome.skip_evidence,
+        });
     }
     let dest_rel = to_relative(root, &outcome.final_path).ok_or_else(|| {
         CopyError::Io(std::io::Error::new(
@@ -188,7 +212,10 @@ fn transfer_one(
             "Transferred target is outside destination root",
         ))
     })?;
-    Ok(Some((outcome.hash, dest_rel)))
+    Ok(TransferOneOutcome::Copied {
+        hash: outcome.hash,
+        destination_path: dest_rel,
+    })
 }
 
 pub(super) struct RecordWriter<'a> {
@@ -196,8 +223,10 @@ pub(super) struct RecordWriter<'a> {
     catalog: &'a Catalog,
     written: HashSet<String>,
     removed: HashSet<String>,
+    removed_overrides: HashSet<String>,
     records: Vec<FileRecord>,
     copies: Vec<FileCopy>,
+    overrides: Vec<SafeCopyOverride>,
 }
 
 impl<'a> RecordWriter<'a> {
@@ -207,8 +236,10 @@ impl<'a> RecordWriter<'a> {
             catalog,
             written: HashSet::new(),
             removed: HashSet::new(),
+            removed_overrides: HashSet::new(),
             records: vec![],
             copies: vec![],
+            overrides: vec![],
         }
     }
 
@@ -244,20 +275,81 @@ impl<'a> RecordWriter<'a> {
             });
         }
         let now = chrono::Utc::now().timestamp_millis();
-        for (device, path) in [
-            (&ctx.source_device.id, source_path),
-            (&ctx.dest_device.id, dest_rel),
-        ] {
-            self.invalidate_other_claims(device, &path, &file_id);
-            self.copies.push(FileCopy {
-                id: FileCopy::id_for(&file_id, device, &path),
-                file_id: file_id.clone(),
-                device_id: device.clone(),
-                path,
-                verified_at: now,
-                removed: false,
+        self.invalidate_other_claims(&ctx.source_device.id, &source_path, &file_id);
+        self.invalidate_source_overrides(&ctx.source_device.id, &source_path, &file_id);
+        self.copies.push(FileCopy {
+            id: FileCopy::id_for(&file_id, &ctx.source_device.id, &source_path),
+            file_id: file_id.clone(),
+            device_id: ctx.source_device.id.clone(),
+            path: source_path,
+            verified_at: now,
+            removed: false,
+        });
+        self.invalidate_other_claims(&ctx.dest_device.id, &dest_rel, &file_id);
+        self.invalidate_destination_overrides(&ctx.dest_device.id, &dest_rel);
+        self.copies.push(FileCopy {
+            id: FileCopy::id_for(&file_id, &ctx.dest_device.id, &dest_rel),
+            file_id: file_id.clone(),
+            device_id: ctx.dest_device.id.clone(),
+            path: dest_rel,
+            verified_at: now,
+            removed: false,
+        });
+    }
+
+    pub(super) fn add_skip_safe_copy(
+        &mut self,
+        ctx: &FlowContext,
+        file: &PlannedFile,
+        destination_path: &str,
+        evidence: SkipEvidence,
+    ) {
+        let file_id = FileRecord::id_for(ctx.space.hash_algo, &evidence.source_hash);
+        let source_path = ctx.source_device_path(&file.rel_path);
+        if self.catalog.record(&file_id).is_none() && self.written.insert(file_id.clone()) {
+            self.records.push(FileRecord {
+                id: file_id.clone(),
+                hash: evidence.source_hash,
+                hash_algo: ctx.space.hash_algo,
+                size: evidence.source_size,
+                name: file
+                    .rel_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+                origin_device_id: ctx.source_device.id.clone(),
+                origin_path: source_path.clone(),
+                modified_at: file.modified_ms,
             });
         }
+        self.invalidate_other_claims(&ctx.source_device.id, &source_path, &file_id);
+        self.invalidate_source_overrides(&ctx.source_device.id, &source_path, &file_id);
+        self.copies.push(FileCopy {
+            id: FileCopy::id_for(&file_id, &ctx.source_device.id, &source_path),
+            file_id: file_id.clone(),
+            device_id: ctx.source_device.id.clone(),
+            path: source_path.clone(),
+            verified_at: chrono::Utc::now().timestamp_millis(),
+            removed: false,
+        });
+        self.invalidate_other_claims(&ctx.dest_device.id, destination_path, &file_id);
+        self.invalidate_destination_overrides(&ctx.dest_device.id, destination_path);
+        self.overrides.push(SafeCopyOverride {
+            id: SafeCopyOverride::id_for(
+                &ctx.space.id,
+                &file_id,
+                &ctx.dest_device.id,
+                destination_path,
+            ),
+            space_id: ctx.space.id.clone(),
+            file_id,
+            source_device_id: ctx.source_device.id.clone(),
+            source_path,
+            destination_device_id: ctx.dest_device.id.clone(),
+            destination_path: destination_path.to_string(),
+            destination_hash: evidence.destination_hash,
+        });
     }
 
     /// A location now holding `file_id` can no longer be claimed by a different file.
@@ -270,7 +362,40 @@ impl<'a> RecordWriter<'a> {
         }
     }
 
+    fn invalidate_source_overrides(&mut self, device: &str, path: &str, file_id: &str) {
+        for override_ in self.catalog.safe_copy_overrides_at(device, path) {
+            if override_.source_device_id == device
+                && override_.source_path == path
+                && override_.file_id != file_id
+            {
+                self.removed_overrides.insert(override_.id.clone());
+            }
+        }
+        self.overrides.retain(|override_| {
+            override_.source_device_id != device
+                || override_.source_path != path
+                || override_.file_id == file_id
+        });
+    }
+
+    fn invalidate_destination_overrides(&mut self, device: &str, path: &str) {
+        for override_ in self.catalog.safe_copy_overrides_at(device, path) {
+            if override_.destination_device_id == device && override_.destination_path == path {
+                self.removed_overrides.insert(override_.id.clone());
+            }
+        }
+        self.overrides.retain(|override_| {
+            override_.destination_device_id != device || override_.destination_path != path
+        });
+    }
+
+    pub(super) fn invalidate_override(&mut self, override_: &SafeCopyOverride) {
+        self.removed_overrides.insert(override_.id.clone());
+    }
+
     pub(super) fn invalidate(&mut self, copy: &FileCopy) {
+        self.invalidate_source_overrides(&copy.device_id, &copy.path, &copy.file_id);
+        self.invalidate_destination_overrides(&copy.device_id, &copy.path);
         if self.removed.insert(copy.id.clone()) {
             self.copies.push(FileCopy {
                 removed: true,
@@ -280,11 +405,18 @@ impl<'a> RecordWriter<'a> {
     }
 
     pub(super) fn flush(&mut self) -> crate::store::StoreResult<()> {
+        for id in std::mem::take(&mut self.removed_overrides) {
+            self.store
+                .delete(crate::domain::EntityKind::SafeCopyOverride, &id)?;
+        }
         if !self.records.is_empty() {
             self.store.put_all(&std::mem::take(&mut self.records))?;
         }
         if !self.copies.is_empty() {
             self.store.put_all(&std::mem::take(&mut self.copies))?;
+        }
+        if !self.overrides.is_empty() {
+            self.store.put_all(&std::mem::take(&mut self.overrides))?;
         }
         Ok(())
     }

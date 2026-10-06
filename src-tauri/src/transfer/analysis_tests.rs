@@ -98,7 +98,7 @@ fn analysis_adoption_skip_empty_and_retry_io_are_not_committed_budgets() {
     assert_eq!(m.copy_bytes, 0);
     assert_eq!(m.committed_bytes, 0);
     assert_eq!(m.source_check_bytes, 12);
-    assert_eq!(m.destination_check_bytes, 11);
+    assert_eq!(m.destination_check_bytes, 22);
     assert_eq!(h.snapshot().bytes_done, 0);
 
     let dst = dir.path().join("new");

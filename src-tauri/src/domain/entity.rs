@@ -14,6 +14,7 @@ pub enum EntityKind {
     Flow,
     FileRecord,
     FileCopy,
+    SafeCopyOverride,
 }
 
 impl EntityKind {
@@ -29,6 +30,7 @@ impl EntityKind {
             Self::Flow => "flow",
             Self::FileRecord => "file_record",
             Self::FileCopy => "file_copy",
+            Self::SafeCopyOverride => "safe_copy_override",
         }
     }
 
@@ -63,6 +65,10 @@ mod tests {
     fn kind_round_trips() {
         assert_eq!(EntityKind::parse("file_copy"), Some(EntityKind::FileCopy));
         assert_eq!(EntityKind::FileCopy.as_str(), "file_copy");
+        assert_eq!(
+            EntityKind::parse("safe_copy_override"),
+            Some(EntityKind::SafeCopyOverride)
+        );
         assert_eq!(EntityKind::parse("nope"), None);
     }
 }

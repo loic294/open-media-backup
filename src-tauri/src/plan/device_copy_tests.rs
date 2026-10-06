@@ -185,13 +185,13 @@ fn overlapping_sources_keep_relative_rules_and_variables_and_deduplicate_paths()
             vars: &child_vars,
         },
     ];
-    let report = device_safe_copy_report(&sources, &targets, &catalog, 0);
+    let report = device_safe_copy_report(&sources, &targets, &catalog, 0, false, "space");
     assert_eq!(
         (report.files_total, report.ignored, report.safe_copies),
         (1, 0, 1)
     );
     assert_eq!((report.copies[0].verified, report.copies[0].total), (1, 1));
-    let parent_only = device_safe_copy_report(&sources[..1], &targets, &catalog, 0);
+    let parent_only = device_safe_copy_report(&sources[..1], &targets, &catalog, 0, false, "space");
     assert_eq!((parent_only.ignored, parent_only.safe_copies), (1, 0));
 }
 

@@ -14,6 +14,7 @@ const space = (id: string, name: string, icon: string, position: number): Space 
   ],
   backup_marker_template: "{date}_{project_name}",
   allow_project_overlap: true,
+  skip_counts_as_safe_copy: false,
   temporary_copies_per_final: id === "travel" ? 1 : 0,
 });
 

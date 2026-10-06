@@ -1,6 +1,6 @@
 use super::*;
-use crate::domain::FileCopy;
-use crate::plan::{classify_flow, Catalog, Category, FailureMap, WorkspaceContext};
+use crate::domain::{FileCopy, SafeCopyOverride};
+use crate::plan::{classify_flow, project_status, Catalog, Category, FailureMap, WorkspaceContext};
 use crate::testing::{write, Fixture};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -47,6 +47,17 @@ fn transfer_job(fx: &Fixture, manager: &TransferManager, queue: &Arc<ConflictQue
 
 fn job(manager: &TransferManager, id: &str) -> TransferJob {
     manager.jobs().into_iter().find(|j| j.id == id).unwrap()
+}
+
+fn status(fx: &Fixture) -> crate::plan::ProjectStatus {
+    project_status(
+        &fx.store,
+        &fx.resolver,
+        &Catalog::load(&fx.store).unwrap(),
+        &fx.project.id,
+        &FailureMap::new(),
+    )
+    .unwrap()
 }
 
 fn conflicted() -> Fixture {
@@ -102,6 +113,180 @@ fn every_conflict_prompts_and_stale_replies_are_rejected() {
         .iter()
         .all(|c| c.path != "A.JPG" && !c.path.ends_with("/A.JPG")));
     assert!(job(&manager, &id).pending_conflict.is_none());
+}
+
+#[test]
+fn deliberate_skip_counts_as_safe_without_claiming_a_destination_copy_when_enabled() {
+    let fx = conflicted();
+    let mut space = fx.space.clone();
+    space.skip_counts_as_safe_copy = true;
+    fx.store.put(&space).unwrap();
+    let manager = TransferManager::new(|_| {});
+    let id = transfer_job(&fx, &manager, &ConflictQueue::new());
+    wait_for("first request", || {
+        job(&manager, &id).pending_conflict.is_some()
+    });
+    let request = job(&manager, &id).pending_conflict.unwrap();
+    manager
+        .resolve_conflict(&id, &request.request_id, ConflictDecision::Skip, true)
+        .unwrap();
+    wait_for("done", || job(&manager, &id).state == JobState::Done);
+
+    let overrides = fx.store.list::<SafeCopyOverride>().unwrap();
+    assert_eq!(overrides.len(), 2);
+    assert!(overrides.iter().all(|item| {
+        item.file_id
+            .strip_prefix("blake3:")
+            .is_some_and(|source_hash| source_hash != item.destination_hash)
+    }));
+    assert!(fx
+        .store
+        .list::<FileCopy>()
+        .unwrap()
+        .iter()
+        .all(|copy| copy.device_id != "nas"));
+    let workspace_status = status(&fx);
+    assert_eq!(workspace_status.sources[0].safe_copies, 1);
+    assert!(workspace_status.sources[0].wipe_eligible);
+    assert_eq!(workspace_status.flows[0].to_transfer, 2);
+    assert_eq!(std::fs::read(dest(&fx).join("A.JPG")).unwrap(), b"old a");
+    space.skip_counts_as_safe_copy = false;
+    fx.store.put(&space).unwrap();
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
+}
+
+#[test]
+fn skip_does_not_count_or_record_safe_copy_when_disabled() {
+    let fx = conflicted();
+    assert!(!fx.space.skip_counts_as_safe_copy);
+    let manager = TransferManager::new(|_| {});
+    let id = transfer_job(&fx, &manager, &ConflictQueue::new());
+    wait_for("first request", || {
+        job(&manager, &id).pending_conflict.is_some()
+    });
+    let request = job(&manager, &id).pending_conflict.unwrap();
+    manager
+        .resolve_conflict(&id, &request.request_id, ConflictDecision::Skip, true)
+        .unwrap();
+    wait_for("done", || job(&manager, &id).state == JobState::Done);
+    assert!(fx.store.list::<SafeCopyOverride>().unwrap().is_empty());
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
+    assert!(fx.store.list::<FileCopy>().unwrap().is_empty());
+}
+
+#[test]
+fn space_skip_setting_does_not_override_destination_safe_copy_opt_out() {
+    let fx = conflicted();
+    let mut space = fx.space.clone();
+    space.skip_counts_as_safe_copy = true;
+    fx.store.put(&space).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.counts_as_safe_copy = false;
+    fx.store.put(&destination).unwrap();
+    let manager = TransferManager::new(|_| {});
+    let id = transfer_job(&fx, &manager, &ConflictQueue::new());
+    wait_for("request", || job(&manager, &id).pending_conflict.is_some());
+    let request = job(&manager, &id).pending_conflict.unwrap();
+    manager
+        .resolve_conflict(&id, &request.request_id, ConflictDecision::Skip, true)
+        .unwrap();
+    wait_for("done", || job(&manager, &id).state == JobState::Done);
+    assert!(fx.store.list::<SafeCopyOverride>().unwrap().is_empty());
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
+}
+
+#[test]
+fn individual_skip_records_the_same_explicit_safe_copy_acknowledgement() {
+    let fx = Fixture::new();
+    let mut space = fx.space.clone();
+    space.skip_counts_as_safe_copy = true;
+    fx.store.put(&space).unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"source");
+    write(&dest(&fx), "A.JPG", b"existing different file");
+    let manager = TransferManager::new(|_| {});
+    let id = transfer_job(&fx, &manager, &ConflictQueue::new());
+    wait_for("request", || job(&manager, &id).pending_conflict.is_some());
+    let request = job(&manager, &id).pending_conflict.unwrap();
+    manager
+        .resolve_conflict(&id, &request.request_id, ConflictDecision::Skip, false)
+        .unwrap();
+    wait_for("done", || job(&manager, &id).state == JobState::Done);
+    let overrides = fx.store.list::<SafeCopyOverride>().unwrap();
+    assert_eq!(overrides.len(), 1);
+    assert_eq!(status(&fx).sources[0].safe_copies, 1);
+    assert_eq!(status(&fx).flows[0].to_transfer, 1);
+    assert_eq!(
+        std::fs::read(dest(&fx).join("A.JPG")).unwrap(),
+        b"existing different file"
+    );
+}
+
+#[test]
+fn skip_rechecks_conflict_identity_before_recording_safe_copy() {
+    let fx = Fixture::new();
+    let mut space = fx.space.clone();
+    space.skip_counts_as_safe_copy = true;
+    fx.store.put(&space).unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"source");
+    write(&dest(&fx), "A.JPG", b"old");
+    let manager = TransferManager::new(|_| {});
+    let id = transfer_job(&fx, &manager, &ConflictQueue::new());
+    wait_for("first request", || {
+        job(&manager, &id).pending_conflict.is_some()
+    });
+    let first = job(&manager, &id).pending_conflict.unwrap();
+    write(&dest(&fx), "A.JPG", b"changed while waiting");
+    manager
+        .resolve_conflict(&id, &first.request_id, ConflictDecision::Skip, false)
+        .unwrap();
+    wait_for("refreshed request", || {
+        job(&manager, &id)
+            .pending_conflict
+            .is_some_and(|pending| pending.request_id != first.request_id)
+    });
+    let refreshed = job(&manager, &id).pending_conflict.unwrap();
+    assert_ne!(refreshed.destination_hash, first.destination_hash);
+    assert!(fx.store.list::<SafeCopyOverride>().unwrap().is_empty());
+    manager
+        .resolve_conflict(&id, &refreshed.request_id, ConflictDecision::Skip, false)
+        .unwrap();
+    wait_for("done", || job(&manager, &id).state == JobState::Done);
+    let marker = fx.store.list::<SafeCopyOverride>().unwrap().pop().unwrap();
+    assert_eq!(marker.destination_hash, refreshed.destination_hash);
+}
+
+#[test]
+fn destination_check_retires_a_skip_acknowledgement_after_destination_changes() {
+    let fx = Fixture::new();
+    let mut space = fx.space.clone();
+    space.skip_counts_as_safe_copy = true;
+    fx.store.put(&space).unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"source");
+    write(&dest(&fx), "A.JPG", b"old");
+    let manager = TransferManager::new(|_| {});
+    let id = transfer_job(&fx, &manager, &ConflictQueue::new());
+    wait_for("request", || job(&manager, &id).pending_conflict.is_some());
+    let request = job(&manager, &id).pending_conflict.unwrap();
+    manager
+        .resolve_conflict(&id, &request.request_id, ConflictDecision::Skip, false)
+        .unwrap();
+    wait_for("done", || job(&manager, &id).state == JobState::Done);
+    assert_eq!(status(&fx).sources[0].safe_copies, 1);
+
+    write(&dest(&fx), "A.JPG", b"changed outside the app");
+    let context = WorkspaceContext::for_project(&fx.store, &fx.project.id).unwrap();
+    let check = JobHandle::new(
+        TransferJob::new(
+            "check".into(),
+            "check:flow".into(),
+            String::new(),
+            JobKind::Check,
+        ),
+        Arc::new(|| {}),
+    );
+    run_workspace_check(&fx.store, &fx.resolver, &context, &fx.flow.id, &check).unwrap();
+    assert!(fx.store.list::<SafeCopyOverride>().unwrap().is_empty());
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
 }
 
 #[test]

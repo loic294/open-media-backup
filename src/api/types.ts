@@ -35,6 +35,8 @@ export interface Space {
   allow_project_overlap?: boolean;
   /** 0 or missing means temporary destinations never count as safe copies. */
   temporary_copies_per_final?: number;
+  /** Missing on older snapshots means skipped conflicts do not count as safe copies. */
+  skip_counts_as_safe_copy?: boolean;
 }
 
 export type ProjectGranularity = "minute" | "day" | "year";

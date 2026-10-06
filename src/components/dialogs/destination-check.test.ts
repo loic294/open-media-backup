@@ -51,6 +51,7 @@ describe("destination job dialogs", () => {
     await dialog.querySelector("omb-modal")!.updateComplete;
     expect(dialog.textContent).toContain("/card/photo.jpg");
     expect(dialog.textContent).toContain("/nas/photo.jpg");
+    expect(dialog.textContent).toContain("without claiming matching hashes");
     expect(dialog.textContent).toContain("This choice will not affect future runs");
     const checkbox = dialog.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
     expect(checkbox.checked).toBe(false);

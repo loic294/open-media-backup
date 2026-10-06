@@ -35,6 +35,14 @@ pub struct CopyOutcome {
     pub skipped: bool,
     /// A differing destination file was replaced by a verified staged copy.
     pub replaced: bool,
+    pub skip_evidence: Option<SkipEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkipEvidence {
+    pub source_hash: String,
+    pub source_size: u64,
+    pub destination_hash: String,
 }
 
 /// Result of comparing a source file with the content at its expected destination.
@@ -191,6 +199,7 @@ fn resolve_and_copy(
                     adopted: true,
                     skipped: false,
                     replaced: false,
+                    skip_evidence: None,
                 })
             }
             Comparison::Missing => {
@@ -210,6 +219,7 @@ fn resolve_and_copy(
                         adopted: false,
                         skipped: false,
                         replaced: false,
+                        skip_evidence: None,
                     });
                 }
             }
@@ -225,13 +235,36 @@ fn resolve_and_copy(
                 };
                 match decide(&info)? {
                     ConflictDecision::Skip => {
+                        let current_source_hash = hash_checked(src, algo, handle)?;
+                        let current_destination_hash = match hash_checked(&target, algo, handle) {
+                            Ok(hash) => hash,
+                            Err(CopyError::Io(error))
+                                if error.kind() == std::io::ErrorKind::NotFound =>
+                            {
+                                source_hash = Some(current_source_hash);
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        if current_source_hash != source
+                            || current_destination_hash != destination_hash
+                        {
+                            source_hash = Some(current_source_hash);
+                            continue;
+                        }
+                        let source_size = fs::metadata(src)?.len();
                         return Ok(CopyOutcome {
-                            hash: source,
+                            hash: current_source_hash.clone(),
                             final_path: target,
                             adopted: false,
                             skipped: true,
                             replaced: false,
-                        })
+                            skip_evidence: Some(SkipEvidence {
+                                source_hash: current_source_hash,
+                                source_size,
+                                destination_hash,
+                            }),
+                        });
                     }
                     ConflictDecision::KeepBoth => {
                         keep_both = true;
@@ -256,6 +289,7 @@ fn resolve_and_copy(
                             adopted: false,
                             skipped: false,
                             replaced: true,
+                            skip_evidence: None,
                         });
                     }
                     Err(CopyError::Cancelled) => return Err(CopyError::Cancelled),

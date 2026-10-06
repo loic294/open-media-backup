@@ -45,3 +45,30 @@ impl FileCopy {
         format!("{file_id}@{device_id}:{path}")
     }
 }
+
+/// An explicit user acknowledgement that a skipped, different destination file is safe.
+/// This is separate from `FileCopy`: it does not claim the destination has the source hash.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SafeCopyOverride {
+    pub id: String,
+    pub space_id: String,
+    pub file_id: String,
+    pub source_device_id: String,
+    pub source_path: String,
+    pub destination_device_id: String,
+    pub destination_path: String,
+    pub destination_hash: String,
+}
+impl_entity!(SafeCopyOverride, SafeCopyOverride);
+
+impl SafeCopyOverride {
+    pub fn id_for(
+        space_id: &str,
+        file_id: &str,
+        destination_device_id: &str,
+        destination_path: &str,
+    ) -> String {
+        format!("{space_id}:{file_id}@{destination_device_id}:{destination_path}")
+    }
+}

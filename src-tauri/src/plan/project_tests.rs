@@ -34,9 +34,16 @@ fn legacy_serialization_defaults_and_new_fields_round_trip() {
     assert_eq!(space.hash_algo, HashAlgo::Blake3);
     assert!(space.allow_project_overlap);
     assert_eq!(space.temporary_copies_per_final, 0);
+    assert!(!space.skip_counts_as_safe_copy);
     let explicit_xxh64: Space =
         serde_json::from_str(r#"{"id":"space","hash_algo":"xxh64"}"#).unwrap();
     assert_eq!(explicit_xxh64.hash_algo, HashAlgo::Xxh64);
+    let mut enabled_skip_copy = space.clone();
+    enabled_skip_copy.skip_counts_as_safe_copy = true;
+    assert_eq!(
+        serde_json::from_value::<Space>(serde_json::to_value(&enabled_skip_copy).unwrap()).unwrap(),
+        enabled_skip_copy
+    );
     let mut source: Source = serde_json::from_str(r#"{"id":"source"}"#).unwrap();
     assert_eq!(source.project_scope, ProjectScope::All);
     source.project_scope = ProjectScope::Selected {

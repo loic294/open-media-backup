@@ -43,6 +43,8 @@ pub struct Space {
     /// Number of verified temporary destination copies that equal one final copy.
     /// Zero preserves the default behavior: temporary destinations never count.
     pub temporary_copies_per_final: u32,
+    /// Deliberate transfer conflict skips count as an explicit safe-copy acknowledgement.
+    pub skip_counts_as_safe_copy: bool,
 }
 impl_entity!(Space, Space);
 
@@ -59,6 +61,7 @@ impl Default for Space {
             backup_marker_template: String::new(),
             allow_project_overlap: true,
             temporary_copies_per_final: 0,
+            skip_counts_as_safe_copy: false,
         }
     }
 }

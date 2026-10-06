@@ -69,6 +69,7 @@ export function createMockBackend(
   const conflictsRemaining = new Map<string, number>();
   const checkItemsByJob = new Map<string, DestinationCheckItem[]>();
   const skippedJobs = new Set<string>();
+  const safeSkippedFiles = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let pendingUpdate: UpdateInfo | null = options.demoUpdate
     ? {
@@ -87,7 +88,13 @@ export function createMockBackend(
   };
 
   const decide = (job: TransferJob, decision: ConflictDecision) => {
-    if (decision === "skip") skippedJobs.add(job.id);
+    if (decision === "skip") {
+      skippedJobs.add(job.id);
+      const flow = snapshot.flows.find((item) => item.id === job.flow_id);
+      const space = snapshot.spaces.find((item) => item.id === flow?.space_id);
+      const fileName = job.pending_conflict?.source_path.split("/").at(-1) ?? String(job.files_done);
+      if (space?.skip_counts_as_safe_copy) safeSkippedFiles.add(`${job.flow_id}:${fileName}`);
+    }
     analysis.observe(job);
     if (decision === "skip") {
       if (job.analysis) job.analysis.metrics.skipped_files++;
@@ -251,8 +258,17 @@ export function createMockBackend(
     tick();
   }
 
+  const safeSkipCounts = () =>
+    Object.fromEntries(
+      [...safeSkippedFiles]
+        .map((key) => key.split(":"))
+        .reduce((counts, [flowId]) => {
+          counts.set(flowId, (counts.get(flowId) ?? 0) + 1);
+          return counts;
+        }, new Map<string, number>()),
+    );
   const workspaceStatus = (context: WorkspaceContext) =>
-    mockWorkspaceStatus(snapshot, context, counts, offline);
+    mockWorkspaceStatus(snapshot, context, counts, offline, safeSkipCounts());
   const workspaceFlow = (context: WorkspaceContext, flowId: string) => {
     const status = workspaceStatus(context);
     const flow = snapshot.flows.find((f) => f.id === flowId && f.space_id === context.spaceId);
@@ -340,7 +356,7 @@ export function createMockBackend(
     saveSettings: async (settings) => {
       snapshot.settings = structuredClone(settings);
     },
-    getProjectStatus: async (projectId) => mockStatus(snapshot, projectId, counts, offline),
+    getProjectStatus: async (projectId) => mockStatus(snapshot, projectId, counts, offline, safeSkipCounts()),
     getWorkspaceStatus: async (context) => workspaceStatus(context),
     listWorkspaceFiles: async (req) => {
       const { flow, status } = workspaceFlow(req.context, req.flowId);
@@ -494,13 +510,15 @@ export function createMockBackend(
       console.info("Demo mode would restart to finish installing the update");
     },
     runFlow: async (projectId, flowId) => {
-      const status = mockStatus(snapshot, projectId, counts, offline).flows.find((f) => f.flow_id === flowId);
+      const status = mockStatus(snapshot, projectId, counts, offline, safeSkipCounts()).flows.find(
+        (f) => f.flow_id === flowId,
+      );
       if (!status?.runnable)
         throw new Error(status?.error || "Connect the source and destination devices to run");
       startFlow(flowId);
     },
     runAll: async (projectId) => {
-      const status = mockStatus(snapshot, projectId, counts, offline);
+      const status = mockStatus(snapshot, projectId, counts, offline, safeSkipCounts());
       const queue = crypto.randomUUID();
       status.flows
         .filter((f) => f.runnable)
@@ -772,7 +790,9 @@ export function createMockBackend(
         (project) => project.space_id === source?.space_id && !project.archived,
       );
       const statuses = projects.map((project) =>
-        mockStatus(snapshot, project.id, counts, offline).sources.find((s) => s.source_id === sourceId),
+        mockStatus(snapshot, project.id, counts, offline, safeSkipCounts()).sources.find(
+          (s) => s.source_id === sourceId,
+        ),
       );
       const status = statuses[0];
       const finals = snapshot.devices.filter((d) => d.role === "final");
@@ -796,7 +816,9 @@ export function createMockBackend(
         (project) => project.space_id === source?.space_id && !project.archived,
       );
       const statuses = projects.map((project) =>
-        mockStatus(snapshot, project.id, counts, offline).sources.find((s) => s.source_id === sourceId),
+        mockStatus(snapshot, project.id, counts, offline, safeSkipCounts()).sources.find(
+          (s) => s.source_id === sourceId,
+        ),
       );
       const blocked = statuses.find((item) => !item?.wipe_eligible);
       if (statuses.length === 0 || blocked)

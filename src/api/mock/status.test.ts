@@ -228,6 +228,25 @@ describe("mockStatus device-level safe copies", () => {
     expect(complete.every((source) => source.wipe_eligible)).toBe(true);
   });
 
+  describe("mockStatus skipped-conflict safe copies", () => {
+    it("counts explicit skips only while the space setting is enabled", () => {
+      const data = snapshot();
+      data.spaces[0].skip_counts_as_safe_copy = true;
+      const counts: Counts = {
+        "final-flow": [0, 1, 0, 0],
+        "tmp-flow-1": [0, 1, 0, 0],
+        "tmp-flow-2": [0, 1, 0, 0],
+      };
+      expect(mockStatus(data, "project", counts, new Set(), { "final-flow": 1 }).sources[0].safe_copies).toBe(
+        1,
+      );
+      data.spaces[0].skip_counts_as_safe_copy = false;
+      expect(mockStatus(data, "project", counts, new Set(), { "final-flow": 1 }).sources[0].safe_copies).toBe(
+        0,
+      );
+    });
+  });
+
   it("does not combine disjoint target coverage or count a target missing sibling coverage", () => {
     const data = groupedSnapshot();
     data.devices.push({ ...data.devices[1], id: "other-final" });

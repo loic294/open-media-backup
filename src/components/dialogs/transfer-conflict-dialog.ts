@@ -60,8 +60,10 @@ export class OmbTransferConflictDialog extends DialogBase<
           </div>
         </dl>
         <p class="text-sm text-base-content/70 my-4">
-          Skip leaves this file pending. Keep both copies it under a numbered filename. Replace overwrites the
-          destination only after the new copy is verified.
+          Skip leaves this file pending and leaves the destination untouched. If enabled in space settings, an
+          explicit Skip also records your safe-copy acknowledgement without claiming matching hashes. Keep
+          both keeps a second copy under a numbered filename. Replace overwrites the destination only after
+          the new copy is verified.
         </p>
         <label class="flex items-center gap-3 text-sm">
           <input

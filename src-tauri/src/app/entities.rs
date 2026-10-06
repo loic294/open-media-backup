@@ -27,7 +27,7 @@ pub fn save_entity(store: &Store, kind: &str, value: Value) -> Result<()> {
         EntityKind::Source => put::<Source>(store, value),
         EntityKind::Destination => put::<Destination>(store, value),
         EntityKind::Flow => put::<Flow>(store, value),
-        EntityKind::FileRecord | EntityKind::FileCopy => {
+        EntityKind::FileRecord | EntityKind::FileCopy | EntityKind::SafeCopyOverride => {
             Err("file catalog entries are read-only".into())
         }
     }
@@ -100,6 +100,15 @@ pub fn delete_entity(store: &Store, kind: &str, id: &str) -> Result<()> {
     };
     match kind {
         EntityKind::Space => {
+            ids(
+                store
+                    .list_by::<crate::domain::SafeCopyOverride>("space_id", id)
+                    .map_err(err)?
+                    .into_iter()
+                    .map(|entry| entry.id)
+                    .collect(),
+                EntityKind::SafeCopyOverride,
+            )?;
             ids(
                 store
                     .list_by::<Flow>("space_id", id)
@@ -175,7 +184,7 @@ pub fn delete_entity(store: &Store, kind: &str, id: &str) -> Result<()> {
         EntityKind::Device => {
             return store.delete_device(id).map_err(err);
         }
-        EntityKind::FileRecord | EntityKind::FileCopy => {
+        EntityKind::FileRecord | EntityKind::FileCopy | EntityKind::SafeCopyOverride => {
             return Err("file catalog entries are read-only".into())
         }
         _ => {}

@@ -88,7 +88,7 @@ impl Store {
 
     /// Detaches tasks and forgets a device in one synced transaction.
     pub fn delete_device(&self, id: &str) -> StoreResult<()> {
-        use crate::domain::{Destination, DeviceMapping, Source};
+        use crate::domain::{Destination, DeviceMapping, SafeCopyOverride, Source};
         if id.is_empty() {
             return Err(StoreError::Invalid("device id is required".into()));
         }
@@ -114,6 +114,29 @@ impl Store {
                         && !kinds.contains(&kind.as_str().to_string())
                     {
                         kinds.push(kind.as_str().to_string());
+                    }
+                    let override_ids: Vec<String> = {
+                        let mut stmt = tx.prepare(
+                            "SELECT id FROM entities WHERE kind = ?1 AND deleted = 0 AND (json_extract(data, '$.source_device_id') = ?2 OR json_extract(data, '$.destination_device_id') = ?2)",
+                        )?;
+                        let rows = stmt
+                            .query_map(params![SafeCopyOverride::KIND.as_str(), id], |r| {
+                                r.get(0)
+                            })?;
+                        rows.collect::<Result<_, _>>()?
+                    };
+                    for override_id in override_ids {
+                        if apply_op(
+                            &tx,
+                            &self.local_op(
+                                SafeCopyOverride::KIND,
+                                &override_id,
+                                DELETED_FIELD,
+                                Value::Bool(true),
+                            ),
+                        )? {
+                            kinds.push(SafeCopyOverride::KIND.as_str().to_string());
+                        }
                     }
                 }
             }

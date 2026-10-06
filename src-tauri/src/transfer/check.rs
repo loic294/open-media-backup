@@ -1,7 +1,7 @@
 use super::copy::{compare_files_with_progress, hash_checked_with_progress, Comparison, CopyError};
 use super::handle::{CheckItem, CheckOutcome, CheckResults, JobHandle, JobState};
 use super::job::{prepare, RecordWriter};
-use crate::domain::{DestinationKind, FileCopy};
+use crate::domain::{DestinationKind, FileCopy, FileRecord};
 use crate::paths::join_relative;
 use crate::plan::{
     classify_flow, Catalog, Category, FlowContext, PlannedFile, RootResolver, WorkspaceContext,
@@ -110,6 +110,10 @@ fn check_one(
         error: None,
     };
     let claim = catalog.copy_at(&ctx.dest_device.id, &target);
+    let overrides: Vec<_> = catalog
+        .safe_copy_overrides_for_destination(&ctx.dest_device.id, &target)
+        .cloned()
+        .collect();
     let source_claim = catalog.copy_at(
         &ctx.source_device.id,
         &ctx.source_device_path(&file.rel_path),
@@ -135,6 +139,9 @@ fn check_one(
         },
     )? {
         Comparison::Missing => {
+            for override_ in &overrides {
+                writer.invalidate_override(override_);
+            }
             if let Some(claim) = claim {
                 writer.invalidate(claim);
             }
@@ -157,6 +164,14 @@ fn check_one(
             source_hash,
             destination_hash,
         } => {
+            let source_file_id = FileRecord::id_for(algo, &source_hash);
+            for override_ in &overrides {
+                if override_.file_id != source_file_id
+                    || override_.destination_hash != destination_hash
+                {
+                    writer.invalidate_override(override_);
+                }
+            }
             if let Some(claim) = claim {
                 if differs(catalog, claim, algo, &destination_hash) {
                     writer.invalidate(claim);

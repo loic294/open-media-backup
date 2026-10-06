@@ -1,4 +1,4 @@
-use crate::domain::{FileCopy, FileRecord};
+use crate::domain::{FileCopy, FileRecord, SafeCopyOverride};
 use crate::store::{Store, StoreResult};
 use std::collections::{HashMap, HashSet};
 
@@ -8,6 +8,7 @@ pub struct Catalog {
     records: HashMap<String, FileRecord>,
     by_location: HashMap<(String, String), FileCopy>,
     devices_by_file: HashMap<String, HashSet<String>>,
+    safe_copy_overrides: Vec<SafeCopyOverride>,
 }
 
 impl Catalog {
@@ -15,12 +16,18 @@ impl Catalog {
         Ok(Self::from_parts(
             store.list::<FileRecord>()?,
             store.list::<FileCopy>()?,
+            store.list::<SafeCopyOverride>()?,
         ))
     }
 
-    pub fn from_parts(records: Vec<FileRecord>, copies: Vec<FileCopy>) -> Self {
+    pub fn from_parts(
+        records: Vec<FileRecord>,
+        copies: Vec<FileCopy>,
+        safe_copy_overrides: Vec<SafeCopyOverride>,
+    ) -> Self {
         let mut catalog = Self {
             records: records.into_iter().map(|r| (r.id.clone(), r)).collect(),
+            safe_copy_overrides,
             ..Default::default()
         };
         for copy in copies.into_iter().filter(|c| !c.removed) {
@@ -59,6 +66,35 @@ impl Catalog {
         self.devices_by_file
             .get(file_id)
             .is_some_and(|d| d.contains(device_id))
+    }
+
+    pub fn has_safe_copy_override(&self, file_id: &str, device_id: &str, space_id: &str) -> bool {
+        self.safe_copy_overrides.iter().any(|override_| {
+            override_.file_id == file_id
+                && override_.destination_device_id == device_id
+                && override_.space_id == space_id
+        })
+    }
+
+    pub fn safe_copy_overrides_at<'a>(
+        &'a self,
+        device_id: &'a str,
+        path: &'a str,
+    ) -> impl Iterator<Item = &'a SafeCopyOverride> + 'a {
+        self.safe_copy_overrides.iter().filter(move |override_| {
+            (override_.destination_device_id == device_id && override_.destination_path == path)
+                || (override_.source_device_id == device_id && override_.source_path == path)
+        })
+    }
+
+    pub fn safe_copy_overrides_for_destination<'a>(
+        &'a self,
+        device_id: &'a str,
+        path: &'a str,
+    ) -> impl Iterator<Item = &'a SafeCopyOverride> + 'a {
+        self.safe_copy_overrides.iter().filter(move |override_| {
+            override_.destination_device_id == device_id && override_.destination_path == path
+        })
     }
 
     /// Includes collision-renamed copies (`name (n).ext`) created by copy_verified.

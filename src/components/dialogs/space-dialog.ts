@@ -247,6 +247,27 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
           </p>
         </fieldset>
         <section>
+          <h4 class="font-medium">Skipped duplicate files</h4>
+          <label class="flex items-start gap-3 cursor-pointer mt-2">
+            <input
+              type="checkbox"
+              class="toggle toggle-primary mt-0.5"
+              .checked=${d.skip_counts_as_safe_copy ?? false}
+              @change=${(e: Event) =>
+                (this.draft = { ...d, skip_counts_as_safe_copy: (e.target as HTMLInputElement).checked })}
+            />
+            <span>
+              <span class="font-medium">Count deliberate “Skip” decisions as safe copies</span>
+              <span class="block text-sm text-base-content/60">
+                Off by default. While enabled, each explicit Skip (including “Apply to all remaining”) is
+                recorded as your acknowledgement that the different destination file is safe. Past
+                acknowledgements count only while this is enabled. It does not claim matching hashes or mark
+                the file as transferred.
+              </span>
+            </span>
+          </label>
+        </section>
+        <section>
           <h4 class="font-medium">Project capture ranges</h4>
           <label class="flex items-start gap-3 cursor-pointer mt-2">
             <input

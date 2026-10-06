@@ -168,7 +168,15 @@ pub fn assess_workspace_source(
         folder,
         known: vec![],
         files: vec![],
-        report: safe_copy_report(&[], &[], catalog, &vars, space.temporary_copies_per_final),
+        report: safe_copy_report(
+            &[],
+            &[],
+            catalog,
+            &vars,
+            space.temporary_copies_per_final,
+            space.skip_counts_as_safe_copy,
+            &space.id,
+        ),
         path_error: expanded
             .as_ref()
             .err()
@@ -204,6 +212,8 @@ pub fn assess_workspace_source(
         catalog,
         &vars,
         space.temporary_copies_per_final,
+        space.skip_counts_as_safe_copy,
+        &space.id,
     );
     apply_safety(&mut assessment, project, device, source, &report, None);
     assessment.report = report;
@@ -252,8 +262,14 @@ pub fn assess_workspace_device(
             rules: t.rules.clone(),
         })
         .collect();
-    let report =
-        device_safe_copy_report(&files, &targets, catalog, space.temporary_copies_per_final);
+    let report = device_safe_copy_report(
+        &files,
+        &targets,
+        catalog,
+        space.temporary_copies_per_final,
+        space.skip_counts_as_safe_copy,
+        &space.id,
+    );
     let path_error = assessments.iter().find_map(|(source, assessment)| {
         assessment
             .path_error

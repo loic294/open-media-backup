@@ -20,10 +20,17 @@ export function mockStatus(
   projectId: string,
   counts: Counts,
   offline: Set<string>,
+  safeSkipCounts: Record<string, number> = {},
 ): ProjectStatus {
   const project = snapshot.projects.find((p) => p.id === projectId);
   if (!project) throw new Error(`Project ${projectId} not found`);
-  const status = mockWorkspaceStatus(snapshot, { spaceId: project.space_id, projectId }, counts, offline);
+  const status = mockWorkspaceStatus(
+    snapshot,
+    { spaceId: project.space_id, projectId },
+    counts,
+    offline,
+    safeSkipCounts,
+  );
   return {
     project_id: projectId,
     flows: status.flows,
@@ -37,6 +44,7 @@ export function mockWorkspaceStatus(
   context: WorkspaceContext,
   counts: Counts,
   offline: Set<string>,
+  safeSkipCounts: Record<string, number> = {},
 ): WorkspaceStatus {
   const { spaceId, projectId } = context;
   const space = snapshot.spaces.find((s) => s.id === spaceId);
@@ -163,7 +171,7 @@ export function mockWorkspaceStatus(
         return finals.includes(deviceId) || (temporaryCopiesPerFinal > 0 && temporary.includes(deviceId));
       });
       const complete = (f: (typeof outgoing)[number]) =>
-        (counts[f.id]?.[1] ?? 1) === 0 &&
+        (counts[f.id]?.[1] ?? 1) <= (space.skip_counts_as_safe_copy ? (safeSkipCounts[f.id] ?? 0) : 0) &&
         (counts[f.id]?.[3] ?? 0) === 0 &&
         !flowStatuses.find((status) => status.flow_id === f.id)?.error;
       const targets = new Map<string, { role: "final" | "temporary"; flows: typeof outgoing }>();
@@ -179,7 +187,11 @@ export function mockWorkspaceStatus(
         targets.set(key, target);
       }
       const completeTargets = [...targets.values()].filter((target) => {
-        const hasRequiredFiles = target.flows.some((f) => (counts[f.id]?.[0] ?? 0) > 0);
+        const hasRequiredFiles = target.flows.some(
+          (f) =>
+            (counts[f.id]?.[0] ?? 0) > 0 ||
+            (space.skip_counts_as_safe_copy && (safeSkipCounts[f.id] ?? 0) > 0),
+        );
         return (
           hasRequiredFiles &&
           groupedSources.every((source) => {

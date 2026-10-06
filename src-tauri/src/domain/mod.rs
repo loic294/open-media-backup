@@ -10,7 +10,7 @@ mod space;
 
 pub use device::{Computer, Device, DeviceKind, DeviceMapping, DeviceRole};
 pub use entity::{Entity, EntityKind};
-pub use file::{FileCopy, FileRecord};
+pub use file::{FileCopy, FileRecord, SafeCopyOverride};
 pub use flow::{Destination, DestinationKind, Flow};
 pub use project::{validate_project_ranges, Project, ProjectGranularity};
 pub use rule::{ConditionRuleKind, FileRule, PathRule, RuleAction, RuleExpr, RuleSyntax};
