@@ -2,6 +2,7 @@ pub mod app;
 mod commands;
 pub mod devices;
 pub mod domain;
+pub mod hash_server;
 pub mod hashing;
 pub mod media;
 pub mod metadata;

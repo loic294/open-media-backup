@@ -340,6 +340,20 @@ export class OmbDestinationCard extends OmbElement {
                     : nothing
                 }
                 ${device?.role === "temporary" ? html`<span class="badge badge-ghost badge-xs">temporary</span>` : nothing}
+                ${
+                  this.destination.remote_hash?.enabled
+                    ? html`<span
+                        class="badge badge-xs ${this.store.hashServers.some((s) => s.id === this.destination.remote_hash?.server_id) ? "badge-info" : "badge-warning"}"
+                        title=${
+                          this.store.hashServers.some((s) => s.id === this.destination.remote_hash?.server_id)
+                            ? "NAS-side hash checks configured; errors fall back to local re-reads"
+                            : "Hash server not available on this computer; checks use local re-reads"
+                        }
+                      >
+                        ${this.store.hashServers.some((s) => s.id === this.destination.remote_hash?.server_id) ? "NAS hash" : "NAS hash unavailable"}
+                      </span>`
+                    : nothing
+                }
               </div>
               <div class="text-xs text-base-content/60 truncate">
                 Device: ${device?.name ?? "No device selected"}

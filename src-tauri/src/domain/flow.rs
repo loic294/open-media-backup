@@ -1,6 +1,14 @@
 use super::{entity::impl_entity, FileRule};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteHash {
+    pub server_id: String,
+    pub root: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DestinationKind {
@@ -25,6 +33,7 @@ pub struct Destination {
     pub counts_as_safe_copy: bool,
     /// Use the backup-folder marker stored on the original device instead of project variables.
     pub use_backup_marker: bool,
+    pub remote_hash: Option<RemoteHash>,
     pub rules: Vec<FileRule>,
     pub position: i64,
 }
@@ -44,6 +53,7 @@ impl Default for Destination {
             preserve_file_structure: true,
             counts_as_safe_copy: true,
             use_backup_marker: false,
+            remote_hash: None,
             rules: Vec::new(),
             position: 0,
         }

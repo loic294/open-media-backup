@@ -24,6 +24,7 @@ import { sanitizeBackupName, sourceBackupName } from "../../utils/names";
 import { expandTemplate, previewVars, templateVars } from "../../utils/template";
 import { manuallyWipedCounts } from "./manual-wipe";
 import { mockSafeCopyDetails } from "./safe-copies";
+import { MockHashServers } from "./hash-servers";
 
 const COLLECTION: Record<EntityKind, keyof Snapshot> = {
   space: "spaces",
@@ -64,6 +65,7 @@ export function createMockBackend(
   const events = new Emitter();
   const jobs: TransferJob[] = [];
   const analysis = new MockAnalysis(snapshot, options.analysisHistory);
+  const hashServers = new MockHashServers();
   const paused = new Set<string>();
   const queueByJob = new Map<string, string>();
   const queueDecisions = new Map<string, ConflictDecision>();
@@ -86,6 +88,23 @@ export function createMockBackend(
   const changed = () => {
     events.emit("snapshot-changed");
     events.emit("status-changed");
+  };
+
+  const beginAnalysis = (job: TransferJob, flowId: string) => {
+    const flow = snapshot.flows.find((f) => f.id === flowId);
+    const destination = snapshot.destinations.find((d) => d.id === flow?.destination_id);
+    const mapping = destination?.remote_hash;
+    job.warnings = [];
+    job.remote_hash_active = false;
+    if (mapping?.enabled) {
+      try {
+        hashServers.browse(mapping.server_id, mapping.root, "");
+        job.remote_hash_active = true;
+      } catch (error) {
+        job.warnings.push(`Remote hash check fell back to local re-read: ${String(error)}`);
+      }
+    }
+    analysis.begin(job, flowId);
   };
 
   const decide = (job: TransferJob, decision: ConflictDecision) => {
@@ -246,7 +265,7 @@ export function createMockBackend(
       pending_conflict: null,
       check_results: null,
     });
-    analysis.begin(jobs[jobs.length - 1], flowId);
+    beginAnalysis(jobs[jobs.length - 1], flowId);
     queueByJob.set(id, queue);
     conflictsRemaining.set(id, Math.min(c[1], options.conflicts?.[flowId] ?? 0));
     timer ??= setInterval(tick, options.tickMs ?? 400);
@@ -672,7 +691,7 @@ export function createMockBackend(
           pending_conflict: null,
           check_results: checkSummary([]),
         });
-        analysis.begin(jobs[jobs.length - 1], flow.id);
+        beginAnalysis(jobs[jobs.length - 1], flow.id);
         checkItemsByJob.set(id, items);
         ids.push(id);
       }
@@ -896,6 +915,12 @@ export function createMockBackend(
     addPeer: async () => events.emit("sync-status", demoSync()),
     removePeer: async () => events.emit("sync-status", demoSync()),
     syncNow: async () => events.emit("sync-status", demoSync()),
+    listHashServers: async () => hashServers.list(),
+    addHashServer: async (address, token) => hashServers.add(address, token),
+    removeHashServer: async (id) => hashServers.remove(id),
+    hashServerRoots: async (id) => hashServers.roots(id),
+    hashServerBrowse: async (id, root, path) => hashServers.browse(id, root, path),
+    testRemoteHashMapping: async (destinationId) => hashServers.test(snapshot, destinationId),
     on: async (event, handler) => events.on(event, handler as never),
   };
   return backend;

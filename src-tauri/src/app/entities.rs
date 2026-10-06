@@ -79,7 +79,24 @@ fn validate_save(store: &Store, kind: &str, value: &Value) -> Result<()> {
             replace(&mut projects, value)?;
         }
         "source" => replace(&mut sources, value)?,
-        "destination" => replace(&mut destinations, value)?,
+        "destination" => {
+            let destination: Destination =
+                serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+            if let Some(mapping) = destination.remote_hash.as_ref().filter(|m| m.enabled) {
+                if destination.kind != crate::domain::DestinationKind::Folder
+                    || mapping.server_id.is_empty()
+                    || mapping.root.is_empty()
+                {
+                    return Err("Remote hash checks require a folder destination, server and remote device-root folder".into());
+                }
+                let (id, relative) = mapping.root.split_once('/').unwrap_or((&mapping.root, ""));
+                if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err("Invalid remote hash root id".into());
+                }
+                omb_hash::protocol::validate_relative(relative).map_err(|e| e.to_string())?;
+            }
+            replace(&mut destinations, value)?;
+        }
         "flow" => replace(&mut flows, value)?,
         _ => return Ok(()),
     }

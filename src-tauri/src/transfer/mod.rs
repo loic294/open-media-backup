@@ -1,6 +1,7 @@
 //! Background jobs (transfers and wipes) with progress, pause and cancel.
 mod check;
 mod copy;
+pub mod destination_hasher;
 mod handle;
 mod history;
 mod job;
@@ -26,5 +27,7 @@ mod analysis_tests;
 mod conflict_tests;
 #[cfg(test)]
 mod power_tests;
+#[cfg(test)]
+mod remote_tests;
 #[cfg(test)]
 mod tests;

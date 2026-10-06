@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Track and verify media backups from memory cards to final storage"
 edition = "2021"
 
+[workspace]
+members = ["crates/omb-hash", "crates/omb-hash-server"]
+resolver = "2"
+
 [lib]
 name = "omb_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -12,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+omb-hash = { path = "crates/omb-hash" }
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -20,7 +25,6 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
-blake3 = "1"
 globset = "0.4"
 regex = "1"
 walkdir = "2"
@@ -41,6 +45,7 @@ tauri-plugin-process = "2"
 keepawake = "0.6.1"
 
 [dev-dependencies]
+omb-hash-server = { path = "crates/omb-hash-server" }
 tempfile = "3"
 tauri = { version = "2", features = ["test"] }
 

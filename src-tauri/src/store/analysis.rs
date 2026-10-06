@@ -507,7 +507,9 @@ mod tests {
             store
                 .conn
                 .lock()
-                .execute_batch("DROP TABLE speed_analysis; PRAGMA user_version = 1;")
+                .execute_batch(
+                    "DROP TABLE speed_analysis; DROP TABLE hash_servers; PRAGMA user_version = 1;",
+                )
                 .unwrap();
         }
         let store = Store::open(&path).unwrap();
@@ -521,7 +523,7 @@ mod tests {
                 .lock()
                 .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
                 .unwrap(),
-            2
+            3
         );
         let plan: String = store.conn.lock().query_row(
             "EXPLAIN QUERY PLAN SELECT data FROM speed_analysis WHERE space_id=?1 AND pair_id=?2 AND created_at>=?3 ORDER BY created_at DESC,id ASC LIMIT 10",

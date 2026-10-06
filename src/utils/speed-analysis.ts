@@ -14,12 +14,14 @@ export function emptyAnalysisMetrics(): AnalysisMetrics {
     copy_secs: 0,
     source_check_secs: 0,
     destination_check_secs: 0,
+    remote_check_secs: 0,
     paused_secs: 0,
     decision_secs: 0,
     copy_bytes: 0,
     committed_bytes: 0,
     source_check_bytes: 0,
     destination_check_bytes: 0,
+    remote_check_bytes: 0,
     transferred_files: 0,
     adopted_files: 0,
     skipped_files: 0,
@@ -40,7 +42,13 @@ export function emptyAnalysisTotals(): AnalysisTotals {
 }
 
 export function activeSeconds(metrics: AnalysisMetrics): number {
-  return metrics.copy_secs + metrics.source_check_secs + metrics.destination_check_secs + metrics.other_secs;
+  return (
+    metrics.copy_secs +
+    metrics.source_check_secs +
+    metrics.destination_check_secs +
+    metrics.remote_check_secs +
+    metrics.other_secs
+  );
 }
 
 export function wallSeconds(metrics: AnalysisMetrics): number {
@@ -132,7 +140,8 @@ export const ANALYSIS_PHASE_LABELS = {
   other: "Planning / finalizing",
   copy: "Copying",
   source_check: "Local checks (source)",
-  destination_check: "Remote checks (destination)",
+  destination_check: "Destination re-reads",
+  remote_check: "NAS-side hash checks",
   paused: "Paused",
   awaiting_decision: "Waiting for decision",
   finished: "Finished",

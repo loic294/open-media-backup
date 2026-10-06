@@ -11,7 +11,7 @@ mod schema;
 
 pub use clock::{Hlc, HlcClock};
 pub use error::{StoreError, StoreResult};
-pub use local::Peer;
+pub use local::{HashServer, Peer};
 pub use ops::{Op, VersionVector};
 
 use parking_lot::Mutex;

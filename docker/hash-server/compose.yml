@@ -1,0 +1,21 @@
+services:
+  hash-server:
+    image: ghcr.io/loic294/omb-hash-server:latest
+    restart: unless-stopped
+    ports:
+      # Bind to a trusted NAS LAN/Netbird IP; never expose this on the internet.
+      - "${OMB_HASH_BIND_IP:-127.0.0.1}:47822:47822"
+    environment:
+      OMB_HASH_NAME: NAS hash server
+      # Optional JSON array; otherwise each top-level directory in /data is exposed.
+      OMB_HASH_ROOTS: '["/data/photos"]'
+    volumes:
+      - hash-config:/config
+      # Replace with your actual NAS share. The server needs read/traverse permissions.
+      - /volume1/photos:/data/photos:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  hash-config:

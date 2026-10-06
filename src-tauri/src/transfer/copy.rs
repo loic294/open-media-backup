@@ -1,3 +1,4 @@
+use super::destination_hasher::DestinationHasher;
 use super::handle::{Cancelled, ConflictDecision, ConflictInfo, JobHandle};
 use super::AnalysisPhase;
 use crate::domain::{HashAlgo, VerifyMode};
@@ -65,23 +66,53 @@ pub fn compare_files(
     handle: &JobHandle,
     source_hash: &mut Option<String>,
 ) -> Result<Comparison, CopyError> {
+    compare_files_with_hasher(
+        src,
+        dst,
+        algo,
+        handle,
+        source_hash,
+        &DestinationHasher::Local,
+    )
+}
+
+fn compare_files_with_hasher(
+    src: &Path,
+    dst: &Path,
+    algo: HashAlgo,
+    handle: &JobHandle,
+    source_hash: &mut Option<String>,
+    destination_hasher: &DestinationHasher,
+) -> Result<Comparison, CopyError> {
     compare_files_using(src, dst, handle, source_hash, &mut |path, source| {
-        hash_checked_side(path, algo, handle, source)
+        if source {
+            hash_checked_side(path, algo, handle, true)
+        } else {
+            destination_hasher.hash(path, algo, handle, |_, _| {})
+        }
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compare_files_with_progress(
     src: &Path,
     dst: &Path,
     algo: HashAlgo,
     handle: &JobHandle,
     source_hash: &mut Option<String>,
+    destination_hasher: &DestinationHasher,
     mut on_bytes: impl FnMut(bool, u64, u64),
 ) -> Result<Comparison, CopyError> {
     compare_files_using(src, dst, handle, source_hash, &mut |path, source| {
-        hash_checked_with_progress(path, algo, handle, source, |bytes, total| {
-            on_bytes(source, bytes, total);
-        })
+        if source {
+            hash_checked_with_progress(path, algo, handle, true, |bytes, total| {
+                on_bytes(true, bytes, total)
+            })
+        } else {
+            destination_hasher.hash(path, algo, handle, |bytes, total| {
+                on_bytes(false, bytes, total)
+            })
+        }
     })
 }
 
@@ -153,9 +184,42 @@ pub fn copy_resolving(
     handle: &JobHandle,
     decide: Decider<'_>,
 ) -> Result<CopyOutcome, CopyError> {
+    copy_resolving_with_hasher(
+        src,
+        dst,
+        algo,
+        verify,
+        known_hash,
+        handle,
+        &DestinationHasher::Local,
+        decide,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn copy_resolving_with_hasher(
+    src: &Path,
+    dst: &Path,
+    algo: HashAlgo,
+    verify: VerifyMode,
+    known_hash: Option<&str>,
+    handle: &JobHandle,
+    destination_hasher: &DestinationHasher,
+    decide: Decider<'_>,
+) -> Result<CopyOutcome, CopyError> {
     let partial = partial_path(dst);
     let _phase = handle.analysis_phase(AnalysisPhase::Other);
-    let result = resolve_and_copy(src, dst, &partial, algo, verify, known_hash, handle, decide);
+    let result = resolve_and_copy(
+        src,
+        dst,
+        &partial,
+        algo,
+        verify,
+        known_hash,
+        handle,
+        destination_hasher,
+        decide,
+    );
     if let Ok(outcome) = &result {
         handle.analysis_metrics(|metrics| {
             if outcome.adopted {
@@ -179,6 +243,7 @@ fn resolve_and_copy(
     verify: VerifyMode,
     known_hash: Option<&str>,
     handle: &JobHandle,
+    destination_hasher: &DestinationHasher,
     decide: Decider<'_>,
 ) -> Result<CopyOutcome, CopyError> {
     let mut target = dst.to_path_buf();
@@ -191,7 +256,14 @@ fn resolve_and_copy(
             target = free_name(dst);
             continue;
         }
-        match compare_files(src, &target, algo, handle, &mut source_hash)? {
+        match compare_files_with_hasher(
+            src,
+            &target,
+            algo,
+            handle,
+            &mut source_hash,
+            destination_hasher,
+        )? {
             Comparison::Match(hash) => {
                 return Ok(CopyOutcome {
                     hash,
@@ -203,8 +275,16 @@ fn resolve_and_copy(
                 })
             }
             Comparison::Missing => {
-                let (hash, bytes) =
-                    stage(src, partial, algo, verify, known_hash, handle, &mut staged)?;
+                let (hash, bytes) = stage(
+                    src,
+                    partial,
+                    algo,
+                    verify,
+                    known_hash,
+                    handle,
+                    destination_hasher,
+                    &mut staged,
+                )?;
                 if let Some(parent) = target.parent() {
                     fs::create_dir_all(parent)?;
                 }
@@ -235,17 +315,18 @@ fn resolve_and_copy(
                 };
                 match decide(&info)? {
                     ConflictDecision::Skip => {
-                        let current_source_hash = hash_checked(src, algo, handle)?;
-                        let current_destination_hash = match hash_checked(&target, algo, handle) {
-                            Ok(hash) => hash,
-                            Err(CopyError::Io(error))
-                                if error.kind() == std::io::ErrorKind::NotFound =>
-                            {
-                                source_hash = Some(current_source_hash);
-                                continue;
-                            }
-                            Err(error) => return Err(error),
-                        };
+                        let current_source_hash = hash_checked_side(src, algo, handle, true)?;
+                        let current_destination_hash =
+                            match destination_hasher.hash(&target, algo, handle, |_, _| {}) {
+                                Ok(hash) => hash,
+                                Err(CopyError::Io(error))
+                                    if error.kind() == std::io::ErrorKind::NotFound =>
+                                {
+                                    source_hash = Some(current_source_hash);
+                                    continue;
+                                }
+                                Err(error) => return Err(error),
+                            };
                         if current_source_hash != source
                             || current_destination_hash != destination_hash
                         {
@@ -273,10 +354,18 @@ fn resolve_and_copy(
                     }
                     ConflictDecision::Replace => {}
                 }
-                let (hash, bytes) =
-                    stage(src, partial, algo, verify, known_hash, handle, &mut staged)?;
+                let (hash, bytes) = stage(
+                    src,
+                    partial,
+                    algo,
+                    verify,
+                    known_hash,
+                    handle,
+                    destination_hasher,
+                    &mut staged,
+                )?;
                 // The old file may have changed while the copy was staged or the user decided.
-                match hash_checked(&target, algo, handle) {
+                match destination_hasher.hash(&target, algo, handle, |_, _| {}) {
                     Ok(now) if now == destination_hash => {
                         fs::rename(partial, &target)?;
                         handle.analysis_metrics(|metrics| {
@@ -292,9 +381,10 @@ fn resolve_and_copy(
                             skip_evidence: None,
                         });
                     }
-                    Err(CopyError::Cancelled) => return Err(CopyError::Cancelled),
                     // Changed while staging: look at the new content and ask again.
-                    _ => {}
+                    Ok(_) => {}
+                    Err(CopyError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
                 }
             }
         }
@@ -302,6 +392,7 @@ fn resolve_and_copy(
 }
 
 /// Copies and verifies the source into the partial file once; later attempts reuse it.
+#[allow(clippy::too_many_arguments)]
 fn stage(
     src: &Path,
     partial: &Path,
@@ -309,6 +400,7 @@ fn stage(
     verify: VerifyMode,
     known_hash: Option<&str>,
     handle: &JobHandle,
+    destination_hasher: &DestinationHasher,
     staged: &mut Option<(String, u64)>,
 ) -> Result<(String, u64), CopyError> {
     if let Some(hash) = staged {
@@ -328,7 +420,7 @@ fn stage(
             .and_then(|f| f.set_modified(modified));
     }
     if verify == VerifyMode::Reread {
-        let actual = hash_checked(partial, algo, handle)?;
+        let actual = destination_hasher.hash(partial, algo, handle, |_, _| {})?;
         if actual != hash {
             return Err(CopyError::HashMismatch {
                 expected: hash,
@@ -414,14 +506,6 @@ fn write_counted(
         }
     }
     Ok(written as u64)
-}
-
-pub(super) fn hash_checked(
-    path: &Path,
-    algo: HashAlgo,
-    handle: &JobHandle,
-) -> Result<String, CopyError> {
-    hash_checked_side(path, algo, handle, false)
 }
 
 fn hash_checked_side(

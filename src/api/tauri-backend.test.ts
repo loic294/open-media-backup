@@ -10,6 +10,27 @@ describe("destination job command adapters", () => {
   });
   const context = { spaceId: "space", projectId: null };
 
+  it("uses hash-server commands with ids and server-relative paths only", async () => {
+    vi.mocked(invoke).mockResolvedValue([]);
+    await tauriBackend.listHashServers();
+    expect(invoke).toHaveBeenLastCalledWith("list_hash_servers");
+    await tauriBackend.addHashServer("nas:47822", "secret");
+    expect(invoke).toHaveBeenLastCalledWith("add_hash_server", { address: "nas:47822", token: "secret" });
+    await tauriBackend.hashServerRoots("server");
+    expect(invoke).toHaveBeenLastCalledWith("hash_server_roots", { id: "server" });
+    await tauriBackend.hashServerBrowse("server", "root", "Archive");
+    expect(invoke).toHaveBeenLastCalledWith("hash_server_browse", {
+      id: "server",
+      root: "root",
+      path: "Archive",
+    });
+    await tauriBackend.testRemoteHashMapping("destination");
+    expect(invoke).toHaveBeenLastCalledWith("test_remote_hash_mapping", { destinationId: "destination" });
+    await tauriBackend.removeHashServer("server");
+    expect(invoke).toHaveBeenLastCalledWith("remove_hash_server", { id: "server" });
+    vi.mocked(invoke).mockRejectedValue(new Error("Unauthorized"));
+    await expect(tauriBackend.hashServerRoots("server")).rejects.toThrow("Unauthorized");
+  });
   it("requests safe-copy evidence and persists rules by stored source id only", async () => {
     vi.mocked(invoke).mockResolvedValue({});
     await tauriBackend.getSourceSafeCopyDetails(context, "source");

@@ -65,24 +65,28 @@ pub enum AnalysisPhase {
     Copy,
     SourceCheck,
     DestinationCheck,
+    RemoteCheck,
     Paused,
     AwaitingDecision,
     Finished,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AnalysisMetrics {
     pub queued_secs: f64,
     pub other_secs: f64,
     pub copy_secs: f64,
     pub source_check_secs: f64,
     pub destination_check_secs: f64,
+    pub remote_check_secs: f64,
     pub paused_secs: f64,
     pub decision_secs: f64,
     pub copy_bytes: u64,
     pub committed_bytes: u64,
     pub source_check_bytes: u64,
     pub destination_check_bytes: u64,
+    pub remote_check_bytes: u64,
     pub transferred_files: u64,
     pub adopted_files: u64,
     pub skipped_files: u64,
@@ -90,7 +94,11 @@ pub struct AnalysisMetrics {
 
 impl AnalysisMetrics {
     pub fn active_secs(&self) -> f64 {
-        self.other_secs + self.copy_secs + self.source_check_secs + self.destination_check_secs
+        self.other_secs
+            + self.copy_secs
+            + self.source_check_secs
+            + self.destination_check_secs
+            + self.remote_check_secs
     }
 
     pub(crate) fn add(&mut self, other: &Self) {
@@ -99,12 +107,14 @@ impl AnalysisMetrics {
         self.copy_secs += other.copy_secs;
         self.source_check_secs += other.source_check_secs;
         self.destination_check_secs += other.destination_check_secs;
+        self.remote_check_secs += other.remote_check_secs;
         self.paused_secs += other.paused_secs;
         self.decision_secs += other.decision_secs;
         self.copy_bytes += other.copy_bytes;
         self.committed_bytes += other.committed_bytes;
         self.source_check_bytes += other.source_check_bytes;
         self.destination_check_bytes += other.destination_check_bytes;
+        self.remote_check_bytes += other.remote_check_bytes;
         self.transferred_files += other.transferred_files;
         self.adopted_files += other.adopted_files;
         self.skipped_files += other.skipped_files;
@@ -117,6 +127,7 @@ impl AnalysisMetrics {
             AnalysisPhase::Copy => self.copy_secs += secs,
             AnalysisPhase::SourceCheck => self.source_check_secs += secs,
             AnalysisPhase::DestinationCheck => self.destination_check_secs += secs,
+            AnalysisPhase::RemoteCheck => self.remote_check_secs += secs,
             AnalysisPhase::Paused => self.paused_secs += secs,
             AnalysisPhase::AwaitingDecision => self.decision_secs += secs,
             AnalysisPhase::Finished => {}

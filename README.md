@@ -31,7 +31,7 @@ Desktop app (macOS and Windows) that copies photos and videos from memory cards 
 - **Keep awake.** **Settings > General > Keep computer awake during transfers** is enabled by default and saved separately on each computer. On macOS and Windows, it prevents automatic system sleep while transfers are running, including copy verification; the screen can still turn off. Protection is released when no transfer is active, including while all transfers are paused or waiting for conflict decisions, and restored when they resume. Changing the setting takes effect immediately. Standalone checks, wipes, peer sync, and external-app imports do not keep the computer awake. If sleep prevention fails, a warning appears and transfers continue. This does not prevent manual sleep, lid-close sleep, shutdown, device removal, or network disconnections.
 - **Hashing.** Each space uses BLAKE3 by default (cryptographic and still very fast) or xxHash64 (fastest). The verify mode is also set per space. _Re-read_ (the default) reads every copy back and compares hashes. _Inline_ hashes the bytes while copying, which is faster.
 - **Check destination.** **Check**, beside Run/Retry on folder destinations, compares source and destination hashes at the expected, template-expanded paths, including files already marked transferred. It does not search other filenames or change media files. Progress advances during both reads, including within large files; the percentage is based on source file sizes, not the combined bytes read from both devices. Results count matching, missing, different, and unreadable files and list paths needing attention; matching copies are recorded as verified, and demonstrably missing or changed copies no longer count as verified at that location. Both devices must be connected. Checks can be paused or cancelled; cancelled checks show partial results.
-- **Speed analysis.** **Settings > Speed Analysis** compares source-to-destination pairs across spaces and projects, with live jobs, date filters, recorded averages, and individual job details. Average copy speed is total physical writes divided by active copy time (including retries); copied data counts only committed files, not adopted or skipped files. Inline source hashing is included in copy time. Separate **local checks** mean source-side reads and **remote checks** mean destination-side reads, even when both devices are attached locally. Planning/finalization, queueing, pauses and conflict decisions are timed separately. Effective transfer throughput includes active transfer checks and other work, but excludes waiting and standalone check jobs. Live, failed, cancelled and interrupted jobs do not enter completed-job averages; their partial metrics remain inspectable. Durations are summed job time, not unique elapsed time when jobs overlap. History starts with this feature (old speed estimates cannot be backfilled), is kept on this computer without automatic deletion, survives restarts and clearing recent jobs, and is never synced to peers. An interrupted job shows its last durable checkpoint, not app downtime.
+- **Speed analysis.** **Settings > Speed Analysis** compares source-to-destination pairs across spaces and projects, with live jobs, date filters, recorded averages, and individual job details. Average copy speed is total physical writes divided by active copy time (including retries); copied data counts only committed files, not adopted or skipped files. Inline source hashing is included in copy time. **Source checks** and **destination re-reads** measure bytes read by this computer, including SMB/NFS traffic. **NAS-side hash checks** measure server-hashed bytes and request time separately; those bytes never travel back to the desktop. Planning/finalization, queueing, pauses and conflict decisions are timed separately. Effective transfer throughput includes active transfer checks and other work, but excludes waiting and standalone check jobs. Live, failed, cancelled and interrupted jobs do not enter completed-job averages; their partial metrics remain inspectable. Durations are summed job time, not unique elapsed time when jobs overlap. History starts with this feature (old speed estimates cannot be backfilled), is kept on this computer without automatic deletion, survives restarts and clearing recent jobs, and is never synced to peers. An interrupted job shows its last durable checkpoint, not app downtime.
 - **Existing-file conflicts.** Transfers also hash-check same-name destination files. Identical files are adopted without copying. Different files prompt for **Skip** (leave pending), **Keep both** (use a numbered filename), or **Replace** (verify a staged copy before replacing the existing file). **Apply to all remaining conflicts** affects only the current destination Run/Retry or Run all queue, never later runs. Cancelling the conflict dialog cancels that transfer.
 
 ### Spaces without projects
@@ -72,6 +72,95 @@ The app has no discovery and no encryption of its own. It relies on a private ov
 3. On computer B, click **Add peer** and paste A's address and token. Then do the same from B to A.
 
 A shared server (for example Supabase) is planned as an alternative backend.
+
+## Remote hash server
+
+`omb-hash-server` is a small, read-only NAS service. The desktop still copies files
+over SMB/NFS; the server reads destination files locally and sends back only the
+digest, size, and modification time. It has no Tauri runtime or SQLite catalog.
+
+1. Edit `docker/hash-server/compose.yml`: replace `/volume1/photos` with your NAS
+   share and set `OMB_HASH_BIND_IP` to a trusted LAN or Netbird IP (the default is
+   loopback only). Mount every data share **read-only**. Start it with:
+
+   ```sh
+   OMB_HASH_BIND_IP=100.1.2.3 docker compose -f docker/hash-server/compose.yml up -d
+   docker compose -f docker/hash-server/compose.yml logs hash-server
+   ```
+
+2. The startup logs show a pairing token and stable server id. Treat the logs as
+   secret. The generated token and id persist in the `/config` volume; keep that
+   volume when upgrading so synced mappings continue to match. The service runs
+   as UID/GID 65532 and needs read/traverse permission on shares and write
+   permission on `/config` only.
+3. In **Device sync > Hash servers**, add the NAS address (`100.1.2.3:47822`) and
+   token. Registration authenticates `/v1/hello` and rejects ordinary catalog
+   peers. Use **Test** to refresh reachability; **Paired** means a saved pairing,
+   not a continuously monitored health check.
+4. In a folder destination's settings, enable **Remote hash check**, select the
+   server and its exposed folder, and optionally browse subfolders. The selected
+   folder must correspond to the **device root**, not the destination's template.
+   For example, if the local device mapping is `/Volumes/photos` and the container
+   mount is `/data/photos`, select `/data/photos`, even if the destination template
+   is `Archive/{project_name}`. Save and reopen to use **Test mapping**.
+5. Test mapping compares one catalog-known file (or a backup marker) locally and
+   remotely. If no such file exists, it reports only folder existence and
+   explicitly warns that the mapping is not proven. It never creates probe files.
+
+Only `{ server_id, root, enabled }` is catalog-synced. Addresses, tokens, and server
+status stay in a separate local table; add the same server on each computer.
+An unknown synced server shows **not available on this computer** and uses local
+checks. Removing a pairing does not delete files or remove synced mappings.
+
+Remote checks cover post-copy **Re-read** verification (after the `.omb-partial`
+handle is flushed and closed), existing-file comparisons and replacement rechecks,
+and **Check destination**. **Inline** copy verification is unchanged. A server
+failure, missing remote file, wrong size, invalid digest, or changing local file
+falls back to the normal local re-read, with a persistent job warning and a toast;
+it never counts an unsuccessful request as verification. Speed Analysis separates
+destination network re-reads from NAS-side hashed bytes and request time. Pause
+holds desktop progress; cancel drops pending requests, and server workers check a
+cancellation flag between chunks. Up to two server operations run concurrently;
+additional requests return HTTP 429 and desktop checks safely fall back.
+
+Configuration:
+
+| Environment variable | Default / meaning |
+| --- | --- |
+| `OMB_HASH_PORT` | `47822` |
+| `OMB_HASH_TOKEN` | Otherwise generate and persist `/config/token` |
+| `OMB_HASH_NAME` | `NAS hash server` |
+| `OMB_HASH_ROOTS` | Optional JSON array of absolute server folders, e.g. `["/data/photos","/data/video"]`; otherwise expose top-level directories under `/data` (not symlinks) |
+| `OMB_HASH_CONFIG` | `/config`; override for native development |
+
+Exposed root ids are stable hashes of canonical container paths. Keep those mount
+paths stable across upgrades. A mapping's root is the exposed id, optionally
+followed by a relative subfolder. `/v1/hash` accepts that root, a relative path,
+and `blake3` or `xxh64`; traversal, absolute paths, and symlink escapes are
+rejected. Capability-scoped file opens also guard against symlink-swap races.
+No endpoint writes or deletes data files. Only startup pairing configuration is
+written, under `/config`.
+
+**Security:** all endpoints require a bearer token, compared in constant time.
+HTTP is **unencrypted**: use a trusted LAN or Netbird, restrict port 47822 with
+your firewall, and never publish it directly to the internet. Anyone holding the
+token can hash or list exposed data. SMB permissions and server share permissions
+must identify the same data; equal sizes alone do not prove a correct mapping.
+
+Build locally without desktop dependencies:
+
+```sh
+cargo build --locked --release --manifest-path src-tauri/Cargo.toml -p omb-hash-server
+cargo test --manifest-path src-tauri/Cargo.toml -p omb-hash -p omb-hash-server
+docker build -f docker/hash-server/Dockerfile .
+```
+
+The release workflow builds a non-root musl/scratch image for Linux amd64 and
+arm64 and publishes `ghcr.io/loic294/omb-hash-server:<version>` and `:latest` for
+tested main builds and tagged releases, before publishing the desktop release.
+CI tests the isolated server and builds the image. In browser demo
+mode, use `demo-token` to try the dialogs; pairing is simulated and **Test mapping**
+explicitly reports that no real files were hashed.
 
 ## Thumbnails
 

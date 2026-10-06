@@ -7,6 +7,45 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::TempDir;
 
+pub struct HttpServer {
+    pub address: String,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl HttpServer {
+    pub fn start(router: axum::Router) -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                axum::serve(listener, router)
+                    .with_graceful_shutdown(async {
+                        let _ = receive.await;
+                    })
+                    .await
+                    .unwrap();
+            });
+        });
+        Self {
+            address,
+            stop: Some(send),
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for HttpServer {
+    fn drop(&mut self) {
+        let _ = self.stop.take().unwrap().send(());
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
 pub struct MapResolver(pub parking_lot::Mutex<HashMap<String, PathBuf>>);
 
 impl RootResolver for MapResolver {

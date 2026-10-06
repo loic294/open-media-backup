@@ -49,6 +49,16 @@ CREATE INDEX speed_analysis_pair_time ON speed_analysis (pair_id, created_at DES
 CREATE INDEX speed_analysis_space_time ON speed_analysis (space_id, created_at DESC, id);
 CREATE INDEX speed_analysis_space_pair_time ON speed_analysis (space_id, pair_id, created_at DESC, id);
 "#,
+    r#"
+CREATE TABLE hash_servers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL,
+  token TEXT NOT NULL,
+  last_seen INTEGER,
+  last_error TEXT
+);
+"#,
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

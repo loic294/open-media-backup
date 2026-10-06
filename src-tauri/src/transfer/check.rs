@@ -33,6 +33,7 @@ pub fn run_workspace_check(
         .partition(|f| f.category != Category::Error);
     handle.update(|j| {
         j.label = ctx.label();
+        j.remote_hash_active = ctx.destination_hasher.is_remote();
         j.files_total = eligible.len();
         j.bytes_total = eligible.iter().map(|f| f.size).sum();
         if j.state != JobState::Paused {
@@ -130,6 +131,7 @@ fn check_one(
         algo,
         handle,
         &mut fresh_source,
+        &ctx.destination_hasher,
         |source, bytes, total| {
             if source {
                 source_progress.add(bytes, total);

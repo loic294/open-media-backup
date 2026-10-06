@@ -290,13 +290,14 @@ fn speed_analysis_ipc_exact_snake_case_contract_and_validation() {
         ]
     );
     let metrics = page["jobs"][0]["metrics"].as_object().unwrap();
-    assert_eq!(metrics.len(), 14);
+    assert_eq!(metrics.len(), 16);
     for key in [
         "queued_secs",
         "other_secs",
         "copy_secs",
         "source_check_secs",
         "destination_check_secs",
+        "remote_check_secs",
         "paused_secs",
         "decision_secs",
     ] {

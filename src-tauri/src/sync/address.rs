@@ -2,6 +2,10 @@ use crate::sync::{SyncError, SyncResult, DEFAULT_PORT};
 use std::net::{SocketAddr, UdpSocket};
 
 pub fn normalize_address(address: &str) -> SyncResult<String> {
+    normalize_address_with_port(address, DEFAULT_PORT)
+}
+
+pub fn normalize_address_with_port(address: &str, default_port: u16) -> SyncResult<String> {
     let trimmed = address.trim();
     let without_scheme = trimmed
         .strip_prefix("http://")
@@ -19,14 +23,14 @@ pub fn normalize_address(address: &str) -> SyncResult<String> {
         if without_path.contains("]:") {
             return Ok(without_path.to_string());
         }
-        return Ok(format!("{without_path}:{DEFAULT_PORT}"));
+        return Ok(format!("{without_path}:{default_port}"));
     }
     if without_path.matches(':').count() == 1 {
         Ok(without_path.to_string())
     } else if without_path.matches(':').count() > 1 {
-        Ok(format!("[{without_path}]:{DEFAULT_PORT}"))
+        Ok(format!("[{without_path}]:{default_port}"))
     } else {
-        Ok(format!("{without_path}:{DEFAULT_PORT}"))
+        Ok(format!("{without_path}:{default_port}"))
     }
 }
 

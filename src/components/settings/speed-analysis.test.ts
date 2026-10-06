@@ -109,8 +109,9 @@ describe("Speed Analysis settings", () => {
     );
     expect(element.textContent).toContain("50.0 MB/s");
     expect(element.textContent).toContain("Local checks (source)");
-    expect(element.textContent).toContain("Remote checks (destination)");
-    expect(element.textContent).toContain("even when both devices are attached");
+    expect(element.textContent).toContain("Destination re-reads");
+    expect(element.textContent).toContain("NAS-side hash checks");
+    expect(element.textContent).toContain("network re-read traffic");
     expect(element.textContent).toContain("not counted twice");
     const detail = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent?.trim() === "Details",

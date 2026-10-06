@@ -340,6 +340,8 @@ fn transfer_creates_backup_marker_and_task_rename_keeps_existing_catalog_and_fil
                 bytes_per_sec: None,
                 eta_secs: None,
                 errors: vec![],
+                warnings: vec![],
+                remote_hash_active: false,
                 kind: crate::transfer::JobKind::Transfer,
                 pending_conflict: None,
                 check_results: None,

@@ -37,7 +37,9 @@ export class OmbActiveJobsPanel extends OmbElement {
             ${job.files_done}/${plural(job.files_total, "file")} · ${formatBytes(job.bytes_done)} of
             ${formatBytes(job.bytes_total)} ${eta ? html` · ${eta} left` : nothing}
             ${job.current_file ? html` · ${job.current_file}` : nothing}
+            ${job.remote_hash_active ? html` · NAS-side hash checks` : nothing}
           </div>
+          ${(job.warnings ?? []).map((warning) => html`<p class="text-xs text-warning break-words">${warning}</p>`)}
         </div>
         <button
           class="btn btn-ghost btn-xs btn-square"

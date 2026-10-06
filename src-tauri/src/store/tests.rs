@@ -10,6 +10,47 @@ fn space(id: &str, name: &str) -> Space {
 }
 
 #[test]
+fn hash_server_credentials_are_local_but_destination_mapping_syncs() {
+    use crate::domain::{Destination, RemoteHash};
+    let store = Store::open_in_memory().unwrap();
+    let server = HashServer {
+        id: "nas".into(),
+        name: "NAS".into(),
+        address: "nas:47822".into(),
+        token: "private-token".into(),
+        ..Default::default()
+    };
+    store.save_hash_server(&server).unwrap();
+    assert_eq!(store.hash_servers().unwrap(), vec![server]);
+    assert!(store
+        .ops_since(&VersionVector::new(), 1000)
+        .unwrap()
+        .is_empty());
+    let destination = Destination {
+        id: "destination".into(),
+        remote_hash: Some(RemoteHash {
+            server_id: "nas".into(),
+            root: "root".into(),
+            enabled: true,
+        }),
+        ..Default::default()
+    };
+    store.put(&destination).unwrap();
+    let ops = store.ops_since(&VersionVector::new(), 1000).unwrap();
+    let serialized = serde_json::to_string(&ops).unwrap();
+    assert!(!serialized.contains("private-token"));
+    assert!(!serialized.contains("nas:47822"));
+    let other = Store::open_in_memory().unwrap();
+    other.apply_remote(&ops).unwrap();
+    assert_eq!(
+        other.get::<Destination>("destination").unwrap(),
+        Some(destination)
+    );
+    assert!(other.hash_servers().unwrap().is_empty());
+    store.remove_hash_server("nas").unwrap();
+    assert!(store.hash_servers().unwrap().is_empty());
+}
+#[test]
 fn put_get_list_delete() {
     let store = Store::open_in_memory().unwrap();
     store.put(&space("s1", "Travel")).unwrap();

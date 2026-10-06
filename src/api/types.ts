@@ -150,8 +150,41 @@ export interface Destination {
   preserve_file_structure: boolean;
   counts_as_safe_copy: boolean;
   use_backup_marker: boolean;
+  remote_hash?: RemoteHash | null;
   rules: FileRule[];
   position: number;
+}
+
+export interface RemoteHash {
+  server_id: string;
+  /** Exposed root id, optionally followed by a server-relative subfolder. */
+  root: string;
+  enabled: boolean;
+}
+
+/** Local pairing status. Tokens never leave the backend after registration. */
+export interface HashServer {
+  id: string;
+  name: string;
+  address: string;
+  last_seen: number | null;
+  last_error: string | null;
+}
+
+export interface HashRoot {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface HashBrowse {
+  path: string;
+  directories: string[];
+}
+
+export interface HashMappingTest {
+  verified: boolean;
+  message: string;
 }
 
 export interface Flow {
@@ -424,6 +457,8 @@ export interface TransferJob {
   bytes_per_sec: number | null;
   eta_secs: number | null;
   errors: string[];
+  warnings?: string[];
+  remote_hash_active?: boolean;
   kind?: "transfer" | "check" | "wipe";
   pending_conflict?: TransferConflict | null;
   check_results?: DestinationCheckResults | null;
@@ -436,6 +471,7 @@ export type AnalysisPhase =
   | "copy"
   | "source_check"
   | "destination_check"
+  | "remote_check"
   | "paused"
   | "awaiting_decision"
   | "finished";
@@ -462,6 +498,7 @@ export interface AnalysisMetrics {
   copy_secs: number;
   source_check_secs: number;
   destination_check_secs: number;
+  remote_check_secs: number;
   paused_secs: number;
   decision_secs: number;
   /** Physical writes, including retries; independent of UI progress budgets. */
@@ -469,6 +506,7 @@ export interface AnalysisMetrics {
   committed_bytes: number;
   source_check_bytes: number;
   destination_check_bytes: number;
+  remote_check_bytes: number;
   transferred_files: number;
   adopted_files: number;
   skipped_files: number;

@@ -3,6 +3,7 @@ import type {
   AppSettings,
   ConflictDecision,
   EntityKind,
+  HashServer,
   Status,
   Snapshot,
   SyncStatus,
@@ -47,6 +48,7 @@ export class AppStore extends EventTarget {
   statusError: string | null = null;
   transfers: TransferJob[] = [];
   sync: SyncStatus | null = null;
+  hashServers: HashServer[] = [];
   volumes: Volume[] = [];
   dialogs: DialogRequest[] = [];
   toasts: Toast[] = [];
@@ -65,6 +67,7 @@ export class AppStore extends EventTarget {
   #shownCheckResults = new Set<string>();
   #transfersSeq = 0;
   #activeJobsOnly = false;
+  #shownHashWarnings = new Set<string>();
 
   constructor(readonly backend: Backend) {
     super();
@@ -104,6 +107,7 @@ export class AppStore extends EventTarget {
       applyTheme(snapshot.settings.theme);
       this.#unlisten.push(await connectDesktopMenu(this));
       await this.#loadStatus();
+      await this.refreshHashServers();
       void checkForUpdateOnLaunch(this);
     } catch (e) {
       console.error("init failed", e);
@@ -291,8 +295,23 @@ export class AppStore extends EventTarget {
 
   // ---- actions ----
 
+  async refreshHashServers(): Promise<void> {
+    await this.#guard(async () => {
+      const hashServers = await this.backend.listHashServers();
+      this.#set({ hashServers });
+    });
+  }
+
   #receiveTransfers(jobs: TransferJob[]): void {
     this.#transfersSeq++;
+    for (const job of jobs) {
+      for (const warning of job.warnings ?? []) {
+        const key = `${job.id}:${warning}`;
+        if (this.#shownHashWarnings.has(key)) continue;
+        this.#shownHashWarnings.add(key);
+        this.toast("warning", `${job.label}: ${warning}`, 10000);
+      }
+    }
     if (this.#activeJobsOnly) {
       this.#set({ transfers: jobs });
       return;

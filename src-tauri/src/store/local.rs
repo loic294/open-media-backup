@@ -15,6 +15,18 @@ pub struct Peer {
     pub last_error: Option<String>,
 }
 
+/// Private pairing information for a read-only hash server; never an entity or sync op.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct HashServer {
+    pub id: String,
+    pub name: String,
+    pub address: String,
+    #[serde(skip_serializing)]
+    pub token: String,
+    pub last_seen: Option<i64>,
+    pub last_error: Option<String>,
+}
+
 pub(super) fn computer_id(conn: &Connection) -> rusqlite::Result<String> {
     let existing: Option<String> = conn
         .query_row(
@@ -35,6 +47,37 @@ pub(super) fn computer_id(conn: &Connection) -> rusqlite::Result<String> {
 }
 
 impl Store {
+    pub fn hash_servers(&self) -> StoreResult<Vec<HashServer>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT id, name, address, token, last_seen, last_error FROM hash_servers ORDER BY name")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(HashServer {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                address: r.get(2)?,
+                token: r.get(3)?,
+                last_seen: r.get(4)?,
+                last_error: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn save_hash_server(&self, server: &HashServer) -> StoreResult<()> {
+        self.conn.lock().execute(
+            "INSERT OR REPLACE INTO hash_servers (id, name, address, token, last_seen, last_error) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![server.id, server.name, server.address, server.token, server.last_seen, server.last_error],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_hash_server(&self, id: &str) -> StoreResult<()> {
+        self.conn
+            .lock()
+            .execute("DELETE FROM hash_servers WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     pub fn setting(&self, key: &str) -> StoreResult<Option<String>> {
         let conn = self.conn.lock();
         Ok(conn

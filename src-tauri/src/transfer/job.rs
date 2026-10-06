@@ -1,4 +1,4 @@
-use super::copy::{copy_resolving, CopyError, SkipEvidence};
+use super::copy::{copy_resolving_with_hasher, CopyError, SkipEvidence};
 use super::handle::{JobHandle, JobState};
 use crate::app::AppSettings;
 use crate::domain::{FileCopy, FileRecord, SafeCopyOverride};
@@ -161,6 +161,11 @@ pub(super) fn prepare(
         ctx =
             resolve_workspace_flow(store, resolver, context, flow_id).map_err(|e| e.to_string())?;
     }
+    ctx.destination_hasher = super::destination_hasher::DestinationHasher::resolve(
+        store,
+        ctx.destination.remote_hash.as_ref(),
+        ctx.dest_root.as_deref().expect("checked destination root"),
+    )?;
     Ok(ctx)
 }
 
@@ -189,13 +194,15 @@ fn transfer_one(
     // The catalog hash may predate an edit of the source, so the copy's own fresh hash
     // becomes the source identity instead of being checked against it.
     let before = handle.snapshot().bytes_done;
-    let outcome = copy_resolving(
+    handle.update(|j| j.remote_hash_active = ctx.destination_hasher.is_remote());
+    let outcome = copy_resolving_with_hasher(
         src,
         &dst,
         ctx.space.hash_algo,
         ctx.space.verify_mode,
         None,
         handle,
+        &ctx.destination_hasher,
         &mut |info| handle.request_decision(info),
     );
     // Keep the byte counter aligned with the file size, whatever was re-read or skipped.

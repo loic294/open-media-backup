@@ -18,6 +18,7 @@ const PHASE_TIME: Record<Exclude<AnalysisPhase, "finished">, keyof AnalysisMetri
   copy: "copy_secs",
   source_check: "source_check_secs",
   destination_check: "destination_check_secs",
+  remote_check: "remote_check_secs",
   paused: "paused_secs",
   awaiting_decision: "decision_secs",
 };
@@ -119,7 +120,9 @@ export class MockAnalysis {
     m.copy_bytes += copied;
     m.committed_bytes += copied;
     m.source_check_bytes += sourceRead;
-    m.destination_check_bytes += destinationRead;
+    const destinationBytes = job.remote_hash_active ? "remote_check_bytes" : "destination_check_bytes";
+    const destinationSeconds = job.remote_hash_active ? "remote_check_secs" : "destination_check_secs";
+    m[destinationBytes] += destinationRead;
     if (record.kind === "transfer") m.transferred_files += files;
     // Model sequential source/destination reads within the demo's single tick.
     if (record.kind === "check" && elapsed?.phase === "source_check") {
@@ -127,11 +130,11 @@ export class MockAnalysis {
       m.source_check_secs -= elapsed.seconds;
       if (total > 0) {
         m.source_check_secs += (elapsed.seconds * sourceRead) / total;
-        m.destination_check_secs += (elapsed.seconds * destinationRead) / total;
+        m[destinationSeconds] += (elapsed.seconds * destinationRead) / total;
       } else m.other_secs += elapsed.seconds;
     } else if (destinationRead > 0 && elapsed?.phase === "copy") {
       m.copy_secs -= elapsed.seconds * 0.25;
-      m.destination_check_secs += elapsed.seconds * 0.25;
+      m[destinationSeconds] += elapsed.seconds * 0.25;
     }
   }
 

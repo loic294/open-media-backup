@@ -346,7 +346,21 @@ test("CI gates publishing on tests and main pushes, and passes the caller run nu
   assert.match(workflow, /max-parallel: 1/);
   assert.match(workflow, /releaseDraft: true/);
   assert.match(workflow, /includeUpdaterJson: true/);
-  assert.match(workflow, /publish:\n    needs: \[prepare, build\]/);
+  assert.match(workflow, /publish:\n    needs: \[prepare, build, hash-server\]/);
   assert.match(workflow, /ref: \$\{\{ needs.prepare.outputs.commit \}\}/);
   assert.doesNotMatch(workflow, /continue-on-error|cancel-in-progress|workflow_run/);
+});
+
+test("hash-server images use the tested commit and release version on both architectures", () => {
+  const workflow = readWorkflow("release.yml").split("  hash-server:\n")[1];
+  assert.ok(workflow);
+  assert.match(workflow, /needs: \[prepare, build\]/);
+  assert.match(workflow, /ref: \$\{\{ needs.prepare.outputs.commit \}\}/);
+  assert.match(workflow, /packages: write/);
+  assert.match(workflow, /docker\/setup-buildx-action@v3/);
+  assert.match(workflow, /docker\/build-push-action@v6/);
+  assert.match(workflow, /platforms: linux\/amd64,linux\/arm64/);
+  assert.match(workflow, /ghcr.io\/loic294\/omb-hash-server:\$\{\{ needs.prepare.outputs.version \}\}/);
+  assert.match(workflow, /ghcr.io\/loic294\/omb-hash-server:latest/);
+  assert.match(workflow, /OMB_HASH_VERSION=\$\{\{ needs.prepare.outputs.version \}\}/);
 });

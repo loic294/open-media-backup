@@ -33,20 +33,37 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
       - name: Run cargo test
         if: runner.os == 'Windows'
         working-directory: src-tauri
-        run: cargo test --config .cargo/test-runner.toml
+        run: cargo test --workspace --config .cargo/test-runner.toml
       - name: Run cargo test
         if: runner.os != 'Windows'
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace
+
+  hash-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml -p omb-hash -p omb-hash-server
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/hash-server/Dockerfile
+          push: false
 
   release:
-    needs: test
+    needs: [test, hash-server]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
+      packages: write
     uses: ./.github/workflows/release.yml
     with:
       commit: ${{ github.sha }}

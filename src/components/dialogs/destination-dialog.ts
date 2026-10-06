@@ -12,6 +12,7 @@ import { DialogBase } from "./dialog-base";
 import "../form/device-field";
 import "../form/rules-editor";
 import "../form/template-input";
+import "../form/remote-hash-field";
 
 @customElement("omb-destination-dialog")
 export class OmbDestinationDialog extends DialogBase<
@@ -132,6 +133,7 @@ export class OmbDestinationDialog extends DialogBase<
       ? []
       : templateVars(d.path_template).filter((v) => !(v in vars) && !knownTemplateVariables.has(v));
     const invalid =
+      (!isApp && !!d.remote_hash?.enabled && (!d.remote_hash.server_id || !d.remote_hash.root)) ||
       d.rules.some((r) => ruleError(r)) ||
       unknownVars.length > 0 ||
       (isApp ? !d.app_name?.trim() && !localAppPath?.trim() : !device);
@@ -169,6 +171,7 @@ export class OmbDestinationDialog extends DialogBase<
                   subfolder_per_source: false,
                   counts_as_safe_copy: false,
                   use_backup_marker: false,
+                  remote_hash: null,
                 })}
             >
               App
@@ -284,6 +287,12 @@ export class OmbDestinationDialog extends DialogBase<
                                   </p>`
                           }
                         </div>
+                        <omb-remote-hash-field
+                          .mapping=${d.remote_hash ?? null}
+                          .destinationId=${this.#isNew ? "" : d.id}
+                          .deviceId=${d.device_id}
+                          @remote-hash-change=${(e: CustomEvent) => set({ remote_hash: e.detail })}
+                        ></omb-remote-hash-field>
                         <section>
                           <h4 class="font-medium mb-2">File rules</h4>
                           <omb-rules-editor

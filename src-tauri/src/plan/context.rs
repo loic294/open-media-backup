@@ -53,6 +53,7 @@ impl WorkspaceContext {
 
 /// Everything needed to plan or run one source → destination flow.
 pub struct FlowContext {
+    pub destination_hasher: crate::transfer::destination_hasher::DestinationHasher,
     pub flow: Flow,
     pub space: Space,
     pub project: Option<Project>,
@@ -226,6 +227,7 @@ pub fn resolve_workspace_flow(
         RuleSet::compile(&[]).expect("empty rule set")
     });
     Ok(FlowContext {
+        destination_hasher: Default::default(),
         flow,
         space,
         project,

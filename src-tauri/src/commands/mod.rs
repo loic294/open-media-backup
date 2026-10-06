@@ -1,6 +1,7 @@
 //! Thin Tauri command wrappers over `AppCore` and `SyncService`.
 pub(crate) mod catalog;
 pub(crate) mod devices;
+pub(crate) mod hash_server;
 #[cfg(test)]
 mod ipc_tests;
 pub(crate) mod menu;
@@ -84,6 +85,12 @@ macro_rules! omb_handlers {
             $crate::commands::sync::add_peer,
             $crate::commands::sync::remove_peer,
             $crate::commands::sync::sync_now,
+            $crate::commands::hash_server::list_hash_servers,
+            $crate::commands::hash_server::add_hash_server,
+            $crate::commands::hash_server::remove_hash_server,
+            $crate::commands::hash_server::hash_server_roots,
+            $crate::commands::hash_server::hash_server_browse,
+            $crate::commands::hash_server::test_remote_hash_mapping,
             $crate::commands::menu::set_spaces_menu,
         ]
     };

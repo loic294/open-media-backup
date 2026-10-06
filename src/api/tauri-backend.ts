@@ -83,6 +83,12 @@ export const tauriBackend: Backend = {
   addPeer: (address, token) => invoke("add_peer", { address, token }),
   removePeer: (peerId) => invoke("remove_peer", { peerId }),
   syncNow: () => invoke("sync_now"),
+  listHashServers: () => invoke("list_hash_servers"),
+  addHashServer: (address, token) => invoke("add_hash_server", { address, token }),
+  removeHashServer: (id) => invoke("remove_hash_server", { id }),
+  hashServerRoots: (id) => invoke("hash_server_roots", { id }),
+  hashServerBrowse: (id, root, path) => invoke("hash_server_browse", { id, root, path }),
+  testRemoteHashMapping: (destinationId) => invoke("test_remote_hash_mapping", { destinationId }),
 
   on: (event, handler) => listen(event, (e) => handler(e.payload as never)),
 };

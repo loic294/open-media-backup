@@ -11,7 +11,7 @@ mod space;
 pub use device::{Computer, Device, DeviceKind, DeviceMapping, DeviceRole};
 pub use entity::{Entity, EntityKind};
 pub use file::{FileCopy, FileRecord, SafeCopyOverride};
-pub use flow::{Destination, DestinationKind, Flow};
+pub use flow::{Destination, DestinationKind, Flow, RemoteHash};
 pub use project::{validate_project_ranges, Project, ProjectGranularity};
 pub use rule::{ConditionRuleKind, FileRule, PathRule, RuleAction, RuleExpr, RuleSyntax};
 pub use source::{ProjectScope, Source};

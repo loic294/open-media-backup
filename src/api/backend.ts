@@ -14,6 +14,10 @@ import type {
   FileDirectory,
   FilePage,
   Flow,
+  HashServer,
+  HashRoot,
+  HashBrowse,
+  HashMappingTest,
   MediaMetadata,
   OpenAppImportResult,
   Project,
@@ -123,6 +127,12 @@ export interface Backend {
   addPeer(address: string, token: string): Promise<void>;
   removePeer(peerId: string): Promise<void>;
   syncNow(): Promise<void>;
+  listHashServers(): Promise<HashServer[]>;
+  addHashServer(address: string, token: string): Promise<void>;
+  removeHashServer(id: string): Promise<void>;
+  hashServerRoots(id: string): Promise<HashRoot[]>;
+  hashServerBrowse(id: string, root: string, path: string): Promise<HashBrowse>;
+  testRemoteHashMapping(destinationId: string): Promise<HashMappingTest>;
 
   on<E extends keyof BackendEvents>(
     event: E,

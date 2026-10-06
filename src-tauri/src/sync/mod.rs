@@ -11,7 +11,7 @@ mod status;
 mod tests;
 mod transport;
 
-pub use address::{best_effort_listen_address, normalize_address};
+pub use address::{best_effort_listen_address, normalize_address, normalize_address_with_port};
 pub use protocol::{Hello, PullRequest, PullResponse, PushRequest, PushResponse};
 pub use service::SyncService;
 pub(crate) use session::sync_peer_with_page_size;
@@ -45,14 +45,4 @@ pub enum SyncError {
 
 pub type SyncResult<T> = Result<T, SyncError>;
 
-pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
-    let a = a.as_bytes();
-    let b = b.as_bytes();
-    let mut diff = a.len() ^ b.len();
-    for i in 0..a.len().max(b.len()) {
-        let av = a.get(i).copied().unwrap_or(0);
-        let bv = b.get(i).copied().unwrap_or(0);
-        diff |= usize::from(av ^ bv);
-    }
-    diff == 0
-}
+pub(crate) use omb_hash::constant_time_eq;

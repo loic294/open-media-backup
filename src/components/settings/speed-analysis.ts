@@ -226,8 +226,12 @@ export class OmbSpeedAnalysis extends OmbElement {
         ],
         [
           "Separate hash checks",
-          formatDuration(totals.metrics.source_check_secs + totals.metrics.destination_check_secs),
-          "Source + destination reads",
+          formatDuration(
+            totals.metrics.source_check_secs +
+              totals.metrics.destination_check_secs +
+              totals.metrics.remote_check_secs,
+          ),
+          "Source reads + destination re-reads + NAS hashes",
         ],
         [
           "Completed jobs",
@@ -263,10 +267,16 @@ export class OmbSpeedAnalysis extends OmbElement {
         color: "bg-info",
       },
       {
-        label: "Remote checks (destination)",
+        label: "Destination re-reads",
         seconds: metrics.destination_check_secs,
         bytes: metrics.destination_check_bytes,
         color: "bg-success",
+      },
+      {
+        label: "NAS-side hash checks",
+        seconds: metrics.remote_check_secs,
+        bytes: metrics.remote_check_bytes,
+        color: "bg-warning",
       },
       { label: "Other active work", seconds: metrics.other_secs, bytes: null, color: "bg-neutral" },
     ];
@@ -332,7 +342,11 @@ export class OmbSpeedAnalysis extends OmbElement {
                       ? m.destination_check_secs > 0
                         ? m.destination_check_bytes / m.destination_check_secs
                         : null
-                      : null;
+                      : analysis.phase === "remote_check"
+                        ? m.remote_check_secs > 0
+                          ? m.remote_check_bytes / m.remote_check_secs
+                          : null
+                        : null;
               return html`<article
                 class="rounded-box bg-base-200/50 border border-base-300 p-4 flex flex-col gap-2"
                 data-live-job=${job.id}
@@ -355,7 +369,7 @@ export class OmbSpeedAnalysis extends OmbElement {
                     ${percent(job.bytes_done, job.bytes_total)}%
                     <div class="text-xs text-base-content/60">
                       Copy ${formatDuration(m.copy_secs)} · Checks
-                      ${formatDuration(m.source_check_secs + m.destination_check_secs)}
+                      ${formatDuration(m.source_check_secs + m.destination_check_secs + m.remote_check_secs)}
                     </div>
                   </div>
                 </div>
@@ -438,7 +452,7 @@ export class OmbSpeedAnalysis extends OmbElement {
                             </td>
                             <td>
                               ${formatDuration(job.metrics.copy_secs)} /
-                              ${formatDuration(job.metrics.source_check_secs + job.metrics.destination_check_secs)}
+                              ${formatDuration(job.metrics.source_check_secs + job.metrics.destination_check_secs + job.metrics.remote_check_secs)}
                             </td>
                             <td>
                               <button
@@ -627,7 +641,7 @@ export class OmbSpeedAnalysis extends OmbElement {
                                 <td>${formatSpeed(pair.totals.avg_copy_bps)}</td>
                                 <td>
                                   ${formatDuration(pair.totals.metrics.copy_secs)} /
-                                  ${formatDuration(pair.totals.metrics.source_check_secs + pair.totals.metrics.destination_check_secs)}
+                                  ${formatDuration(pair.totals.metrics.source_check_secs + pair.totals.metrics.destination_check_secs + pair.totals.metrics.remote_check_secs)}
                                 </td>
                                 <td>
                                   <button
@@ -669,8 +683,9 @@ export class OmbSpeedAnalysis extends OmbElement {
       }
       <div class="text-xs text-base-content/60 flex flex-col gap-1">
         <p>
-          Local = source-side checks; remote = destination-side checks, even when both devices are attached to
-          this computer.
+          Source checks and destination re-reads read bytes on this computer (including over SMB/NFS).
+          NAS-side checks read on the hash server and return only a digest; their bytes are server work, not
+          network re-read traffic.
         </p>
         <p>
           Inline source hashing is included in copy time, not counted twice. Copy speed uses physical writes
