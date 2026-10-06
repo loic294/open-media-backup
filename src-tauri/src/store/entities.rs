@@ -110,10 +110,10 @@ impl Store {
                     } else {
                         ("device_id", Value::String(String::new()))
                     };
-                    if apply_op(&tx, &self.local_op(kind, &entity_id, field, value))? {
-                        if !kinds.contains(&kind.as_str().to_string()) {
-                            kinds.push(kind.as_str().to_string());
-                        }
+                    if apply_op(&tx, &self.local_op(kind, &entity_id, field, value))?
+                        && !kinds.contains(&kind.as_str().to_string())
+                    {
+                        kinds.push(kind.as_str().to_string());
                     }
                 }
             }

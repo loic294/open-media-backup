@@ -37,6 +37,8 @@ pub struct SourceCopyFiles<'a> {
     pub vars: &'a TemplateVars,
 }
 
+type SourceCopyView<'a> = (&'a str, &'a Option<String>, &'a TemplateVars);
+
 /// `files` are `(path relative to the source folder, known file id)`.
 pub fn safe_copy_report(
     files: &[(String, Option<String>)],
@@ -66,7 +68,7 @@ pub fn device_safe_copy_report(
     let required = |target: &FinalTarget, rel: &str, vars: &TemplateVars| {
         target.rules.is_empty() || target.rules.iter().any(|r| r.allows_with_vars(rel, vars))
     };
-    let mut files: HashMap<String, Vec<(&str, &Option<String>, &TemplateVars)>> = HashMap::new();
+    let mut files: HashMap<String, Vec<SourceCopyView<'_>>> = HashMap::new();
     for source in sources {
         for (rel, id) in source.files {
             let path = if source.folder.is_empty() {

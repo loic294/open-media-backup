@@ -309,6 +309,28 @@ fn file_stem_key(rel_path: &str) -> Option<(String, String)> {
     (!stem.is_empty()).then_some((parent, stem))
 }
 
+fn offline_files(folder_rel: &str, device_id: &str, catalog: &Catalog) -> Vec<ScannedFile> {
+    let prefix_len = if folder_rel.is_empty() {
+        0
+    } else {
+        folder_rel.len() + 1
+    };
+    let mut files: Vec<ScannedFile> = catalog
+        .copies_under(device_id, folder_rel)
+        .filter_map(|copy| {
+            let record = catalog.record(&copy.file_id)?;
+            Some(ScannedFile {
+                abs_path: PathBuf::new(),
+                rel_path: copy.path[prefix_len..].to_string(),
+                size: record.size,
+                modified_ms: record.modified_at,
+            })
+        })
+        .collect();
+    files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,26 +355,4 @@ mod tests {
         assert_eq!(inherited["C7000M01.XML"], vec![1, 2]);
         assert_eq!(inherited["C7000.MP4"], vec![1]);
     }
-}
-
-fn offline_files(folder_rel: &str, device_id: &str, catalog: &Catalog) -> Vec<ScannedFile> {
-    let prefix_len = if folder_rel.is_empty() {
-        0
-    } else {
-        folder_rel.len() + 1
-    };
-    let mut files: Vec<ScannedFile> = catalog
-        .copies_under(device_id, folder_rel)
-        .filter_map(|copy| {
-            let record = catalog.record(&copy.file_id)?;
-            Some(ScannedFile {
-                abs_path: PathBuf::new(),
-                rel_path: copy.path[prefix_len..].to_string(),
-                size: record.size,
-                modified_ms: record.modified_at,
-            })
-        })
-        .collect();
-    files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
-    files
 }
