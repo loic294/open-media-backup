@@ -3,7 +3,7 @@ import { demoSnapshot } from "../../api/mock/data";
 import type { Status } from "../../api/types";
 import { store } from "../../state";
 import { installDropdownDismiss } from "../ui/dropdown";
-import { filterDeviceCards } from "./device-filter";
+import { filterDestinations, filterSources } from "./device-filter";
 import { OmbFlowBoard } from "./flow-board";
 
 describe("flow board mounted device ordering", () => {
@@ -18,7 +18,7 @@ describe("flow board mounted device ordering", () => {
     store.volumes = previousVolumes;
   });
 
-  describe("shared source and destination device filter", () => {
+  describe("independent source and destination device filters", () => {
     const previousSnapshot = store.snapshot;
     const previousStatus = store.status;
     let board: OmbFlowBoard;
@@ -88,34 +88,46 @@ describe("flow board mounted device ordering", () => {
       }
     });
 
-    it("filters both columns by the same availability used by cards and keeps app destinations", async () => {
+    it("filters each column by the same availability used by cards and keeps app destinations", async () => {
       await mount();
-      await choose("Mounted devices");
+      await choose("Mounted devices", 0);
       expect(cardIds("source")).toEqual(["s1"]);
+      expect(cardIds("destination")).toHaveLength(4);
+      await choose("All devices", 0);
+      await choose("Mounted devices", 1);
+      expect(cardIds("source")).toHaveLength(3);
       expect(cardIds("destination")).toEqual(["d1", "d4"]);
-      for (const menu of menus()) {
-        expect(menu.querySelector("summary")?.textContent).toContain("Mounted devices");
-        expect(menu.querySelector('[aria-pressed="true"]')?.textContent?.trim()).toBe("Mounted devices");
-      }
+      expect(menus()[1].querySelector("summary")?.textContent).toContain("Mounted devices");
+      expect(menus()[0].querySelector("summary")?.textContent).not.toContain("Mounted devices");
       store.status!.sources[0].available = false;
       store.dispatchEvent(new Event("change"));
       await board.updateComplete;
+      await choose("Mounted devices", 0);
       expect(cardIds("source")).toEqual([]);
       expect(board.textContent).toContain("No sources match this filter.");
     });
 
-    it("selects one device from either column and resets both with All devices", async () => {
+    it("keeps source and destination device selections independent", async () => {
       await mount();
       store.snapshot!.sources.push({ ...store.snapshot!.sources[0], id: "ssd-source", device_id: "ssd" });
-      await choose("Travel SSD", 1);
+      await choose("Travel SSD", 0);
       expect(cardIds("source")).toEqual(["ssd-source"]);
-      expect(cardIds("destination")).toEqual(["d1", "d4"]);
-      expect(
-        menus().every((menu) => menu.querySelector("summary")?.textContent?.includes("Travel SSD")),
-      ).toBe(true);
-      await choose("All devices");
-      expect(cardIds("source")).toHaveLength(4);
       expect(cardIds("destination")).toHaveLength(4);
+      const destinationId = store.snapshot!.destinations.find((d) => d.device_id && d.kind !== "app")!;
+      const deviceName = store.snapshot!.devices.find((d) => d.id === destinationId.device_id)!.name;
+      await choose(deviceName, 1);
+      expect(cardIds("destination")).toContain(destinationId.id);
+      expect(
+        cardIds("destination").every(
+          (id) =>
+            id === "d4" ||
+            store.snapshot!.destinations.find((d) => d.id === id)!.device_id === destinationId.device_id,
+        ),
+      ).toBe(true);
+      expect(cardIds("source")).toEqual(["ssd-source"]);
+      await choose("All devices", 0);
+      expect(cardIds("source")).toHaveLength(4);
+      expect(cardIds("destination").length).toBeLessThan(4);
     });
 
     it("resets safely when the selected device is removed without restoring it if it returns", async () => {
@@ -137,7 +149,7 @@ describe("flow board mounted device ordering", () => {
       store.snapshot!.destinations = store.snapshot!.destinations.filter(
         (destination) => destination.kind !== "app",
       );
-      await choose("Camera A · Card 1");
+      await choose("Camera A · Card 1", 1);
       expect(cardIds("destination")).toEqual([]);
       expect(board.textContent).toContain("No destinations match this filter.");
       expect(board.textContent).not.toContain("Add an SSD, NAS or folder");
@@ -185,12 +197,14 @@ describe("flow board mounted device ordering", () => {
 
     it("does not treat unknown status or an unassigned device as mounted, and does not mutate inputs", () => {
       const snapshot = demoSnapshot();
-      const all = filterDeviceCards(snapshot.sources, snapshot.destinations, null, { kind: "all" });
-      expect(all.sources).toBe(snapshot.sources);
-      expect(all.destinations).toBe(snapshot.destinations);
-      const mounted = filterDeviceCards(snapshot.sources, snapshot.destinations, null, { kind: "mounted" });
-      expect(mounted.sources).toEqual([]);
-      expect(mounted.destinations.map((destination) => destination.id)).toEqual(["d4"]);
+      expect(filterSources(snapshot.sources, null, { kind: "all" })).toBe(snapshot.sources);
+      expect(filterDestinations(snapshot.destinations, null, { kind: "all" })).toBe(snapshot.destinations);
+      expect(filterSources(snapshot.sources, null, { kind: "mounted" })).toEqual([]);
+      expect(
+        filterDestinations(snapshot.destinations, null, { kind: "mounted" }).map(
+          (destination) => destination.id,
+        ),
+      ).toEqual(["d4"]);
       expect(snapshot.sources).toHaveLength(3);
       expect(snapshot.destinations).toHaveLength(4);
     });
@@ -199,10 +213,12 @@ describe("flow board mounted device ordering", () => {
       await mount();
       store.snapshot!.sources[0].device_id = "";
       store.snapshot!.destinations[0].device_id = "";
-      await choose("Mounted devices");
+      await choose("Mounted devices", 0);
       expect(cardIds("source")).toEqual([]);
+      await choose("Mounted devices", 1);
       expect(cardIds("destination")).toEqual(["d4"]);
-      await choose("All devices");
+      await choose("All devices", 0);
+      await choose("All devices", 1);
       expect(cardIds("source")).toHaveLength(3);
       expect(cardIds("destination")).toHaveLength(4);
     });

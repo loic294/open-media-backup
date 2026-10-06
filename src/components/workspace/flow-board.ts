@@ -3,7 +3,7 @@ import { customElement, state } from "lit/decorators.js";
 import { mountedFirst, mountedFirstInSlots, spaceDestinations, spaceSources } from "../../state/selectors";
 import { closeDropdown } from "../ui/dropdown";
 import { OmbElement } from "../ui/omb-element";
-import { filterDeviceCards, type DeviceFilter } from "./device-filter";
+import { filterDestinations, filterSources, type DeviceFilter } from "./device-filter";
 import "./destination-card";
 import "./flow-canvas";
 import "./new-volumes";
@@ -12,17 +12,15 @@ import "./source-card";
 /** Sources (left), connections (middle) and destinations (right). */
 @customElement("omb-flow-board")
 export class OmbFlowBoard extends OmbElement {
-  @state() private filter: DeviceFilter = { kind: "all" };
+  @state() private sourceFilter: DeviceFilter = { kind: "all" };
+  @state() private destinationFilter: DeviceFilter = { kind: "all" };
 
   override willUpdate(): void {
-    const current = this.filter;
-    if (
-      current.kind === "device" &&
-      this.store.snapshot &&
-      !this.store.snapshot.devices.some((device) => device.id === current.deviceId)
-    ) {
-      this.filter = { kind: "all" };
-    }
+    const devices = this.store.snapshot?.devices;
+    if (!devices) return;
+    const missing = (f: DeviceFilter) => f.kind === "device" && !devices.some((d) => d.id === f.deviceId);
+    if (missing(this.sourceFilter)) this.sourceFilter = { kind: "all" };
+    if (missing(this.destinationFilter)) this.destinationFilter = { kind: "all" };
   }
 
   override updated(): void {
@@ -30,17 +28,19 @@ export class OmbFlowBoard extends OmbElement {
     this.querySelector<OmbElement>("omb-flow-canvas")?.requestUpdate();
   }
 
-  #selectFilter(event: Event, filter: DeviceFilter) {
+  #selectFilter(event: Event, side: "source" | "destination", filter: DeviceFilter) {
     event.stopPropagation();
     const details = (event.currentTarget as Element).closest("details");
     closeDropdown(event.currentTarget as Element);
     details?.querySelector<HTMLElement>("summary")?.focus();
-    this.filter = filter;
+    if (side === "source") this.sourceFilter = filter;
+    else this.destinationFilter = filter;
   }
 
-  #filterMenu(label: string) {
+  #filterMenu(side: "source" | "destination") {
+    const noun = side === "source" ? "sources" : "destinations";
     const devices = [...(this.store.snapshot?.devices ?? [])].sort((a, b) => a.name.localeCompare(b.name));
-    const current = this.filter;
+    const current = side === "source" ? this.sourceFilter : this.destinationFilter;
     const activeLabel =
       current.kind === "device"
         ? (devices.find((device) => device.id === current.deviceId)?.name ?? "All devices")
@@ -53,7 +53,7 @@ export class OmbFlowBoard extends OmbElement {
           type="button"
           class=${selected ? "menu-active" : ""}
           aria-pressed=${selected}
-          @click=${(event: Event) => this.#selectFilter(event, filter)}
+          @click=${(event: Event) => this.#selectFilter(event, side, filter)}
         >
           <span class="flex-1 truncate">${text}</span>
           ${selected ? html`<omb-icon name="check" aria-hidden="true"></omb-icon>` : nothing}
@@ -63,7 +63,7 @@ export class OmbFlowBoard extends OmbElement {
     return html`
       <details
         class="dropdown dropdown-end"
-        data-device-filter
+        data-device-filter=${side}
         @click=${(event: Event) => event.stopPropagation()}
         @keydown=${(event: KeyboardEvent) => {
           if (event.key !== "Escape") return;
@@ -75,28 +75,35 @@ export class OmbFlowBoard extends OmbElement {
       >
         <summary
           class="btn btn-sm btn-outline border-base-300 gap-1.5 font-normal ${current.kind === "all" ? "btn-square" : ""}"
-          aria-label=${`Filter ${label.toLowerCase()} and ${label === "Sources" ? "destinations" : "sources"}: ${activeLabel}`}
-          title=${`Filter sources and destinations: ${activeLabel}`}
+          aria-label=${`Filter ${noun}: ${activeLabel}`}
+          title=${`Filter ${noun}: ${activeLabel}`}
         >
           <omb-icon name="funnel" aria-hidden="true"></omb-icon>
           ${current.kind === "all" ? nothing : html`<span class="max-w-28 truncate">${activeLabel}</span>`}
         </summary>
         <ul
           class="dropdown-content menu menu-sm z-30 mt-1 w-64 max-h-96 overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
-          aria-label="Filter sources and destinations"
+          aria-label=${`Filter ${noun}`}
         >
-          <li class="menu-title">Sources and destinations</li>
+          <li class="menu-title">${side === "source" ? "Sources" : "Destinations"}</li>
           ${option("All devices", { kind: "all" }, current.kind === "all")}
           ${option("Mounted devices", { kind: "mounted" }, current.kind === "mounted")}
           <li class="menu-title mt-1 border-t border-base-300">Specific device</li>
           ${devices.map((device) => option(device.name, { kind: "device", deviceId: device.id }, current.kind === "device" && current.deviceId === device.id))}
-          <li class="menu-title font-normal whitespace-normal">App destinations stay visible.</li>
+          ${side === "destination" ? html`<li class="menu-title font-normal whitespace-normal">App destinations stay visible.</li>` : nothing}
         </ul>
       </details>
     `;
   }
 
-  #heading(icon: string, label: string, count: number, add: () => void, addLabel: string) {
+  #heading(
+    icon: string,
+    label: string,
+    side: "source" | "destination",
+    count: number,
+    add: () => void,
+    addLabel: string,
+  ) {
     return html`
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2
@@ -105,7 +112,7 @@ export class OmbFlowBoard extends OmbElement {
           <omb-icon name=${icon}></omb-icon>${label}<span class="badge badge-sm badge-neutral">${count}</span>
         </h2>
         <div class="ml-auto flex items-center gap-2">
-          ${this.#filterMenu(label)}
+          ${this.#filterMenu(side)}
           <button class="btn btn-sm btn-outline border-base-300 gap-1.5 font-normal" @click=${add}>
             <omb-icon name="plus"></omb-icon>${addLabel}
           </button>
@@ -119,12 +126,8 @@ export class OmbFlowBoard extends OmbElement {
     if (!snapshot || !space) return nothing;
     const allSources = spaceSources(snapshot, space.id);
     const allDestinations = spaceDestinations(snapshot, space.id);
-    const { sources, destinations } = filterDeviceCards(
-      allSources,
-      allDestinations,
-      this.store.status,
-      this.filter,
-    );
+    const sources = filterSources(allSources, this.store.status, this.sourceFilter);
+    const destinations = filterDestinations(allDestinations, this.store.status, this.destinationFilter);
     const showMountedFirst = snapshot.settings.show_mounted_devices_first !== false;
     const orderedSources = showMountedFirst
       ? mountedFirst(sources, this.store.volumes, (source) => source.device_id)
@@ -140,10 +143,10 @@ export class OmbFlowBoard extends OmbElement {
         data-flow-board
       >
         <div class="col-start-1">
-          ${this.#heading("log-in", "Sources", sources.length, () => this.store.open({ type: "source-settings", sourceId: null }), "Add source")}
+          ${this.#heading("log-in", "Sources", "source", sources.length, () => this.store.open({ type: "source-settings", sourceId: null }), "Add source")}
         </div>
         <div class="col-start-3">
-          ${this.#heading("log-out", "Destinations", destinations.length, () => this.store.open({ type: "destination-settings", destinationId: null }), "Add destination")}
+          ${this.#heading("log-out", "Destinations", "destination", destinations.length, () => this.store.open({ type: "destination-settings", destinationId: null }), "Add destination")}
         </div>
         <div class="col-start-1 flex flex-col gap-5">
           ${orderedSources.map((s) => html`<omb-source-card data-omb-block .source=${s}></omb-source-card>`)}
