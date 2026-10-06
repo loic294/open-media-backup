@@ -84,7 +84,7 @@ export function projectVariablesSection(
   </section>`;
 }
 
-/** Create or edit a project: name, a value for each space variable, and wipe safety. */
+/** Create or edit a project's name, variable values, and capture range. */
 @customElement("omb-project-dialog")
 export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: "project" }>> {
   @state() private draft!: Project;
@@ -252,21 +252,7 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
             })}
           </ul>
         </section>
-        <section class="grid grid-cols-2 gap-4">
-          <fieldset class="fieldset">
-            <legend class="fieldset-legend">Final copies before wiping</legend>
-            <input
-              type="number"
-              min="1"
-              max="5"
-              class="input w-24"
-              .value=${String(d.final_copies_required)}
-              @input=${(e: Event) => (this.draft = { ...d, final_copies_required: Math.max(1, Number((e.target as HTMLInputElement).value) || 1) })}
-            />
-            <p class="label">
-              Cards can be wiped once every file is verified on this many final destinations.
-            </p>
-          </fieldset>
+        <section>
           ${
             this.#isNew
               ? nothing

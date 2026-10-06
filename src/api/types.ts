@@ -31,6 +31,8 @@ export interface Space {
   verify_mode: VerifyMode;
   variables: VariableDef[];
   backup_marker_template: string;
+  /** Effective copies required for every non-excluded file; older snapshots default to 2. */
+  final_copies_required?: number;
   /** Missing in older snapshots means true. */
   allow_project_overlap?: boolean;
   /** 0 or missing means temporary destinations never count as safe copies. */
@@ -47,7 +49,6 @@ export interface Project {
   space_id: string;
   name: string;
   values: Record<string, string>;
-  final_copies_required: number;
   archived: boolean;
   /** Inclusive embedded capture bounds in Unix milliseconds; absent on legacy projects. */
   start_time?: number | null;

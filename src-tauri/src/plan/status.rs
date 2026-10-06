@@ -3,7 +3,7 @@ use super::{
     classify_files, resolve_workspace_flow, Catalog, Category, FailureMap, PlanError, RootResolver,
     WorkspaceContext,
 };
-use crate::domain::{Destination, DestinationKind, Device, Flow, Project, Source};
+use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
 use crate::scan::ScannedFile;
 use crate::store::Store;
 use serde::Serialize;
@@ -139,7 +139,7 @@ pub fn workspace_status(
                 file_count: 0,
                 total_bytes: 0,
                 safe_copies: 0,
-                required_copies: project.as_ref().map(|p| p.final_copies_required),
+                required_copies: Some(space.final_copies_required),
                 wipe_eligible: false,
                 blocking_reason: Some(
                     "No device selected. Choose a device in source settings.".into(),
@@ -151,23 +151,6 @@ pub fn workspace_status(
         let files = assessment.files;
         files_by_source.insert(source.id.clone(), files);
     }
-    if project.is_none()
-        && store
-            .list_by::<Project>("space_id", &space.id)?
-            .iter()
-            .any(|project| !project.archived)
-    {
-        for status in &mut source_statuses {
-            if status.required_copies.is_none()
-                && status.blocking_reason.as_deref()
-                    == Some("Create a project to set card-wiping safety requirements")
-            {
-                status.blocking_reason =
-                    Some("Wipe safety is checked against every active project".into());
-            }
-        }
-    }
-
     let flows: Vec<Flow> = store.list_by("space_id", &space.id)?;
     let mut dest_statuses: HashMap<String, DestinationStatus> = HashMap::new();
     let mut flow_statuses = Vec::new();

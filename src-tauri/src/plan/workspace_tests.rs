@@ -29,7 +29,7 @@ fn status(fx: &Fixture) -> WorkspaceStatus {
 }
 
 #[test]
-fn project_free_status_has_real_counts_without_wipe_policy() {
+fn project_free_status_uses_the_space_wipe_policy() {
     let fx = without_projects();
     fx.write_card_file("DCIM/A.JPG", b"photo");
     let st = status(&fx);
@@ -38,13 +38,13 @@ fn project_free_status_has_real_counts_without_wipe_policy() {
     assert!(st.sources[0].available);
     assert_eq!(st.sources[0].file_count, 1);
     assert_eq!(st.sources[0].total_bytes, 5);
-    assert_eq!(st.sources[0].required_copies, None);
+    assert_eq!(st.sources[0].required_copies, Some(1));
     assert!(!st.sources[0].wipe_eligible);
     assert!(st.sources[0]
         .blocking_reason
         .as_deref()
         .unwrap()
-        .contains("project"));
+        .contains("Needs"));
     assert_eq!(st.flows[0].state, FlowState::Pending);
     assert_eq!(st.destinations[0].to_transfer, 1);
     let ctx = resolve_workspace_flow(&fx.store, &fx.resolver, &context(&fx), "flow").unwrap();

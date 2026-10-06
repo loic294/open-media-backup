@@ -133,7 +133,7 @@ export class OmbSourceDialog extends DialogBase<Extract<DialogRequest, { type: "
                   <span>
                     <span class="font-medium">Offer to wipe once safe</span>
                     <span class="block text-sm text-base-content/60">
-                      Before wiping, every active project must meet its own final-copy requirement. Final
+                      Before wiping, every non-excluded file must meet the space's required-copy count. Final
                       devices are never wiped.
                     </span>
                   </span>

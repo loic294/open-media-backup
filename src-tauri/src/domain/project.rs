@@ -31,8 +31,6 @@ pub struct Project {
     pub space_id: String,
     pub name: String,
     pub values: BTreeMap<String, String>,
-    /// Number of verified copies on "final" devices required before a card can be wiped.
-    pub final_copies_required: u32,
     pub archived: bool,
     /// Inclusive UTC bounds in Unix milliseconds. Unknown-zone captures remain
     /// unassigned until a timezone policy is configured. Both absent on legacy projects.
@@ -50,7 +48,6 @@ impl Default for Project {
             space_id: String::new(),
             name: String::new(),
             values: BTreeMap::new(),
-            final_copies_required: 2,
             archived: false,
             start_time: None,
             end_time: None,

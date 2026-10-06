@@ -357,7 +357,7 @@ fn opening_media_rejects_paths_not_listed_by_a_source() {
 }
 
 #[test]
-fn project_free_workspace_ipc_copies_files_and_rejects_wipe_without_project() {
+fn project_free_workspace_ipc_copies_files_and_rejects_insufficient_space_copies() {
     let ui = Ui::start();
     let card = tempfile::tempdir().unwrap();
     let nas = tempfile::tempdir().unwrap();
@@ -393,7 +393,7 @@ fn project_free_workspace_ipc_copies_files_and_rejects_wipe_without_project() {
     let pending = ui.ok("get_workspace_status", json!({"context": context}));
     assert_eq!(pending["context"], context);
     assert_eq!(pending["sources"][0]["file_count"], 1);
-    assert!(pending["sources"][0]["required_copies"].is_null());
+    assert_eq!(pending["sources"][0]["required_copies"], 2);
     assert_eq!(pending["flows"][0]["runnable"], true);
     let req = |category| {
         json!({
@@ -491,6 +491,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
     // newSpace / newProject
     ui.save("space", json!({
         "id": "sp", "name": "Travel", "icon": "folder", "position": 9, "hash_algo": "blake3", "verify_mode": "inline",
+        "final_copies_required": 1,
         "variables": [{ "name": "project_name", "default_value": "", "required": true }],
         "backup_marker_template": "{date}_{project_name}",
     }));
@@ -498,7 +499,7 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
         "project",
         json!({
             "id": "pr", "space_id": "sp", "name": "Trip", "values": { "project_name": "Trip 2026" },
-            "final_copies_required": 1, "archived": false,
+            "archived": false,
         }),
     );
     let mut settings = snapshot["settings"].clone();
@@ -637,9 +638,12 @@ fn corrupted_copy_is_flagged_and_card_not_wipeable() {
     ui.save(
         "space",
         json!({ "id": "sp", "name": "S", "icon": "folder", "position": 0, "hash_algo": "blake3",
-        "verify_mode": "reread", "variables": [], "backup_marker_template": "" }),
+        "verify_mode": "reread", "variables": [], "backup_marker_template": "", "final_copies_required": 1 }),
     );
-    ui.save("project", json!({ "id": "pr", "space_id": "sp", "name": "P", "values": {}, "final_copies_required": 1, "archived": false }));
+    ui.save(
+        "project",
+        json!({ "id": "pr", "space_id": "sp", "name": "P", "values": {}, "archived": false }),
+    );
     ui.save("source", json!({ "id": "src", "space_id": "sp", "device_id": "card", "path_template": "", "offer_wipe": true, "position": 0 }));
     ui.save("destination", json!({ "id": "dst", "space_id": "sp", "device_id": "nas", "path_template": "backup",
         "subfolder_per_source": false, "counts_as_safe_copy": true, "use_backup_marker": false, "rules": [], "position": 0 }));

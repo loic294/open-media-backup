@@ -351,6 +351,16 @@ export function createMockBackend(
   const backend: Backend = {
     getSnapshot: async () => structuredClone(snapshot),
     saveEntity: async (kind, entity) => {
+      if (kind === "space" && "final_copies_required" in entity) {
+        const required = entity.final_copies_required;
+        if (
+          !Number.isInteger(required) ||
+          typeof required !== "number" ||
+          required < 1 ||
+          required > 4294967295
+        )
+          throw new Error("Required copies must be a positive 32-bit integer");
+      }
       const candidate = structuredClone(snapshot);
       const candidateItems = candidate[COLLECTION[kind]] as { id: string }[];
       const candidateIndex = candidateItems.findIndex((e) => e.id === entity.id);
@@ -412,23 +422,16 @@ export function createMockBackend(
     getWorkspaceStatus: async (context) => workspaceStatus(context),
     getSourceSafeCopyDetails: async (context, sourceId) => {
       const details = mockSafeCopyDetails(snapshot, context, sourceId, counts, offline, safeSkipCounts());
-      const projects = snapshot.projects.filter(
-        (project) => project.space_id === context.spaceId && !project.archived,
+      const workspace = mockSafeCopyDetails(
+        snapshot,
+        { ...context, projectId: null },
+        sourceId,
+        counts,
+        offline,
+        safeSkipCounts(),
       );
-      const policies = projects.map((project) =>
-        mockSafeCopyDetails(
-          snapshot,
-          { ...context, projectId: project.id },
-          sourceId,
-          counts,
-          offline,
-          safeSkipCounts(),
-        ),
-      );
-      const blocked = policies.find((policy) => !policy.wipe_eligible);
-      details.wipe_eligible = policies.length > 0 && !blocked;
-      details.blocking_reason =
-        blocked?.blocking_reason ?? (policies.length ? null : "No active project applies to this source");
+      details.wipe_eligible = workspace.wipe_eligible;
+      details.blocking_reason = workspace.blocking_reason;
       return details;
     },
     saveSourceSafeCopyRules: async (context, sourceId, rules) => {
@@ -879,43 +882,45 @@ export function createMockBackend(
       window.prompt("Preview app path (demo mode)", "/Applications/Preview.app") ?? null,
     planWipe: async (sourceId) => {
       const source = snapshot.sources.find((item) => item.id === sourceId);
-      const projects = snapshot.projects.filter(
-        (project) => project.space_id === source?.space_id && !project.archived,
+      if (!source) throw new Error("source not found");
+      const details = mockSafeCopyDetails(
+        snapshot,
+        { spaceId: source.space_id, projectId: null },
+        sourceId,
+        counts,
+        offline,
+        safeSkipCounts(),
       );
-      const statuses = projects.map((project) =>
-        mockStatus(snapshot, project.id, counts, offline, safeSkipCounts()).sources.find(
-          (s) => s.source_id === sourceId,
-        ),
-      );
-      const status = statuses[0];
       const finals = snapshot.devices.filter((d) => d.role === "final");
       return {
         source_id: sourceId,
-        files_total: status?.file_count ?? 0,
-        ignored: 36,
+        files_total: details.files.length,
+        ignored: details.files.filter((file) => file.state === "excluded").length,
         copies: finals.map((d) => ({
           device_id: d.id,
           device_name: d.name,
-          verified: status?.wipe_eligible ? (status.file_count ?? 0) : 0,
-          total: status?.file_count ?? 0,
+          verified: details.files.filter(
+            (file) => file.state !== "excluded" && file.verified_destinations.includes(d.name),
+          ).length,
+          total: details.files.filter((file) => file.state !== "excluded").length,
         })),
-        eligible: statuses.length > 0 && statuses.every((item) => item?.wipe_eligible),
-        reason: statuses.find((item) => !item?.wipe_eligible)?.blocking_reason ?? null,
+        eligible: details.wipe_eligible,
+        reason: details.blocking_reason ?? (!source.offer_wipe ? "Wiping is disabled for this source" : null),
       };
     },
     wipe: async (sourceId) => {
       const source = snapshot.sources.find((item) => item.id === sourceId);
-      const projects = snapshot.projects.filter(
-        (project) => project.space_id === source?.space_id && !project.archived,
+      if (!source) throw new Error("source not found");
+      const details = mockSafeCopyDetails(
+        snapshot,
+        { spaceId: source.space_id, projectId: null },
+        sourceId,
+        counts,
+        offline,
+        safeSkipCounts(),
       );
-      const statuses = projects.map((project) =>
-        mockStatus(snapshot, project.id, counts, offline, safeSkipCounts()).sources.find(
-          (s) => s.source_id === sourceId,
-        ),
-      );
-      const blocked = statuses.find((item) => !item?.wipe_eligible);
-      if (statuses.length === 0 || blocked)
-        throw new Error(blocked?.blocking_reason || "No active project applies to this source");
+      if (!details.wipe_eligible)
+        throw new Error(details.blocking_reason || "Wiping is disabled for this source");
       const currentSource = snapshot.sources.find((s) => s.id === sourceId);
       snapshot.flows.filter((f) => f.source_id === sourceId).forEach((f) => (counts[f.id] = [0, 0, 0, 0]));
       if (currentSource) currentSource.offer_wipe = true;

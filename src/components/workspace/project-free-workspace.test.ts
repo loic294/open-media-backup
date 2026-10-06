@@ -61,17 +61,17 @@ describe("project-free workspace UI", () => {
     vi.restoreAllMocks();
   });
 
-  it("replaces source skeletons with counts and explains why wiping is disabled", async () => {
+  it("replaces source skeletons with the space threshold and offers mounted wiping", async () => {
     const source = new OmbSourceCard();
     source.source = store.snapshot!.sources[0];
     document.body.append(source);
     await source.updateComplete;
     expect(source.querySelector(".skeleton")).toBeNull();
     expect(source.textContent).toContain("safe copies");
-    expect(source.textContent).toContain("card-wiping safety requirements");
+    expect(source.textContent).toContain("/2 safe copies");
     expect(source.textContent).not.toContain("/null");
     expect([...source.querySelectorAll("button")].some((b) => b.textContent?.includes("Wipe card"))).toBe(
-      false,
+      true,
     );
   });
 

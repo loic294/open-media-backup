@@ -14,6 +14,7 @@ const space = (id: string, name: string, icon: string, position: number): Space 
   ],
   backup_marker_template: "{date}_{project_name}",
   allow_project_overlap: true,
+  final_copies_required: 2,
   skip_counts_as_safe_copy: false,
   temporary_copies_per_final: id === "travel" ? 1 : 0,
 });
@@ -118,7 +119,6 @@ const legacyProjects: Project[] = [
     space_id: "travel",
     name: "Trip 2026",
     values: { project_name: "Trip_2026", backup_folder: "2026/Travel" },
-    final_copies_required: 2,
     archived: false,
   },
   {
@@ -126,7 +126,6 @@ const legacyProjects: Project[] = [
     space_id: "travel",
     name: "Trip 2025",
     values: { project_name: "Trip_2025" },
-    final_copies_required: 2,
     archived: true,
   },
   {
@@ -134,7 +133,6 @@ const legacyProjects: Project[] = [
     space_id: "travel",
     name: "Client event",
     values: { project_name: "Client_event", client: "Client" },
-    final_copies_required: 2,
     archived: false,
   },
 ];

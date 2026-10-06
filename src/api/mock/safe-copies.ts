@@ -69,6 +69,7 @@ export function mockSafeCopyDetails(
     });
   }
   const ratio = space.temporary_copies_per_final ?? 0;
+  const requiredCopies = space.final_copies_required ?? 2;
   const targets = new Map<string, { name: string; role: "final" | "temporary"; flows: Snapshot["flows"] }>();
   for (const flow of snapshot.flows.filter((item) =>
     grouped.some((source) => source.id === item.source_id),
@@ -139,16 +140,14 @@ export function mockSafeCopyDetails(
       const copies = effective([...verified, ...acknowledged]);
       const excluded = requiredViews.length === 0;
       const safe =
-        project !== null &&
-        copies >= project.final_copies_required &&
+        copies >= requiredCopies &&
         (device.role !== "temporary" ||
           [...verified, ...acknowledged].some((key) => targets.get(key)!.role === "final"));
       if (excluded)
         reasons.push("Excluded from safe-copy requirements by source rules; transfers are unchanged");
-      else if (!project) reasons.push("Choose a project to inspect its required copy threshold");
       else if (!safe)
         reasons.push(
-          `Requires ${project.final_copies_required} effective copies; currently ${copies}. Add safe destinations or finish pending transfers`,
+          `Requires ${requiredCopies} effective copies; currently ${copies}. Add safe destinations or finish pending transfers`,
         );
       const file: SafeCopyFile = {
         path,
@@ -161,19 +160,13 @@ export function mockSafeCopyDetails(
       return { file, keys: [...verified, ...acknowledged] };
     });
   const required = evidence.filter((item) => item.file.state !== "excluded");
-  const complete = [...targets.keys()].filter(
-    (key) => required.length > 0 && required.every((item) => item.keys.includes(key)),
-  );
-  const safeCopies = effective(complete);
+  const safeCopies = required.length
+    ? Math.min(...required.map((item) => item.file.safe_copies))
+    : evidence.length
+      ? requiredCopies
+      : 0;
   const hasSourceFiles = [...views.values()].some((entries) =>
     entries.some((view) => view.sourceId === sourceId),
-  );
-  const hasApplicableProject = snapshot.projects.some(
-    (item) =>
-      item.space_id === space.id &&
-      !item.archived &&
-      source.project_scope?.mode !== "none" &&
-      (source.project_scope?.mode !== "selected" || source.project_scope.project_ids.includes(item.id)),
   );
   const reason =
     pathError ??
@@ -183,22 +176,19 @@ export function mockSafeCopyDetails(
         ? "No files"
         : device.role === "final"
           ? "Final devices are never wiped"
-          : !project
-            ? hasApplicableProject
-              ? "Wipe safety is checked against every active project"
-              : "Create a project to set card-wiping safety requirements"
-            : required.length === 0
-              ? null
-              : device.role === "temporary" && !complete.some((key) => targets.get(key)!.role === "final")
-                ? "Needs a final destination"
-                : safeCopies < project.final_copies_required
-                  ? "Required device-wide copy threshold not met; inspect missing file coverage"
-                  : null);
+          : required.length === 0
+            ? null
+            : device.role === "temporary" &&
+                required.some((item) => !item.keys.some((key) => targets.get(key)!.role === "final"))
+              ? "Needs a final destination"
+              : safeCopies < requiredCopies
+                ? "Required device-wide copy threshold not met; inspect missing file coverage"
+                : null);
   return {
     source_id: source.id,
     device_id: device.id,
     device_name: device.name,
-    required_copies: project?.final_copies_required ?? null,
+    required_copies: requiredCopies,
     safe_copies: safeCopies,
     wipe_eligible: reason === null && source.offer_wipe,
     blocking_reason: reason,

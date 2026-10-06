@@ -72,7 +72,7 @@ describe("AppStore with the mock backend", () => {
       expect(store.status?.sources.length).toBe(3);
       expect(store.statusLoading).toBe(false);
       expect(store.statusError).toBeNull();
-      expect(store.status?.sources.every((s) => s.required_copies === null && !s.wipe_eligible)).toBe(true);
+      expect(store.status?.sources.every((s) => s.required_copies === 2 && !s.wipe_eligible)).toBe(true);
       const request = {
         context: store.context!,
         flowId: "f4",

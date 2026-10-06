@@ -13,11 +13,50 @@ function fixture() {
   data.destinations.forEach((dest) => {
     dest.rules = [];
   });
-  data.projects[0].final_copies_required = 2;
+  data.spaces[0].final_copies_required = 2;
   return data;
 }
 
 describe("demo file safety", () => {
+  it("reports completed copies from non-excluded files, not excluded pending files", () => {
+    const data = fixture();
+    const counts = { f1: [3, 0, 0, 0], f2: [1, 2, 0, 0] } satisfies import("./status").Counts;
+    const pending = mockSafeCopyDetails(data, { ...context, projectId: null }, "s1", counts, new Set());
+    expect(pending.safe_copies).toBe(1);
+    expect(pending.files.filter((file) => file.state === "unsafe")).toHaveLength(2);
+    data.sources[0].safe_copy_rules = pending.files
+      .filter((file) => file.state === "unsafe")
+      .map((file) => ({ action: "exclude", syntax: "glob", pattern: file.path.replace(/^DCIM\//, "") }));
+    const completed = mockSafeCopyDetails(data, { ...context, projectId: null }, "s1", counts, new Set());
+    expect(completed.files.filter((file) => file.state === "unsafe")).toHaveLength(0);
+    expect(completed.safe_copies).toBe(2);
+    expect(completed.required_copies).toBe(2);
+    expect(completed.wipe_eligible).toBe(true);
+    data.sources[0].safe_copy_rules = [{ action: "exclude", syntax: "glob", pattern: "*" }];
+    expect(mockSafeCopyDetails(data, context, "s1", counts, new Set()).safe_copies).toBe(2);
+  });
+
+  it("uses one space threshold with or without projects and rejects invalid policy saves", async () => {
+    const data = fixture();
+    data.projects = [];
+    data.spaces[0].final_copies_required = 1;
+    const details = mockSafeCopyDetails(
+      data,
+      { ...context, projectId: null },
+      "s1",
+      { f1: [1, 0, 0, 0], f2: [0, 1, 0, 0] },
+      new Set(),
+    );
+    expect(details.required_copies).toBe(1);
+    expect(details.wipe_eligible).toBe(true);
+    const backend = createMockBackend({ seedRunningTransfer: false });
+    for (const invalid of [0, -1, 1.5, 4294967296]) {
+      await expect(
+        backend.saveEntity("space", { ...data.spaces[0], final_copies_required: invalid }),
+      ).rejects.toThrow("Required copies");
+    }
+  });
+
   it("separates verified, pending, offline and deliberate skip evidence", () => {
     const data = fixture();
     data.spaces[0].skip_counts_as_safe_copy = true;

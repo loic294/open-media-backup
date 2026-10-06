@@ -210,7 +210,7 @@ fn missing_destination_in_this_space_and_invalid_rules_fail_conservatively() {
 }
 
 #[test]
-fn partial_destination_rule_views_do_not_manufacture_complete_copies() {
+fn per_file_completed_copies_match_safety_even_with_partial_destination_rules() {
     let fx = Fixture::new();
     fx.write_card_file("DCIM/A.JPG", b"a");
     fx.write_card_file("DCIM/B.JPG", b"b");
@@ -249,13 +249,56 @@ fn partial_destination_rule_views_do_not_manufacture_complete_copies() {
         std::slice::from_ref(&fx.source),
         &finals.targets(),
     );
-    assert_eq!(assessed[0].1.status.safe_copies, 0);
-    assert!(!assessed[0].1.status.wipe_eligible);
+    assert_eq!(assessed[0].1.status.safe_copies, 1);
+    assert!(assessed[0].1.status.wipe_eligible);
     assert!(assessed[0]
         .1
         .device_files
         .iter()
         .all(|file| { file.safe_copies == 1 && file.state == SafeCopyState::Safe }));
+}
+
+#[test]
+fn excluded_files_do_not_lower_completed_space_copy_count() {
+    let fx = Fixture::new();
+    let mut space = fx.space.clone();
+    space.final_copies_required = 2;
+    fx.store.put(&space).unwrap();
+    let other = Device {
+        id: "other".into(),
+        ..fx.nas.clone()
+    };
+    fx.store.put(&other).unwrap();
+    fx.store
+        .put(&Destination {
+            id: "other-dest".into(),
+            device_id: other.id,
+            ..fx.destination.clone()
+        })
+        .unwrap();
+    fx.write_card_file("DCIM/A.JPG", b"a");
+    fx.write_card_file("DCIM/META.THM", b"m");
+    copy(&fx, "a", "card", "DCIM/A.JPG");
+    copy(&fx, "a", "nas", "A.JPG");
+    copy(&fx, "a", "other", "A.JPG");
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
+    let mut source = fx.source.clone();
+    source.safe_copy_rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "*.THM",
+    )];
+    fx.store.put(&source).unwrap();
+    assert_eq!(status(&fx).sources[0].safe_copies, 2);
+    assert!(status(&fx).sources[0].wipe_eligible);
+    source.safe_copy_rules = vec![FileRule::path(RuleAction::Exclude, RuleSyntax::Glob, "*")];
+    fx.store.put(&source).unwrap();
+    assert_eq!(status(&fx).sources[0].safe_copies, 2);
+    assert!(status(&fx).sources[0].wipe_eligible);
+    source.safe_copy_rules.clear();
+    fx.store.put(&source).unwrap();
+    assert_eq!(status(&fx).sources[0].safe_copies, 0);
+    assert!(!status(&fx).sources[0].wipe_eligible);
 }
 
 #[test]
@@ -306,15 +349,16 @@ fn temporary_device_needs_a_real_final_destination_even_with_a_temporary_group()
 #[test]
 fn zero_threshold_still_requires_rule_coverage_and_source_hash_identity() {
     let fx = Fixture::new();
-    let mut project = fx.project.clone();
-    project.final_copies_required = 0;
+    let project = fx.project.clone();
+    let mut space = fx.space.clone();
+    space.final_copies_required = 0;
     fx.write_card_file("DCIM/A.JPG", b"a");
     let catalog = Catalog::load(&fx.store).unwrap();
     let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
     let unknown = assess_workspace_source(
         &fx.resolver,
         &catalog,
-        &fx.space,
+        &space,
         Some(&project),
         &fx.card,
         &fx.source,
@@ -325,7 +369,7 @@ fn zero_threshold_still_requires_rule_coverage_and_source_hash_identity() {
     let uncovered = assess_workspace_source(
         &fx.resolver,
         &catalog,
-        &fx.space,
+        &space,
         Some(&project),
         &fx.card,
         &fx.source,
@@ -366,7 +410,7 @@ fn sibling_sources_share_only_complete_device_coverage() {
 }
 
 #[test]
-fn disjoint_backup_devices_do_not_form_a_complete_copy() {
+fn disjoint_backup_devices_count_when_every_required_file_has_a_copy() {
     let fx = Fixture::new();
     sibling(&fx, "VIDEO");
     let other = Device {
@@ -375,13 +419,20 @@ fn disjoint_backup_devices_do_not_form_a_complete_copy() {
         ..fx.nas.clone()
     };
     fx.store.put(&other).unwrap();
+    fx.store
+        .put(&Destination {
+            id: "other-destination".into(),
+            device_id: other.id.clone(),
+            ..fx.destination.clone()
+        })
+        .unwrap();
     fx.write_card_file("DCIM/A.JPG", b"a");
     fx.write_card_file("VIDEO/B.MP4", b"b");
     copy(&fx, "a", "card", "DCIM/A.JPG");
     copy(&fx, "b", "card", "VIDEO/B.MP4");
     copy(&fx, "a", "nas", "A.JPG");
     copy(&fx, "b", "other", "B.MP4");
-    assert!(status(&fx).sources.iter().all(|s| s.safe_copies == 0));
+    assert!(status(&fx).sources.iter().all(|s| s.safe_copies == 1));
     copy(&fx, "b", "nas", "B.MP4");
     assert!(status(&fx).sources.iter().all(|s| s.safe_copies == 1));
 }

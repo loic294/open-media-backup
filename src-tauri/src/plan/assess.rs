@@ -181,7 +181,7 @@ pub fn assess_workspace_source(
             file_count: files.len(),
             total_bytes: files.iter().map(|f| f.size).sum(),
             safe_copies: 0,
-            required_copies: project.map(|p| p.final_copies_required),
+            required_copies: Some(space.final_copies_required),
             wipe_eligible: false,
             blocking_reason: None,
         },
@@ -248,11 +248,8 @@ pub fn assess_workspace_source(
         space.skip_counts_as_safe_copy,
         &space.id,
     );
-    report.classify_files(
-        project.map(|project| project.final_copies_required),
-        device.role,
-    );
-    apply_safety(&mut assessment, project, device, source, &report, None);
+    report.classify_files(Some(space.final_copies_required), device.role);
+    apply_safety(&mut assessment, space, device, source, &report, None);
     assessment.report = report;
     assessment
 }
@@ -308,10 +305,7 @@ pub fn assess_workspace_device(
         space.skip_counts_as_safe_copy,
         &space.id,
     );
-    report.classify_files(
-        project.map(|project| project.final_copies_required),
-        device.role,
-    );
+    report.classify_files(Some(space.final_copies_required), device.role);
     let path_error = assessments.iter().find_map(|(source, assessment)| {
         assessment
             .path_error
@@ -365,14 +359,11 @@ pub fn assess_workspace_device(
         })
         .collect();
     for ((source, assessment), mut scoped_report) in assessments.iter_mut().zip(scoped_reports) {
-        scoped_report.classify_files(
-            project.map(|project| project.final_copies_required),
-            device.role,
-        );
+        scoped_report.classify_files(Some(space.final_copies_required), device.role);
         assessment.report = scoped_report;
         apply_safety(
             assessment,
-            project,
+            space,
             device,
             source,
             &report,
@@ -384,7 +375,7 @@ pub fn assess_workspace_device(
 
 fn apply_safety(
     assessment: &mut SourceAssessment,
-    project: Option<&Project>,
+    space: &Space,
     device: &Device,
     source: &Source,
     report: &SafeCopyReport,
@@ -413,14 +404,11 @@ fn apply_safety(
                 .iter()
                 .any(|reason| reason.starts_with("File identity is not verified"))
     });
-    let enough = project
-        .is_some_and(|p| all_excluded || report.safe_copies as u32 >= p.final_copies_required);
+    let enough = all_excluded || report.safe_copies as u32 >= space.final_copies_required;
     let blocking_reason = if let Some(error) = group_error {
         Some(error.to_owned())
     } else if let Some(error) = &assessment.path_error {
         Some(error.clone())
-    } else if project.is_none() {
-        Some("Create a project to set card-wiping safety requirements".into())
     } else if assessment.root.is_none() {
         Some(format!("{} not mounted", device.name))
     } else if assessment.files.is_empty() {
@@ -434,12 +422,10 @@ fn apply_safety(
         Some("Some files have no eligible safe-copy destination rule coverage".into())
     } else if !enough {
         Some(match missing.as_slice() {
-            [] if report.copies.iter().any(|copy| copy.total > 0)
-                && report.copies.iter().all(|copy| copy.total < report.files_total - report.ignored) =>
-            {
-                "No destination covers every required file; change destination rules or add a complete backup destination".to_string()
-            }
-            [] => "No safe destination".to_string(),
+            [] => format!(
+                "Requires {} effective copies; currently {}",
+                space.final_copies_required, report.safe_copies
+            ),
             many => format!("Needs {}", many.join(", ")),
         })
     } else if unidentified {

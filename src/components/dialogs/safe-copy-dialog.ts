@@ -17,30 +17,19 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
   @state() private filter: "all" | SafeCopyFile["state"] = "all";
   @state() private search = "";
   @state() private page = 0;
-  @state() private projectId: string | null = null;
   private sequence = 0;
 
   override connectedCallback(): void {
     super.connectedCallback();
     const source = this.store.snapshot?.sources.find((item) => item.id === this.request.sourceId);
     this.rules = structuredClone(source?.safe_copy_rules ?? []);
-    // The workspace has no selected project. Make the policy being inspected explicit.
-    this.projectId =
-      this.store.snapshot?.projects.find(
-        (project) =>
-          project.space_id === source?.space_id &&
-          !project.archived &&
-          source?.project_scope?.mode !== "none" &&
-          (source?.project_scope?.mode !== "selected" ||
-            source.project_scope.project_ids.includes(project.id)),
-      )?.id ?? null;
     void this.load();
   }
 
   private context(): WorkspaceContext {
     const source = this.store.snapshot?.sources.find((item) => item.id === this.request.sourceId);
     if (!source) throw new Error("Source no longer exists");
-    return { spaceId: source.space_id, projectId: this.projectId };
+    return { spaceId: source.space_id, projectId: null };
   }
 
   private async load() {
@@ -102,15 +91,7 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
   override render() {
     const details = this.details;
     const source = this.store.snapshot?.sources.find((item) => item.id === this.request.sourceId);
-    const projects =
-      this.store.snapshot?.projects.filter(
-        (project) =>
-          project.space_id === source?.space_id &&
-          !project.archived &&
-          source?.project_scope?.mode !== "none" &&
-          (source?.project_scope?.mode !== "selected" ||
-            source.project_scope.project_ids.includes(project.id)),
-      ) ?? [];
+    const space = this.store.snapshot?.spaces.find((item) => item.id === source?.space_id);
     const files = (details?.files ?? []).filter(
       (file) =>
         (this.filter === "all" || file.state === this.filter) &&
@@ -120,23 +101,10 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
       details?.files.filter((file) => file.state === state).length ?? 0;
     const body = html`<div class="flex flex-col gap-4">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <label class="text-sm"
-          >Safety policy
-          <select
-            class="select select-sm ml-2"
-            aria-label="Safety policy"
-            .value=${this.projectId ?? ""}
-            ?disabled=${this.busy}
-            @change=${(event: Event) => {
-              this.projectId = (event.target as HTMLSelectElement).value || null;
-              this.page = 0;
-              void this.load();
-            }}
-          >
-            <option value="" ?selected=${this.projectId === null}>Workspace (no single threshold)</option>
-            ${projects.map((project) => html`<option value=${project.id} ?selected=${this.projectId === project.id}>${project.name} · ${project.final_copies_required} copies</option>`)}
-          </select>
-        </label>
+        <p class="text-sm">
+          Space safety policy:
+          <strong>${space?.name} · ${space?.final_copies_required ?? 2} required copies</strong>
+        </p>
         <button
           class="btn btn-sm btn-ghost"
           ?disabled=${this.loading || this.busy}
@@ -146,8 +114,8 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
         </button>
       </div>
       <p class="text-sm text-base-content/70">
-        Coverage is shared by source tasks on this device. Wiping is checked against every applicable active
-        project. A device copy counts only when a destination covers every required file. Temporary copies
+        Coverage is shared by source tasks on this device. Each required file must have enough effective
+        copies under the space policy. Excluded files do not reduce the completed count. Temporary copies
         count only under the space policy.
       </p>
       ${this.error ? html`<div role="alert" class="alert alert-error alert-soft text-sm">${this.error}<button class="btn btn-sm" @click=${() => this.load()}>Retry</button></div>` : nothing}
@@ -162,9 +130,7 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
                       >${details.safe_copies}${details.required_copies === null ? "" : ` / ${details.required_copies}`}
                       effective device copies</strong
                     >
-                    <p class="mt-1">
-                      ${details.blocking_reason ?? (details.wipe_eligible ? "Ready to wipe under every applicable active project" : "Wipe is not enabled for this source")}
-                    </p>
+                    ${source?.offer_wipe ? html`<p class="mt-1">${details.blocking_reason ?? (details.wipe_eligible ? "Ready to wipe under the space policy" : "Not ready to wipe")}</p>` : nothing}
                     <p class="mt-1">
                       ${count("safe")} safe · ${count("unsafe")} not safe · ${count("excluded")} excluded
                     </p>

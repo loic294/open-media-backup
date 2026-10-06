@@ -94,10 +94,11 @@ describe("safe-copy dialog", () => {
   it("uses backend evidence and filters safe, unsafe and excluded files with reasons", async () => {
     await open();
     expect(store.backend.getSourceSafeCopyDetails).toHaveBeenCalledWith(
-      { spaceId: "travel", projectId: "trip" },
+      { spaceId: "travel", projectId: null },
       "s1",
     );
-    expect(element!.querySelector<HTMLSelectElement>('[aria-label="Safety policy"]')!.value).toBe("trip");
+    expect(element!.textContent).toContain("Space safety policy");
+    expect(element!.querySelector('[aria-label="Safety policy"]')).toBeNull();
     expect(element!.textContent).toContain("not byte-verified");
     expect(element!.textContent).toContain("NAS offline; reconnect to transfer");
     const filter = element!.querySelector<HTMLSelectElement>('[aria-label="File safety filter"]')!;
@@ -113,6 +114,26 @@ describe("safe-copy dialog", () => {
     expect(element!.textContent).toContain("No files match this filter");
   });
 
+  it("shows completed device copies and hides wipe-state messages when wiping is disabled", async () => {
+    await open({
+      ...details,
+      safe_copies: 2,
+      wipe_eligible: true,
+      blocking_reason: null,
+      files: details.files.filter((file) => file.state !== "unsafe"),
+    });
+    expect(element!.textContent?.replace(/\s+/g, " ")).toContain("2 / 2 effective device copies");
+    expect(element!.textContent).toContain("Ready to wipe under the space policy");
+    store.snapshot!.sources[0].offer_wipe = false;
+    element!.requestUpdate();
+    await settle();
+    expect(element!.textContent).not.toContain("Ready to wipe");
+    expect(element!.textContent).not.toContain("Wipe is not enabled");
+    expect(element!.textContent).not.toContain("every applicable active project");
+    expect(element!.textContent).toContain("Space safety policy");
+    expect(element!.textContent).toContain("effective device copies");
+  });
+
   it("saves rules using only source identity and refreshes persisted coverage", async () => {
     await open();
     vi.spyOn(store, "reloadSnapshot").mockResolvedValue();
@@ -126,7 +147,7 @@ describe("safe-copy dialog", () => {
     expect(element!.textContent).toContain("Unsaved rules");
     button("Save exclusions").click();
     await settle();
-    expect(save).toHaveBeenCalledWith({ spaceId: "travel", projectId: "trip" }, "s1", rules);
+    expect(save).toHaveBeenCalledWith({ spaceId: "travel", projectId: null }, "s1", rules);
     expect(store.reloadSnapshot).toHaveBeenCalled();
     expect(store.backend.getSourceSafeCopyDetails).toHaveBeenCalledTimes(2);
     expect(button("Save exclusions").disabled).toBe(true);

@@ -6,6 +6,36 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{Map, Value};
 
 impl Store {
+    /// Use normal field-clock operations so migrated policies reach existing peers.
+    pub(super) fn migrate_copy_policy(&self) -> StoreResult<()> {
+        let policies: Vec<(String, u32)> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id, COALESCE((SELECT MAX(json_extract(p.data, '$.final_copies_required'))
+                 FROM entities p WHERE p.kind = 'project' AND p.deleted = 0
+                 AND json_extract(p.data, '$.space_id') = s.id), 2)
+                 FROM entities s WHERE s.kind = 'space' AND s.deleted = 0
+                 AND json_type(s.data, '$.final_copies_required') IS NULL",
+            )?;
+            let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        for (id, required) in policies {
+            apply_op(
+                &tx,
+                &self.local_op(
+                    EntityKind::Space,
+                    &id,
+                    "final_copies_required",
+                    required.into(),
+                ),
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn get<E: Entity>(&self, id: &str) -> StoreResult<Option<E>> {
         let conn = self.conn.lock();
         let data: Option<String> = conn

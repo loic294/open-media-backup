@@ -52,13 +52,15 @@ impl Store {
         });
         let computer_id = local::computer_id(&conn)?;
         let (changes, _) = broadcast::channel(64);
-        Ok(Self {
+        let store = Self {
             clock: HlcClock::new(computer_id.clone()),
             conn: Mutex::new(conn),
             computer_id,
             changes,
             analysis_recovery_error,
-        })
+        };
+        store.migrate_copy_policy()?;
+        Ok(store)
     }
 
     pub fn computer_id(&self) -> &str {

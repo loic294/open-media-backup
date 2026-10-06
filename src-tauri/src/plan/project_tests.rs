@@ -28,9 +28,9 @@ fn legacy_serialization_defaults_and_new_fields_round_trip() {
     let legacy: Project = serde_json::from_str(r#"{"id":"old","name":"Old"}"#).unwrap();
     assert_eq!(legacy.capture_range().unwrap(), None);
     assert!(!legacy.matches_capture_time(Some(0)));
-    assert_eq!(legacy.final_copies_required, 2);
     assert_eq!(legacy.granularity, ProjectGranularity::Minute);
     let space: Space = serde_json::from_str(r#"{"id":"space"}"#).unwrap();
+    assert_eq!(space.final_copies_required, 2);
     assert_eq!(space.hash_algo, HashAlgo::Blake3);
     assert!(space.allow_project_overlap);
     assert_eq!(space.temporary_copies_per_final, 0);

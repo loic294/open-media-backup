@@ -71,7 +71,14 @@ fn validate_save(store: &Store, kind: &str, value: &Value) -> Result<()> {
         Ok(())
     }
     match kind {
-        "space" => replace(&mut spaces, value)?,
+        "space" => {
+            let space: Space =
+                serde_json::from_value(value.clone()).map_err(|e| format!("invalid space: {e}"))?;
+            if space.final_copies_required == 0 {
+                return Err("Required copies must be at least 1".into());
+            }
+            replace(&mut spaces, value)?;
+        }
         "project" => {
             let project: Project = serde_json::from_value(value.clone())
                 .map_err(|e| format!("invalid project: {e}"))?;

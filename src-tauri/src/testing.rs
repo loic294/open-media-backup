@@ -75,13 +75,13 @@ impl Fixture {
         let space = Space {
             id: "space".into(),
             name: "Travel".into(),
+            final_copies_required: 1,
             ..Default::default()
         };
         let project = Project {
             id: "project".into(),
             space_id: space.id.clone(),
             name: "Trip".into(),
-            final_copies_required: 1,
             ..Default::default()
         };
         let card = Device {

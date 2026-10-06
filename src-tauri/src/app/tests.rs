@@ -182,7 +182,7 @@ fn safe_copy_details_share_sorted_device_scope_and_do_not_discredit_offline_veri
 }
 
 #[test]
-fn file_safety_is_independent_of_pending_siblings_and_wipe_checks_every_project() {
+fn file_safety_is_independent_of_pending_siblings_and_uses_space_policy() {
     use crate::domain::{FileCopy, FileRecord, HashAlgo};
     let fx = Fixture::new();
     fx.write_card_file("DCIM/SAFE.JPG", b"a");
@@ -215,11 +215,18 @@ fn file_safety_is_independent_of_pending_siblings_and_wipe_checks_every_project(
     );
     let mut strict = fx.project.clone();
     strict.id = "strict".into();
-    strict.final_copies_required = 2;
     fx.store.put(&strict).unwrap();
+    assert!(
+        core.source_safe_copy_details(&context, "src")
+            .unwrap()
+            .wipe_eligible
+    );
+    let mut space = fx.space.clone();
+    space.final_copies_required = 2;
+    fx.store.put(&space).unwrap();
     let details = core.source_safe_copy_details(&context, "src").unwrap();
     assert!(!details.wipe_eligible);
-    assert_eq!(details.files[0].state, crate::plan::SafeCopyState::Safe);
+    assert_eq!(details.files[0].state, crate::plan::SafeCopyState::Unsafe);
     assert_eq!(
         details.blocking_reason,
         crate::wipe::plan_workspace_wipe(&fx.store, core.resolver.as_ref(), "src")
@@ -227,6 +234,7 @@ fn file_safety_is_independent_of_pending_siblings_and_wipe_checks_every_project(
             .reason
     );
     fx.write_card_file("DCIM/PENDING.JPG", b"pending");
+    fx.store.put(&fx.space).unwrap();
     let details = core.source_safe_copy_details(&context, "src").unwrap();
     assert_eq!(
         details
@@ -725,7 +733,7 @@ fn folder_preview_retains_destination_hierarchy_from_offline_catalog() {
 }
 
 #[test]
-fn project_free_transfers_preview_verify_and_record_copies_without_enabling_wipe() {
+fn project_free_transfers_preview_verify_and_enable_wipe_under_space_policy() {
     let fx = Fixture::new();
     fx.store
         .delete(crate::domain::EntityKind::Project, "project")
@@ -778,15 +786,16 @@ fn project_free_transfers_preview_verify_and_record_copies_without_enabling_wipe
     );
     let status = core.workspace_status(&context).unwrap();
     assert_eq!(status.sources[0].safe_copies, 1);
-    assert_eq!(status.sources[0].required_copies, None);
-    assert!(!status.sources[0].wipe_eligible);
-    assert!(core
-        .start_wipe("", "src", crate::wipe::WipeMethod::DeleteFiles)
-        .is_err());
+    assert_eq!(status.sources[0].required_copies, Some(1));
+    assert!(status.sources[0].wipe_eligible);
     assert!(core
         .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
         .is_err());
     assert!(core.run_workspace_all(&context).unwrap().is_empty());
+    core.start_workspace_wipe("src", crate::wipe::WipeMethod::DeleteFiles)
+        .unwrap();
+    wait_idle(&core);
+    assert!(!source.exists());
     assert!(fx
         .store
         .list::<crate::domain::Project>()

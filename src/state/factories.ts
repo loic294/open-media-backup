@@ -12,6 +12,7 @@ export function newSpace(name: string, position: number): Space {
     variables: [{ name: "project_name", default_value: "", required: true }],
     backup_marker_template: "{date}_{project_name}",
     allow_project_overlap: true,
+    final_copies_required: 2,
     temporary_copies_per_final: 0,
   };
 }
@@ -24,7 +25,6 @@ export function newProject(space: Space, name: string): Project {
     space_id: space.id,
     name,
     values,
-    final_copies_required: 2,
     archived: false,
     start_time: null,
     end_time: null,

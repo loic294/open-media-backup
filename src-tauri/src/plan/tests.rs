@@ -138,10 +138,8 @@ fn confirmed_app_import_counts_as_a_final_safe_copy_only_when_enabled() {
 #[test]
 fn temporary_copies_count_in_space_configured_groups() {
     let fx = Fixture::new();
-    let mut project = fx.project.clone();
-    project.final_copies_required = 2;
-    fx.store.put(&project).unwrap();
     let mut space = fx.space.clone();
+    space.final_copies_required = 2;
     space.temporary_copies_per_final = 2;
     fx.store.put(&space).unwrap();
     fx.write_card_file("DCIM/A.ARW", b"aaaa");

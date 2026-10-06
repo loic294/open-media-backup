@@ -28,10 +28,16 @@ pub fn assess(
     project_id: &str,
     source_id: &str,
 ) -> Result<Assessed, String> {
-    let project: Project = store
-        .get(project_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("project not found")?;
+    let project: Option<Project> = if project_id.is_empty() {
+        None
+    } else {
+        Some(
+            store
+                .get(project_id)
+                .map_err(|e| e.to_string())?
+                .ok_or("project not found")?,
+        )
+    };
     let source: Source = store
         .get(source_id)
         .map_err(|e| e.to_string())?
@@ -44,7 +50,10 @@ pub fn assess(
         .get(&source.device_id)
         .map_err(|e| e.to_string())?
         .ok_or("device not found")?;
-    if project.space_id != space.id {
+    if project
+        .as_ref()
+        .is_some_and(|project| project.space_id != space.id)
+    {
         return Err("source and project belong to different spaces".into());
     }
     let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
@@ -56,7 +65,7 @@ pub fn assess(
         resolver,
         &catalog,
         &space,
-        Some(&project),
+        project.as_ref(),
         &device,
         &sources,
         &finals.targets(),
@@ -102,84 +111,7 @@ pub fn plan_workspace_wipe(
     resolver: &dyn RootResolver,
     source_id: &str,
 ) -> Result<WipePlan, String> {
-    let source: Source = store
-        .get(source_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("source not found")?;
-    let projects: Vec<Project> = store
-        .list_by::<Project>("space_id", &source.space_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|project| !project.archived)
-        .collect();
-    if projects.is_empty() {
-        return Ok(WipePlan {
-            source_id: source_id.to_string(),
-            files_total: 0,
-            ignored: 0,
-            copies: Vec::new(),
-            eligible: false,
-            reason: Some("No active project applies to this source".into()),
-        });
-    }
-
-    let mut plans = Vec::with_capacity(projects.len());
-    let mut folder = None;
-    let mut different_source_folders = false;
-    for project in &projects {
-        let assessed = assess(store, resolver, &project.id, source_id)?;
-        if folder
-            .as_ref()
-            .is_some_and(|folder: &String| folder != &assessed.assessment.folder)
-        {
-            different_source_folders = true;
-        } else {
-            folder = Some(assessed.assessment.folder.clone());
-        }
-        plans.push((project, plan_wipe(store, resolver, &project.id, source_id)?));
-    }
-
-    let mut copies = plans[0].1.copies.clone();
-    for copy in &mut copies {
-        for (_, plan) in &plans[1..] {
-            if let Some(other) = plan
-                .copies
-                .iter()
-                .find(|item| item.device_id == copy.device_id)
-            {
-                copy.verified = copy.verified.min(other.verified);
-                copy.total = copy.total.max(other.total);
-            }
-        }
-    }
-    let reason = if different_source_folders {
-        Some("Source path resolves to different folders across active projects".into())
-    } else {
-        plans
-            .iter()
-            .find(|(_, plan)| !plan.eligible)
-            .and_then(|(project, plan)| {
-                plan.reason
-                    .as_ref()
-                    .map(|reason| format!("{}: {reason}", project.name))
-            })
-    };
-    Ok(WipePlan {
-        source_id: source_id.to_string(),
-        files_total: plans
-            .iter()
-            .map(|(_, plan)| plan.files_total)
-            .max()
-            .unwrap_or(0),
-        ignored: plans
-            .iter()
-            .map(|(_, plan)| plan.ignored)
-            .max()
-            .unwrap_or(0),
-        copies,
-        eligible: reason.is_none(),
-        reason,
-    })
+    plan_wipe(store, resolver, "", source_id)
 }
 
 pub fn wipe_workspace(
@@ -193,38 +125,13 @@ pub fn wipe_workspace(
     if let Some(reason) = plan.reason {
         return Err(reason);
     }
-    let source: Source = store
-        .get(source_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("source not found")?;
-    let projects: Vec<Project> = store
-        .list_by::<Project>("space_id", &source.space_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|project| !project.archived)
-        .collect();
-    let project = projects
-        .first()
-        .ok_or("No active project applies to this source")?;
-    let mut preserve = std::collections::HashSet::new();
-    for project in &projects {
-        let assessed = assess(store, resolver, &project.id, source_id)?;
-        preserve.extend(
-            assessed
-                .assessment
-                .device_files
-                .into_iter()
-                .filter(|file| file.state == crate::plan::SafeCopyState::Excluded)
-                .map(|file| file.path),
-        );
-    }
     super::run::wipe_preserving(
         store,
         resolver,
-        &project.id,
+        "",
         source_id,
         method,
         handle,
-        &preserve,
+        &Default::default(),
     )
 }

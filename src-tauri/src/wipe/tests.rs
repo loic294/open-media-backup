@@ -427,13 +427,12 @@ fn delete_files_after_verification() {
 }
 
 #[test]
-fn workspace_wipe_checks_each_active_project_and_ignores_archived_projects() {
+fn workspace_wipe_uses_space_policy_independent_of_projects() {
     let fx = backed_up();
     let mut archived = fx.project.clone();
     archived.id = "archived".into();
     archived.name = "Archived".into();
     archived.archived = true;
-    archived.final_copies_required = 5;
     fx.store.put(&archived).unwrap();
     let plan = plan_workspace_wipe(&fx.store, &fx.resolver, "src").unwrap();
     assert!(plan.eligible, "{:?}", plan.reason);
@@ -442,11 +441,18 @@ fn workspace_wipe_checks_each_active_project_and_ignores_archived_projects() {
     active.id = "active".into();
     active.name = "Active".into();
     active.archived = false;
-    active.final_copies_required = 2;
     fx.store.put(&active).unwrap();
+    assert!(
+        plan_workspace_wipe(&fx.store, &fx.resolver, "src")
+            .unwrap()
+            .eligible
+    );
+    let mut space = fx.space.clone();
+    space.final_copies_required = 2;
+    fx.store.put(&space).unwrap();
     let plan = plan_workspace_wipe(&fx.store, &fx.resolver, "src").unwrap();
     assert!(!plan.eligible);
-    assert!(plan.reason.unwrap().contains("Active"));
+    assert!(plan.reason.unwrap().contains("Requires 2 effective copies"));
 
     let mut source = fx.source.clone();
     source.project_scope = crate::domain::ProjectScope::Selected {
@@ -455,11 +461,11 @@ fn workspace_wipe_checks_each_active_project_and_ignores_archived_projects() {
     fx.store.put(&source).unwrap();
     let plan = plan_workspace_wipe(&fx.store, &fx.resolver, "src").unwrap();
     assert!(!plan.eligible);
-    assert!(plan.reason.unwrap().contains("Active"));
+    assert!(plan.reason.unwrap().contains("Requires 2 effective copies"));
 }
 
 #[test]
-fn workspace_wipe_blocks_when_active_projects_resolve_different_source_folders() {
+fn workspace_wipe_blocks_unresolved_source_paths_without_inventing_project_values() {
     let fx = backed_up();
     let second = crate::domain::Project {
         id: "second".into(),
@@ -475,10 +481,7 @@ fn workspace_wipe_blocks_when_active_projects_resolve_different_source_folders()
 
     let plan = plan_workspace_wipe(&fx.store, &fx.resolver, "src").unwrap();
     assert!(!plan.eligible);
-    assert_eq!(
-        plan.reason.as_deref(),
-        Some("Source path resolves to different folders across active projects")
-    );
+    assert!(plan.reason.unwrap().contains("missing value for {project}"));
 }
 
 #[test]

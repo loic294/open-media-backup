@@ -45,7 +45,6 @@ describe("project capture ranges", () => {
       end_time: null,
       granularity: "minute",
       color: "#3b82f6",
-      final_copies_required: 2,
     });
     expect(matchesCaptureTime(project, time("2026-01-01T00:00:00Z"))).toBe(false);
   });

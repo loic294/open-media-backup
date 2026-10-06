@@ -143,7 +143,7 @@ export function mockWorkspaceStatus(
           file_count: 0,
           total_bytes: 0,
           safe_copies: 0,
-          required_copies: project?.final_copies_required ?? null,
+          required_copies: space.final_copies_required ?? 2,
           wipe_eligible: false,
           blocking_reason: "No device selected. Choose a device in source settings.",
         };

@@ -75,7 +75,7 @@ impl SafeCopyReport {
                         "Needs {} safe copies; currently {}",
                         required, file.safe_copies
                     ),
-                    None => "Create or select a project to set safe-copy requirements".into(),
+                    None => "No space safe-copy requirement available".into(),
                 });
             }
             if needs_final {
@@ -85,6 +85,28 @@ impl SafeCopyReport {
                 );
             }
         }
+        // Excluded files impose no copy requirement; different files may have
+        // verified copies on different eligible destinations.
+        self.safe_copies = self
+            .files
+            .iter()
+            .filter(|file| file.state != SafeCopyState::Excluded)
+            .map(|file| file.safe_copies)
+            .min()
+            .unwrap_or_else(|| {
+                if self.files.is_empty() {
+                    0
+                } else {
+                    required_copies.unwrap_or(0) as usize
+                }
+            });
+        self.final_safe_copies = self
+            .files
+            .iter()
+            .filter(|file| file.state != SafeCopyState::Excluded)
+            .map(|file| file.final_copies)
+            .min()
+            .unwrap_or(0);
     }
 }
 
@@ -300,7 +322,7 @@ pub fn device_safe_copy_report(
             } else { 0 };
             SafeCopyFile {
                 path: path.clone(),
-                // This report has no project threshold; classify_files applies the source policy.
+                // classify_files applies the space policy.
                 state: SafeCopyState::Unsafe,
                 safe_copies,
                 final_copies: final_count,

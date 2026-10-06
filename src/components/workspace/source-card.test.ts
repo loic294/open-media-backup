@@ -51,6 +51,37 @@ describe("source card status indicators", () => {
     return card;
   }
 
+  it.each([
+    [0, "badge-error"],
+    [1, "badge-warning"],
+    [2, "badge-success"],
+  ])("renders %s copies as a compact colored native badge", async (copies, tone) => {
+    store.status!.sources[0].safe_copies = copies as number;
+    store.status!.sources[0].required_copies = 2;
+    const card = await renderCard();
+    const badge = card.querySelector('[aria-label="View safe-copy details"]')!;
+    expect(badge.classList.contains(tone as string)).toBe(true);
+    expect(badge.classList.contains("badge")).toBe(true);
+    expect(badge.classList.contains("btn")).toBe(false);
+    expect(badge.querySelector(".badge")).toBeNull();
+  });
+
+  it("shows Wipe card only for mounted sources with wiping enabled", async () => {
+    const card = await renderCard();
+    expect(card.textContent).toContain("Wipe card");
+    store.status!.sources[0].available = false;
+    card.requestUpdate();
+    await card.updateComplete;
+    expect(card.textContent).not.toContain("Wipe card");
+    store.status!.sources[0].blocking_reason = "Wipe safety is checked against every active project";
+    card.source = { ...card.source, offer_wipe: false };
+    await card.updateComplete;
+    expect(card.textContent).not.toContain("Wipe safety");
+    expect(card.textContent).not.toContain("Wipe card");
+    expect(card.textContent).toContain("safe copies");
+    expect(card.textContent).toContain("Not mounted");
+  });
+
   it("places safe-copy and mounted indicators beside Browse media", async () => {
     const card = await renderCard();
     const browse = [...card.querySelectorAll("button")].find((button) =>

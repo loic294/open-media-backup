@@ -10,6 +10,157 @@ fn space(id: &str, name: &str) -> Space {
 }
 
 #[test]
+fn copy_policy_migration_preserves_per_space_maximum_and_syncs_once() {
+    use crate::domain::Project;
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("copy-policy.sqlite");
+    let conn = Connection::open(&path).unwrap();
+    schema::migrate(&conn).unwrap();
+    for (kind, id, data) in [
+        ("space", "a", json!({"id":"a"})),
+        ("space", "b", json!({"id":"b"})),
+        ("space", "empty", json!({"id":"empty"})),
+        (
+            "space",
+            "explicit",
+            json!({"id":"explicit","final_copies_required":1}),
+        ),
+        (
+            "project",
+            "a1",
+            json!({"id":"a1","space_id":"a","final_copies_required":1}),
+        ),
+        (
+            "project",
+            "a2",
+            json!({"id":"a2","space_id":"a","final_copies_required":5,"archived":true}),
+        ),
+        (
+            "project",
+            "b1",
+            json!({"id":"b1","space_id":"b","final_copies_required":3}),
+        ),
+        (
+            "project",
+            "e1",
+            json!({"id":"e1","space_id":"explicit","final_copies_required":7}),
+        ),
+        (
+            "project",
+            "deleted",
+            json!({"id":"deleted","space_id":"b","final_copies_required":9}),
+        ),
+    ] {
+        conn.execute(
+            "INSERT INTO entities(kind,id,data,deleted) VALUES (?1,?2,?3,?4)",
+            rusqlite::params![kind, id, data.to_string(), id == "deleted"],
+        )
+        .unwrap();
+    }
+    let store = Store::from_connection(conn).unwrap();
+    for (id, expected) in [("a", 5), ("b", 3), ("empty", 2), ("explicit", 1)] {
+        assert_eq!(
+            store
+                .get::<Space>(id)
+                .unwrap()
+                .unwrap()
+                .final_copies_required,
+            expected
+        );
+    }
+    let project = store.get::<Project>("a2").unwrap().unwrap();
+    assert!(serde_json::to_value(project)
+        .unwrap()
+        .get("final_copies_required")
+        .is_none());
+    let ops = store.ops_since(&VersionVector::new(), 1000).unwrap();
+    assert_eq!(ops.len(), 3);
+    assert!(ops
+        .iter()
+        .all(|op| op.kind == "space" && op.field == "final_copies_required"));
+    let peer = Store::open_in_memory().unwrap();
+    peer.apply_remote(&ops).unwrap();
+    assert_eq!(
+        peer.get::<Space>("a")
+            .unwrap()
+            .unwrap()
+            .final_copies_required,
+        5
+    );
+    store.migrate_copy_policy().unwrap();
+    assert_eq!(store.ops_since(&VersionVector::new(), 1000).unwrap(), ops);
+    let mut changed = store.get::<Space>("a").unwrap().unwrap();
+    changed.final_copies_required = 2;
+    store.put(&changed).unwrap();
+    peer.apply_remote(
+        &store
+            .ops_since(&peer.version_vector().unwrap(), 1000)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(peer.get::<Space>("a").unwrap(), Some(changed));
+    store.migrate_copy_policy().unwrap();
+    assert_eq!(
+        store
+            .get::<Space>("a")
+            .unwrap()
+            .unwrap()
+            .final_copies_required,
+        2
+    );
+    let before_restart = store.ops_since(&VersionVector::new(), 1000).unwrap();
+    drop(store);
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(
+        reopened
+            .get::<Space>("a")
+            .unwrap()
+            .unwrap()
+            .final_copies_required,
+        2
+    );
+    assert_eq!(
+        reopened
+            .get::<Space>("b")
+            .unwrap()
+            .unwrap()
+            .final_copies_required,
+        3
+    );
+    assert_eq!(
+        reopened.ops_since(&VersionVector::new(), 1000).unwrap(),
+        before_restart
+    );
+}
+
+#[test]
+fn invalid_space_copy_policy_is_rejected_by_sync_without_partial_writes() {
+    let store = Store::open_in_memory().unwrap();
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(4294967296_u64),
+        serde_json::json!("2"),
+    ] {
+        let op = Op {
+            hlc: store.clock.now().encode(),
+            origin: "peer".into(),
+            kind: "space".into(),
+            entity_id: "s".into(),
+            field: "final_copies_required".into(),
+            value,
+        };
+        assert!(store.apply_remote(&[op]).is_err());
+        assert!(store.get::<Space>("s").unwrap().is_none());
+        assert!(store
+            .ops_since(&VersionVector::new(), 1000)
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[test]
 fn hash_server_credentials_are_local_but_destination_mapping_syncs() {
     use crate::domain::{Destination, RemoteHash};
     let store = Store::open_in_memory().unwrap();

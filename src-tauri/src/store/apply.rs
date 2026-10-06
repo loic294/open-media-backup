@@ -4,6 +4,17 @@ use serde_json::{Map, Value};
 
 /// Applies an op inside a transaction. Returns true when the entity changed.
 pub(super) fn apply_op(tx: &Transaction, op: &Op) -> StoreResult<bool> {
+    if op.kind == "space"
+        && op.field == "final_copies_required"
+        && op
+            .value
+            .as_u64()
+            .is_none_or(|value| value > u32::MAX as u64)
+    {
+        return Err(super::StoreError::Invalid(
+            "Required copies must be a non-negative 32-bit integer".into(),
+        ));
+    }
     let encoded = serde_json::to_string(&op.value)?;
     let inserted = tx.execute(
         "INSERT OR IGNORE INTO oplog (hlc, origin, kind, entity_id, field, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

@@ -20,6 +20,7 @@ const snapshot = (
       variables: [],
       backup_marker_template: "",
       allow_project_overlap: true,
+      final_copies_required: 2,
       temporary_copies_per_final: temporaryCopiesPerFinal,
     },
   ],
@@ -29,7 +30,6 @@ const snapshot = (
       space_id: "space",
       name: "Project",
       values: {},
-      final_copies_required: 2,
       archived: false,
     },
   ],
@@ -169,7 +169,7 @@ describe("mockStatus temporary safe copies", () => {
 describe("mockStatus app safe copies", () => {
   it("counts only completed imports from opted-in app destinations", () => {
     const data = snapshot();
-    data.projects[0].final_copies_required = 1;
+    data.spaces[0].final_copies_required = 1;
     data.destinations.push({
       id: "app-dest",
       space_id: "space",
@@ -206,7 +206,7 @@ describe("mockStatus app safe copies", () => {
 
 function groupedSnapshot(temporaryCopiesPerFinal = 0): Snapshot {
   const data = snapshot(temporaryCopiesPerFinal);
-  data.projects[0].final_copies_required = 1;
+  data.spaces[0].final_copies_required = 1;
   data.sources.push({ ...data.sources[0], id: "sibling", path_template: "VIDEO", position: 1 });
   data.flows.push(...data.flows.map((flow) => ({ ...flow, id: `sibling-${flow.id}`, source_id: "sibling" })));
   return data;
@@ -247,7 +247,7 @@ describe("mockStatus device-level safe copies", () => {
     });
   });
 
-  it("does not combine disjoint target coverage or count a target missing sibling coverage", () => {
+  it("counts minimum per-file coverage even across disjoint targets", () => {
     const data = groupedSnapshot();
     data.devices.push({ ...data.devices[1], id: "other-final" });
     data.destinations.push({ ...data.destinations[0], id: "other-dest", device_id: "other-final" });
@@ -261,9 +261,9 @@ describe("mockStatus device-level safe copies", () => {
       "final-flow": [1, 0, 0, 0],
       "other-flow": [1, 0, 0, 0],
     };
-    expect(mockStatus(data, "project", counts, new Set()).sources.map((s) => s.safe_copies)).toEqual([0, 0]);
+    expect(mockStatus(data, "project", counts, new Set()).sources.map((s) => s.safe_copies)).toEqual([1, 1]);
     data.flows = data.flows.filter((flow) => flow.id !== "sibling-final-flow");
-    expect(mockStatus(data, "project", counts, new Set()).sources.map((s) => s.safe_copies)).toEqual([0, 0]);
+    expect(mockStatus(data, "project", counts, new Set()).sources.map((s) => s.safe_copies)).toEqual([1, 1]);
   });
 
   it("counts duplicate folder destinations on the same device only once", () => {

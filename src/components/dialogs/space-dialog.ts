@@ -222,6 +222,23 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
             )}
           </div>
         </section>
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Required effective copies before wiping</legend>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            class="input w-24"
+            aria-label="Required effective copies before wiping"
+            .value=${String(d.final_copies_required ?? 2)}
+            @input=${(e: Event) =>
+              (this.draft = { ...d, final_copies_required: Number((e.target as HTMLInputElement).value) })}
+          />
+          <p class="label whitespace-normal">
+            Every non-excluded file must meet this space-wide threshold. Existing spaces inherit their highest
+            previous project requirement (including archived projects), or 2 when none exists.
+          </p>
+        </fieldset>
         <fieldset id="omb-space-temp-copies" class="fieldset min-w-0">
           <legend class="fieldset-legend">Temporary copies equal one final copy</legend>
           <select
@@ -305,7 +322,7 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
       <button class="btn btn-ghost" @click=${() => this.dismiss()}>Cancel</button>
       <button
         class="btn btn-primary"
-        ?disabled=${!d.name.trim() || errors.length > 0}
+        ?disabled=${!d.name.trim() || errors.length > 0 || !Number.isInteger(d.final_copies_required ?? 2) || (d.final_copies_required ?? 2) < 1 || (d.final_copies_required ?? 2) > 4294967295}
         @click=${() => this.#save()}
       >
         Save
