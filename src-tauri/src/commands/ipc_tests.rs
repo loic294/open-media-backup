@@ -86,6 +86,50 @@ fn write(root: &std::path::Path, rel: &str, bytes: &[u8]) {
 }
 
 #[test]
+fn manual_wipe_ipc_accepts_only_a_stored_source_id_and_persists_removal() {
+    use crate::domain::{Device, FileCopy, Source};
+    use tauri::Manager;
+    let ui = Ui::start();
+    let state = ui.webview.state::<super::Shared>();
+    state
+        .core
+        .store
+        .put(&Device {
+            id: "card".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    state
+        .core
+        .store
+        .put(&Source {
+            id: "src".into(),
+            device_id: "card".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    state
+        .core
+        .store
+        .put(&FileCopy {
+            id: FileCopy::id_for("hash", "card", "OLD.JPG"),
+            file_id: "hash".into(),
+            device_id: "card".into(),
+            path: "OLD.JPG".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(ui
+        .call(
+            "mark_source_manually_wiped",
+            json!({"sourceId": "/arbitrary/path"})
+        )
+        .is_err());
+    ui.ok("mark_source_manually_wiped", json!({"sourceId": "src"}));
+    assert!(state.core.store.list::<FileCopy>().unwrap()[0].removed);
+}
+
+#[test]
 fn speed_analysis_ipc_exact_snake_case_contract_and_validation() {
     use crate::transfer::metrics::{AnalysisKind, AnalysisState};
     use crate::transfer::{AnalysisJob, AnalysisMetrics, AnalysisPhase};

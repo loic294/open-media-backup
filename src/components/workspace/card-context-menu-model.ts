@@ -1,6 +1,6 @@
 import type { IconName } from "../ui/icons";
 
-export type CardContextMenuAction = "browse" | "run" | "check" | "edit" | "reveal";
+export type CardContextMenuAction = "browse" | "run" | "check" | "edit" | "reveal" | "manual-wipe";
 
 export interface CardContextMenuItemSpec {
   action: CardContextMenuAction;
@@ -19,6 +19,7 @@ export interface CardContextMenuState {
   browseDisabled?: boolean;
   checkDisabled?: boolean;
   runDisabled?: boolean;
+  manualWipeDisabled?: boolean;
 }
 
 export function revealLabel(fileManager: CardContextMenuState["fileManagerName"]): string {
@@ -63,6 +64,15 @@ export function buildCardContextMenuItems(state: CardContextMenuState): CardCont
       label: revealLabel(state.fileManagerName),
       icon: "external-link",
       disabled: state.offline,
+      separatorBefore: true,
+    });
+  }
+  if (state.manualWipeDisabled !== undefined) {
+    items.push({
+      action: "manual-wipe",
+      label: "Mark as manually wiped…",
+      icon: "eraser",
+      disabled: state.manualWipeDisabled,
       separatorBefore: true,
     });
   }

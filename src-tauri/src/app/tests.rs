@@ -27,6 +27,92 @@ fn wait_idle(core: &AppCore) {
 }
 
 #[test]
+fn manual_wipe_rejects_device_jobs_and_clears_only_related_failures_after_success() {
+    use crate::transfer::{JobKind, JobSpec, ResourceClaim};
+    use std::collections::HashMap;
+    let fx = Fixture::new();
+    let (core, _t) = core(&fx);
+    core.failures.lock().insert(
+        "flow".into(),
+        HashMap::from([("OLD.JPG".into(), "old error".into())]),
+    );
+    core.failures.lock().insert(
+        "unrelated".into(),
+        HashMap::from([("KEEP.JPG".into(), "keep error".into())]),
+    );
+    let (started, wait_started) = std::sync::mpsc::channel();
+    let (release, wait_release) = std::sync::mpsc::channel();
+    core.transfers.enqueue(JobSpec {
+        key: "busy".into(),
+        label: "busy".into(),
+        resources: vec![ResourceClaim::shared("device:card")],
+        kind: JobKind::Check,
+        queue: None,
+        work: Box::new(move |_| {
+            started.send(()).unwrap();
+            wait_release.recv().unwrap();
+            Ok(())
+        }),
+    });
+    wait_started.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(core
+        .mark_source_manually_wiped("src")
+        .unwrap_err()
+        .contains("active jobs"));
+    assert!(core.failures.lock().contains_key("flow"));
+    release.send(()).unwrap();
+    wait_idle(&core);
+    core.mark_source_manually_wiped("src").unwrap();
+    assert!(!core.failures.lock().contains_key("flow"));
+    assert!(core.failures.lock().contains_key("unrelated"));
+}
+
+#[test]
+fn manual_wipe_blocks_pending_app_imports_and_resets_confirmed_app_coverage() {
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"photo");
+    let mut destination = fx.destination.clone();
+    destination.kind = DestinationKind::App;
+    destination.device_id.clear();
+    destination.path_template.clear();
+    destination.app_name = Some("Photo app".into());
+    destination.counts_as_safe_copy = true;
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    let mut settings = core.settings();
+    settings.app_destinations.insert(
+        destination.id.clone(),
+        fake_app(fx.card_dir.path()).to_string_lossy().into_owned(),
+    );
+    core.save_settings(&settings).unwrap();
+    let prepared = core.prepare_app_import("project", "flow").unwrap();
+    assert!(core
+        .mark_source_manually_wiped("src")
+        .unwrap_err()
+        .contains("pending app imports"));
+    assert_eq!(
+        core.confirm_app_import("project", "flow", &prepared.token)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        core.project_status("project").unwrap().sources[0].safe_copies,
+        1
+    );
+    core.mark_source_manually_wiped("src").unwrap();
+    let status = core.project_status("project").unwrap();
+    assert_eq!(status.sources[0].safe_copies, 0);
+    assert_eq!(status.flows[0].transferred, 0);
+    assert_eq!(status.flows[0].to_transfer, 1);
+    assert!(core
+        .store
+        .list::<crate::domain::FileCopy>()
+        .unwrap()
+        .iter()
+        .any(|copy| copy.device_id == "dst" && !copy.removed));
+}
+
+#[test]
 fn snapshot_and_settings_round_trip() {
     let fx = Fixture::new();
     let (core, _t) = core(&fx);

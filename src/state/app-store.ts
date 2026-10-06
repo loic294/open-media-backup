@@ -408,6 +408,23 @@ export class AppStore extends EventTarget {
     await this.#guard(() => this.backend.revealInFileManager(kind, id));
   }
 
+  confirmSourceManuallyWiped(sourceId: string): void {
+    const source = this.snapshot?.sources.find((item) => item.id === sourceId);
+    const device = this.snapshot?.devices.find((item) => item.id === source?.device_id);
+    this.open({
+      type: "confirm",
+      title: "Mark device as manually wiped?",
+      message: `Only continue if ${device?.name ?? "this device"} was formatted outside Open Media Backup and its previous files are already safely backed up. This retires the previous file records for every source on this device, across all spaces and projects, and resets safe-copy checks. No files are deleted and no new backup copies are claimed. Files currently found on the device will be checked as new.`,
+      confirmLabel: "Mark as manually wiped",
+      onConfirm: async () => {
+        const saved = await this.#guard(() => this.backend.markSourceManuallyWiped(sourceId));
+        if (!saved) return;
+        this.refreshStatus();
+        this.toast("success", "Device marked as manually wiped. Safe-copy checks reset.");
+      },
+    });
+  }
+
   async setPaused(jobId: string | null, paused: boolean): Promise<void> {
     await this.#guard(() =>
       jobId ? this.backend.setTransferPaused(jobId, paused) : this.backend.setAllPaused(paused),

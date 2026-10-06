@@ -143,6 +143,17 @@ pub async fn plan_wipe(state: State<'_, Shared>, source_id: String) -> CmdResult
 }
 
 #[tauri::command]
+pub async fn mark_source_manually_wiped(
+    state: State<'_, Shared>,
+    source_id: String,
+) -> CmdResult<()> {
+    blocking(&state, move |s| {
+        s.core.mark_source_manually_wiped(&source_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn wipe(
     state: State<'_, Shared>,
     source_id: String,

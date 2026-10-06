@@ -172,6 +172,27 @@ impl TransferManager {
         self.jobs().iter().any(|j| !j.state.is_finished())
     }
 
+    /// Prevents enqueue/scheduling races while synchronously updating an idle device's catalog.
+    pub(crate) fn with_idle_resource<T>(
+        &self,
+        key: &str,
+        work: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let entries = self.inner.entries.lock();
+        if entries.iter().any(|entry| {
+            !entry.handle.snapshot().state.is_finished()
+                && entry.resources.iter().any(|resource| resource.key == key)
+        }) {
+            return Err(
+                "Finish or cancel this device's active jobs before marking it manually wiped"
+                    .into(),
+            );
+        }
+        let result = work();
+        drop(entries);
+        result
+    }
+
     pub fn set_paused(&self, id: &str, paused: bool) {
         self.with_handle(id, |h| h.set_paused(paused));
     }

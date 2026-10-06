@@ -113,6 +113,7 @@ export interface Backend {
 
   planWipe(sourceId: string): Promise<WipePlan>;
   wipe(sourceId: string, method: WipeMethod): Promise<void>;
+  markSourceManuallyWiped(sourceId: string): Promise<void>;
 
   syncStatus(): Promise<SyncStatus>;
   addPeer(address: string, token: string): Promise<void>;

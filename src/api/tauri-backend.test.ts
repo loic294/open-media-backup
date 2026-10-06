@@ -10,6 +10,14 @@ describe("destination job command adapters", () => {
   });
   const context = { spaceId: "space", projectId: null };
 
+  it("marks manual wipe by stored source id only and propagates persistence failure", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    await tauriBackend.markSourceManuallyWiped("source");
+    expect(invoke).toHaveBeenCalledWith("mark_source_manually_wiped", { sourceId: "source" });
+    vi.mocked(invoke).mockRejectedValue(new Error("catalog write failed"));
+    await expect(tauriBackend.markSourceManuallyWiped("source")).rejects.toThrow("catalog write failed");
+  });
+
   it("queues destination Run and Check using the same project-free workspace context", async () => {
     vi.mocked(invoke).mockResolvedValue(["job-a", "job-b"]);
     expect(await tauriBackend.runWorkspaceDestination(context, "destination")).toEqual(["job-a", "job-b"]);

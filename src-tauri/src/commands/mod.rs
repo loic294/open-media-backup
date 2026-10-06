@@ -73,6 +73,7 @@ macro_rules! omb_handlers {
             $crate::commands::transfers::get_speed_analysis,
             $crate::commands::transfers::list_speed_analysis_jobs,
             $crate::commands::transfers::plan_wipe,
+            $crate::commands::transfers::mark_source_manually_wiped,
             $crate::commands::transfers::wipe,
             $crate::commands::devices::list_volumes,
             $crate::commands::devices::register_device,

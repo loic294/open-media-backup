@@ -50,6 +50,10 @@ export class OmbSourceCard extends OmbElement {
       runnableCount: this.#runnableFlows().length,
       offline: !(st?.available ?? false),
       hasFilesystemPath: !!(snapshot && mappingFor(snapshot, this.source.device_id)),
+      manualWipeDisabled:
+        !snapshot ||
+        !deviceById(snapshot, this.source.device_id) ||
+        deviceById(snapshot, this.source.device_id)?.role === "final",
     });
     return specs.map((item) => ({
       ...item,
@@ -66,6 +70,9 @@ export class OmbSourceCard extends OmbElement {
             break;
           case "reveal":
             void this.store.revealInFileManager("source", this.source.id);
+            break;
+          case "manual-wipe":
+            this.store.confirmSourceManuallyWiped(this.source.id);
             break;
         }
       },

@@ -118,6 +118,45 @@ impl AppCore {
         AppSettings::load(&self.store)
     }
 
+    pub fn mark_source_manually_wiped(&self, source_id: &str) -> Result<(), String> {
+        use crate::domain::{Flow, Source};
+        let source: Source = self
+            .store
+            .get(source_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("source not found")?;
+        let sources = self
+            .store
+            .list_by::<Source>("device_id", &source.device_id)
+            .map_err(|error| error.to_string())?;
+        let flows: HashSet<_> = self
+            .store
+            .list::<Flow>()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|flow| sources.iter().any(|source| source.id == flow.source_id))
+            .map(|flow| flow.id)
+            .collect();
+        self.transfers
+            .with_idle_resource(&format!("device:{}", source.device_id), || {
+                let imports = self.app_imports.lock();
+                if imports
+                    .values()
+                    .any(|session| flows.contains(&session.flow_id))
+                {
+                    return Err(
+                        "Finish this device's pending app imports before marking it manually wiped"
+                            .into(),
+                    );
+                }
+                crate::wipe::mark_manually_wiped(&self.store, source_id)?;
+                self.failures
+                    .lock()
+                    .retain(|flow_id, _| !flows.contains(flow_id));
+                Ok(())
+            })
+    }
+
     pub fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
         let _save = self.settings_save.lock();
         let current = AppSettings::load(&self.store);
@@ -265,6 +304,7 @@ impl AppCore {
         use crate::domain::DestinationKind;
         use crate::plan::{classify_flow, resolve_workspace_flow, Category};
 
+        let mut imports = self.app_imports.lock();
         let ctx = resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, flow_id)
             .map_err(|e| e.to_string())?;
         if ctx.destination.kind != DestinationKind::App {
@@ -315,7 +355,7 @@ impl AppCore {
             });
         }
         let token = crate::domain::new_id();
-        self.app_imports.lock().insert(
+        imports.insert(
             token.clone(),
             AppImportSession {
                 context: context.clone(),
@@ -352,9 +392,8 @@ impl AppCore {
         use crate::domain::{DestinationKind, FileCopy, FileRecord};
         use crate::plan::{classify_flow, resolve_workspace_flow, Category};
 
-        let session = self
-            .app_imports
-            .lock()
+        let mut imports = self.app_imports.lock();
+        let session = imports
             .remove(token)
             .ok_or_else(|| "This app import confirmation is no longer valid".to_string())?;
         if session.context != *context || session.flow_id != flow_id {

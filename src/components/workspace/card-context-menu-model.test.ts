@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { buildCardContextMenuItems, revealLabel, runFlowsLabel } from "./card-context-menu-model";
 
 describe("card context menu model", () => {
+  it("offers manual wipe only for sources and does not require a mounted device", () => {
+    const state = {
+      fileManagerName: "Finder" as const,
+      runnableCount: 0,
+      offline: true,
+      hasFilesystemPath: false,
+    };
+    expect(buildCardContextMenuItems(state).some((item) => item.action === "manual-wipe")).toBe(false);
+    expect(buildCardContextMenuItems({ ...state, manualWipeDisabled: false }).at(-1)).toMatchObject({
+      action: "manual-wipe",
+      label: "Mark as manually wiped…",
+      disabled: false,
+      separatorBefore: true,
+    });
+    expect(buildCardContextMenuItems({ ...state, manualWipeDisabled: true }).at(-1)?.disabled).toBe(true);
+  });
   it("pluralizes run flow labels", () => {
     expect(runFlowsLabel(0)).toBe("Run 0 flows");
     expect(runFlowsLabel(1)).toBe("Run 1 flow");

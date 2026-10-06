@@ -22,6 +22,7 @@ import { validateProjectConfiguration } from "../../state/projects";
 import { flowLabel } from "../../state/selectors";
 import { sanitizeBackupName, sourceBackupName } from "../../utils/names";
 import { expandTemplate, previewVars, templateVars } from "../../utils/template";
+import { manuallyWipedCounts } from "./manual-wipe";
 
 const COLLECTION: Record<EntityKind, keyof Snapshot> = {
   space: "spaces",
@@ -803,6 +804,38 @@ export function createMockBackend(
       const currentSource = snapshot.sources.find((s) => s.id === sourceId);
       snapshot.flows.filter((f) => f.source_id === sourceId).forEach((f) => (counts[f.id] = [0, 0, 0, 0]));
       if (currentSource) currentSource.offer_wipe = true;
+      changed();
+    },
+    markSourceManuallyWiped: async (sourceId) => {
+      const source = snapshot.sources.find((item) => item.id === sourceId);
+      if (!source) throw new Error("source not found");
+      const device = snapshot.devices.find((item) => item.id === source.device_id);
+      if (!device) throw new Error("Select a device in source settings before marking it manually wiped");
+      if (device.role === "final") throw new Error("Final devices are never wiped");
+      const deviceFlows = snapshot.flows.filter((flow) => {
+        const src = snapshot.sources.find((item) => item.id === flow.source_id);
+        const dst = snapshot.destinations.find((item) => item.id === flow.destination_id);
+        return src?.device_id === device.id || (dst?.kind !== "app" && dst?.device_id === device.id);
+      });
+      if (
+        jobs.some(
+          (job) =>
+            !["done", "failed", "cancelled"].includes(job.state) &&
+            deviceFlows.some((flow) => job.flow_id === flow.id || job.flow_id === `check:${flow.id}`),
+        )
+      )
+        throw new Error("Finish or cancel this device's active jobs before marking it manually wiped");
+      if (
+        [...imports.values()].some((session) =>
+          snapshot.flows.some(
+            (flow) =>
+              flow.id === session.flowId &&
+              snapshot.sources.some((item) => item.id === flow.source_id && item.device_id === device.id),
+          ),
+        )
+      )
+        throw new Error("Finish this device's pending app imports before marking it manually wiped");
+      Object.assign(counts, manuallyWipedCounts(snapshot, counts, device.id));
       changed();
     },
     syncStatus: async () => demoSync(),

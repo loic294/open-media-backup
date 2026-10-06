@@ -48,6 +48,199 @@ fn backed_up() -> Fixture {
 }
 
 #[test]
+fn manual_wipe_retires_whole_device_and_resets_offline_and_reused_filename_status() {
+    use crate::domain::{Flow, Source, Space};
+    use crate::plan::{classify_flow, project_status, resolve_flow, Catalog, Category};
+    let fx = backed_up();
+    let sibling = Source {
+        id: "sibling".into(),
+        space_id: "other-space".into(),
+        path_template: "PRIVATE".into(),
+        ..fx.source.clone()
+    };
+    fx.store
+        .put(&Space {
+            id: "other-space".into(),
+            ..fx.space.clone()
+        })
+        .unwrap();
+    fx.store.put(&sibling).unwrap();
+    fx.store
+        .put(&Flow {
+            id: "sibling-flow".into(),
+            source_id: sibling.id.clone(),
+            space_id: sibling.space_id.clone(),
+            ..fx.flow.clone()
+        })
+        .unwrap();
+    let copy = fx
+        .store
+        .list::<FileCopy>()
+        .unwrap()
+        .into_iter()
+        .find(|copy| copy.device_id == "card")
+        .unwrap();
+    fx.store
+        .put(&FileCopy {
+            id: FileCopy::id_for(&copy.file_id, "card", "PRIVATE/OLD.JPG"),
+            path: "PRIVATE/OLD.JPG".into(),
+            ..copy
+        })
+        .unwrap();
+    let before = Catalog::load(&fx.store).unwrap();
+    assert_eq!(
+        project_status(
+            &fx.store,
+            &fx.resolver,
+            &before,
+            "project",
+            &FailureMap::new()
+        )
+        .unwrap()
+        .sources[0]
+            .safe_copies,
+        1
+    );
+    mark_manually_wiped(&fx.store, "src").unwrap();
+    let after = Catalog::load(&fx.store).unwrap();
+    assert_eq!(after.copies_under("card", "").count(), 0);
+    assert_eq!(after.copies_under("nas", "").count(), 2);
+    assert!(
+        fx.card_dir.path().join("DCIM/A.JPG").exists(),
+        "Acknowledgment must not delete files"
+    );
+    let status = project_status(
+        &fx.store,
+        &fx.resolver,
+        &after,
+        "project",
+        &FailureMap::new(),
+    )
+    .unwrap();
+    assert_eq!(status.sources[0].safe_copies, 0);
+    assert!(!status.sources[0].wipe_eligible);
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    let files = classify_flow(&ctx, &after, None);
+    assert!(files
+        .iter()
+        .all(|file| file.category == Category::ToTransfer && file.file_id.is_none()));
+    // A same-size filename reused by the camera must not inherit old verification.
+    fx.write_card_file("DCIM/A.JPG", b"x");
+    assert!(classify_flow(&ctx, &after, None)
+        .iter()
+        .all(|file| file.category == Category::ToTransfer));
+    fx.unmount("card");
+    let offline = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    assert!(classify_flow(&offline, &after, None).is_empty());
+    let status = project_status(
+        &fx.store,
+        &fx.resolver,
+        &after,
+        "project",
+        &FailureMap::new(),
+    )
+    .unwrap();
+    assert_eq!(status.sources[0].file_count, 0);
+    assert_eq!(status.sources[0].safe_copies, 0);
+}
+
+#[test]
+fn manual_wipe_persists_and_syncs_without_project_or_mounted_device() {
+    use crate::store::{Store, VersionVector};
+    let fx = backed_up();
+    fx.unmount("card");
+    fx.store
+        .delete(crate::domain::EntityKind::Project, "project")
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.sqlite");
+    let persistent = Store::open(&path).unwrap();
+    persistent
+        .apply_remote(&fx.store.ops_since(&VersionVector::new(), 10000).unwrap())
+        .unwrap();
+    let peer = Store::open_in_memory().unwrap();
+    peer.apply_remote(&persistent.ops_since(&VersionVector::new(), 10000).unwrap())
+        .unwrap();
+    mark_manually_wiped(&persistent, "src").unwrap();
+    peer.apply_remote(
+        &persistent
+            .ops_since(&peer.version_vector().unwrap(), 10000)
+            .unwrap(),
+    )
+    .unwrap();
+    let vv = persistent.version_vector().unwrap();
+    mark_manually_wiped(&persistent, "src").unwrap();
+    assert_eq!(
+        persistent.version_vector().unwrap(),
+        vv,
+        "Repeated acknowledgment should be idempotent"
+    );
+    drop(persistent);
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(
+        reopened.list::<FileCopy>().unwrap(),
+        peer.list::<FileCopy>().unwrap()
+    );
+    assert_eq!(
+        crate::plan::Catalog::load(&reopened)
+            .unwrap()
+            .copies_under("card", "")
+            .count(),
+        0
+    );
+    assert_eq!(
+        crate::plan::Catalog::load(&peer)
+            .unwrap()
+            .copies_under("nas", "")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn manual_wipe_rejects_missing_and_final_devices_without_mutation() {
+    let fx = backed_up();
+    let before = fx.store.list::<FileCopy>().unwrap();
+    assert!(mark_manually_wiped(&fx.store, "unknown").is_err());
+    let detached = crate::domain::Source {
+        device_id: "".into(),
+        ..fx.source.clone()
+    };
+    fx.store.put(&detached).unwrap();
+    assert!(mark_manually_wiped(&fx.store, "src").is_err());
+    let final_source = crate::domain::Source {
+        device_id: "nas".into(),
+        ..fx.source.clone()
+    };
+    fx.store.put(&final_source).unwrap();
+    assert!(mark_manually_wiped(&fx.store, "src")
+        .unwrap_err()
+        .contains("Final"));
+    assert_eq!(fx.store.list::<FileCopy>().unwrap(), before);
+}
+
+#[test]
+fn manual_wipe_rolls_back_all_copies_when_persistence_fails() {
+    use crate::store::{Store, VersionVector};
+    let fx = backed_up();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.sqlite");
+    let store = Store::open(&path).unwrap();
+    store
+        .apply_remote(&fx.store.ops_since(&VersionVector::new(), 10000).unwrap())
+        .unwrap();
+    let before = store.list::<FileCopy>().unwrap();
+    let vv = store.version_vector().unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_manual_wipe BEFORE INSERT ON entities WHEN NEW.kind = 'file_copy' BEGIN SELECT RAISE(ABORT, 'catalog write failed'); END;").unwrap();
+    assert!(mark_manually_wiped(&store, "src")
+        .unwrap_err()
+        .contains("catalog write failed"));
+    assert_eq!(store.list::<FileCopy>().unwrap(), before);
+    assert_eq!(store.version_vector().unwrap(), vv);
+}
+
+#[test]
 fn plan_blocks_until_enough_copies() {
     let fx = Fixture::new();
     fx.write_card_file("DCIM/A.JPG", b"a");
