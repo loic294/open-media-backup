@@ -35,13 +35,17 @@ test("Windows runner is an absolute, escaped argv array even in a workspace memb
 
 test("non-Windows tests do not install a PowerShell runner", () => {
   for (const platform of ["darwin", "linux"]) {
-    assert.deepEqual(cargoTestArgs(platform, "/repo"), [
-      "test",
-      "--locked",
-      "--manifest-path",
-      "/repo/src-tauri/Cargo.toml",
-      "--workspace",
-    ]);
+    for (const root of ["/repo", "/media backup/repo"]) {
+      const expected = [
+        "test",
+        "--locked",
+        "--manifest-path",
+        `${root}/src-tauri/Cargo.toml`,
+        "--workspace",
+      ];
+      assert.deepEqual(cargoTestArgs(platform, root), expected);
+      assert.deepEqual(preflightCommands(platform, root).at(-1), ["cargo", ...expected]);
+    }
   }
 });
 

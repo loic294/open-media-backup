@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 export function cargoTestArgs(platform = process.platform, root = repoRoot) {
-  const paths = platform === "win32" ? path.win32 : path;
+  const paths = platform === "win32" ? path.win32 : path.posix;
   const args = [
     "test",
     "--locked",
