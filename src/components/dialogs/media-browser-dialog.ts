@@ -50,6 +50,14 @@ function projectsForMedia(snapshot: Snapshot, source: Source, item: BrowserMedia
   );
 }
 
+function scrollParent(element: Element): Element | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return node;
+  }
+  return null;
+}
+
 @customElement("omb-media-browser-dialog")
 export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { type: "media-browser" }>> {
   @state() private items: BrowserMedia[] = [];
@@ -67,6 +75,9 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
   #seq = 0;
   #context: WorkspaceContext | null = null;
   #projectsSignature = "";
+  #observer?: IntersectionObserver;
+  #sentinel: Element | null = null;
+  #sentinelVisible = false;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -78,6 +89,9 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
 
   override disconnectedCallback(): void {
     this.#seq++;
+    this.#observer?.disconnect();
+    this.#observer = undefined;
+    this.#sentinel = null;
     this.store.removeEventListener("change", this.#onStoreChange);
     super.disconnectedCallback();
   }
@@ -139,6 +153,32 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     void this.#load();
   }
 
+  override updated(changed: Map<PropertyKey, unknown>): void {
+    super.updated?.(changed);
+    const sentinel = this.querySelector("[data-scroll-sentinel]");
+    if (sentinel !== this.#sentinel) {
+      this.#observer?.disconnect();
+      this.#observer = undefined;
+      this.#sentinel = sentinel;
+      this.#sentinelVisible = false;
+      if (sentinel && typeof IntersectionObserver !== "undefined") {
+        this.#observer = new IntersectionObserver(
+          (entries) => {
+            this.#sentinelVisible = entries.some((entry) => entry.isIntersecting);
+            this.#maybeLoadMore();
+          },
+          { root: scrollParent(sentinel), rootMargin: "0px 0px 600px 0px" },
+        );
+        this.#observer.observe(sentinel);
+      }
+    }
+  }
+
+  /** Keeps loading pages while the end of the gallery is on screen. */
+  #maybeLoadMore() {
+    if (this.#sentinelVisible && this.hasMore && !this.loading && !this.error) void this.#load();
+  }
+
   #reload = debounce(() => this.isConnected && this.#reset(), 200);
 
   async #load() {
@@ -178,6 +218,8 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
     if (seq !== this.#seq) return;
     this.hasMore = this.#cursors.some((cursor) => !cursor.done);
     this.loading = false;
+    // Let the new tiles lay out so the observer can report whether the end is still visible.
+    requestAnimationFrame(() => requestAnimationFrame(() => this.#maybeLoadMore()));
   }
 
   #select(key: string, event: Pick<MouseEvent, "shiftKey" | "ctrlKey" | "metaKey">, visibleKeys: string[]) {
@@ -307,10 +349,10 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
       <p class="text-xs text-base-content/60">
         Sorted by embedded capture time (UTC), then path; unknown dates last. Shift-click selects an inclusive
         range. Ctrl/Cmd-click toggles selection. Focus a tile and press Enter or Space to select. Only loaded
-        files are included; loading more may insert earlier captures.
+        files are included; scrolling loads more and may insert earlier captures.
       </p>
       ${!this.#cursors.length ? html`<p role="status">Connect this source to a destination to browse its files.</p>` : nothing}
-      ${this.error ? html`<p role="alert" class="text-error">${this.error} Use Load more to retry.</p>` : nothing}
+      ${this.error ? html`<p role="alert" class="text-error">${this.error}</p>` : nothing}
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div class="breadcrumbs max-w-full rounded-box border border-base-300 px-3 py-1 text-sm">
           <ul>
@@ -427,12 +469,19 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
             this.#cursors.length &&
             this.#context
               ? html`<p role="status" class="py-6 text-base-content/60">
-                  ${this.hasMore ? "No files in these pages. Load more to check remaining routes." : "No files found."}
+                  ${this.hasMore ? "Loading more files…" : "No files found."}
                 </p>`
               : nothing
           }
           ${this.loading ? html`<p role="status" class="py-4"><span class="loading loading-spinner loading-sm"></span> Loading media…</p>` : nothing}
-          ${this.hasMore ? html`<button class="btn btn-sm mt-4" ?disabled=${this.loading} @click=${() => this.#load()}>Load more</button>` : nothing}
+          ${
+            this.hasMore && this.error
+              ? html`<button class="btn btn-sm mt-4" ?disabled=${this.loading} @click=${() => this.#load()}>
+                  Retry
+                </button>`
+              : nothing
+          }
+          ${this.hasMore && !this.error ? html`<div data-scroll-sentinel class="h-px" aria-hidden="true"></div>` : nothing}
         </section>
         <aside
           class="lg:w-72 shrink-0 lg:flex lg:flex-col lg:min-h-0 lg:max-h-full"

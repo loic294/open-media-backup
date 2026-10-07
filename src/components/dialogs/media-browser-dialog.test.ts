@@ -51,6 +51,40 @@ const metadata: MediaMetadata = {
   video: null,
 };
 
+const observers: { callback: IntersectionObserverCallback; targets: Element[] }[] = [];
+
+function stubIntersectionObserver() {
+  observers.length = 0;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      #entry: { callback: IntersectionObserverCallback; targets: Element[] };
+      constructor(callback: IntersectionObserverCallback) {
+        this.#entry = { callback, targets: [] };
+        observers.push(this.#entry);
+      }
+      observe(target: Element) {
+        this.#entry.targets.push(target);
+      }
+      unobserve() {}
+      disconnect() {
+        this.#entry.targets = [];
+      }
+    },
+  );
+}
+
+/** Simulates the end-of-gallery sentinel scrolling into view. */
+function scrollToEnd(element: HTMLElement) {
+  const sentinel = element.querySelector("[data-scroll-sentinel]")!;
+  expect(sentinel).not.toBeNull();
+  const observer = observers.find((entry) => entry.targets.includes(sentinel))!;
+  observer.callback(
+    [{ isIntersecting: true, target: sentinel } as unknown as IntersectionObserverEntry],
+    {} as IntersectionObserver,
+  );
+}
+
 async function until(condition: () => boolean) {
   for (let count = 0; count < 100; count++) {
     if (condition()) return;
@@ -169,6 +203,7 @@ describe("source media browser components", () => {
     document.body.replaceChildren();
     store.dialogs = [];
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   async function browser() {
@@ -200,40 +235,45 @@ describe("source media browser components", () => {
       .mockImplementation(async (req) =>
         req.category === "to_transfer" ? page([file("a", 0), file("a", 0)], 3) : page([]),
       );
+    stubIntersectionObserver();
     const element = await browser();
     await until(() => list.mock.calls.length === 4 && !element.querySelector(".loading"));
     expect(element.querySelectorAll('button[aria-label^="Select"]')).toHaveLength(1);
     expect(
       list.mock.calls.every(([req]) => req.flowId === "flow" && req.limit === 60 && req.offset === 0),
     ).toBe(true);
-    const load = [...element.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Load more"),
-    )!;
-    load.click();
-    await until(() => list.mock.calls.length === 5);
+    scrollToEnd(element);
+    await until(() => list.mock.calls.length === 5 && !element.querySelector(".loading"));
     expect(list.mock.calls[4][0].offset).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(list).toHaveBeenCalledTimes(5);
+    expect(element.querySelector("[data-scroll-sentinel]")).toBeNull();
   });
 
   it("does not eagerly walk every connected flow and surfaces page failures for retry", async () => {
     for (let index = 0; index < 10; index++) {
       store.snapshot!.flows.push({ ...store.snapshot!.flows[0], id: `flow-${index}` });
     }
+    stubIntersectionObserver();
     const list = vi.spyOn(store.backend, "listWorkspaceFiles").mockResolvedValue(page([file("a", 0)], 1000));
     const element = await browser();
     await until(() => !element.querySelector(".loading"));
     expect(list).toHaveBeenCalledTimes(4);
     list.mockRejectedValue(new Error("Source disconnected"));
-    [...element.querySelectorAll("button")]
-      .find((button) => button.textContent?.includes("Load more"))!
-      .click();
+    scrollToEnd(element);
     await until(() => element.textContent?.includes("Source disconnected") ?? false);
     expect(element.querySelector('[role="alert"]')).not.toBeNull();
     expect(store.toast).toHaveBeenCalledWith("error", expect.stringContaining("Source disconnected"));
-    expect(
-      [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-        button.textContent?.includes("Load more"),
-      )!.disabled,
-    ).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(list).toHaveBeenCalledTimes(8);
+    expect(element.querySelector("[data-scroll-sentinel]")).toBeNull();
+    const retry = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Retry",
+    )!;
+    expect(retry.disabled).toBe(false);
+    list.mockResolvedValue(page([file("b", 1)], 1000));
+    retry.click();
+    await until(() => !!element.querySelector('button[aria-label="Select b"]'));
   });
 
   it("discards outstanding route pages when the search changes", async () => {
