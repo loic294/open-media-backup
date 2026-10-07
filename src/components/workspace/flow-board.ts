@@ -15,12 +15,27 @@ export class OmbFlowBoard extends OmbElement {
   @state() private sourceFilter: DeviceFilter = { kind: "all" };
   @state() private destinationFilter: DeviceFilter = { kind: "all" };
 
+  #filterDevices(side: "source" | "destination") {
+    const { snapshot, space } = this.store;
+    if (!snapshot || !space) return [];
+    const deviceIds =
+      side === "source"
+        ? spaceSources(snapshot, space.id).map((source) => source.device_id)
+        : spaceDestinations(snapshot, space.id)
+            .filter((destination) => (destination.kind ?? "folder") !== "app")
+            .map((destination) => destination.device_id);
+    const available = new Set(deviceIds.filter(Boolean));
+    return snapshot.devices
+      .filter((device) => available.has(device.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   override willUpdate(): void {
-    const devices = this.store.snapshot?.devices;
-    if (!devices) return;
-    const missing = (f: DeviceFilter) => f.kind === "device" && !devices.some((d) => d.id === f.deviceId);
-    if (missing(this.sourceFilter)) this.sourceFilter = { kind: "all" };
-    if (missing(this.destinationFilter)) this.destinationFilter = { kind: "all" };
+    const missing = (side: "source" | "destination", filter: DeviceFilter) =>
+      filter.kind === "device" &&
+      !this.#filterDevices(side).some((device) => device.id === filter.deviceId);
+    if (missing("source", this.sourceFilter)) this.sourceFilter = { kind: "all" };
+    if (missing("destination", this.destinationFilter)) this.destinationFilter = { kind: "all" };
   }
 
   override updated(): void {
@@ -39,7 +54,7 @@ export class OmbFlowBoard extends OmbElement {
 
   #filterMenu(side: "source" | "destination") {
     const noun = side === "source" ? "sources" : "destinations";
-    const devices = [...(this.store.snapshot?.devices ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+    const devices = this.#filterDevices(side);
     const current = side === "source" ? this.sourceFilter : this.destinationFilter;
     const activeLabel =
       current.kind === "device"
@@ -88,7 +103,9 @@ export class OmbFlowBoard extends OmbElement {
           <li class="menu-title">${side === "source" ? "Sources" : "Destinations"}</li>
           ${option("All devices", { kind: "all" }, current.kind === "all")}
           ${option("Mounted devices", { kind: "mounted" }, current.kind === "mounted")}
-          <li class="menu-title mt-1 border-t border-base-300">Specific device</li>
+          <li class="menu-title mt-1 border-t border-base-300">
+            Specific ${side === "source" ? "source" : "destination"} device
+          </li>
           ${devices.map((device) => option(device.name, { kind: "device", deviceId: device.id }, current.kind === "device" && current.deviceId === device.id))}
           ${side === "destination" ? html`<li class="menu-title font-normal whitespace-normal">App destinations stay visible.</li>` : nothing}
         </ul>

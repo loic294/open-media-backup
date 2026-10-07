@@ -30,6 +30,8 @@ describe("flow board mounted device ordering", () => {
           : (card as HTMLElement & { destination: { id: string } }).destination.id,
       );
     const menus = () => [...board.querySelectorAll<HTMLDetailsElement>("[data-device-filter]")];
+    const optionLabels = (menu: HTMLDetailsElement) =>
+      [...menu.querySelectorAll<HTMLButtonElement>("button")].map((button) => button.textContent?.trim());
     const choose = async (label: string, column = 0) => {
       const menu = menus()[column];
       menu.open = true;
@@ -86,6 +88,20 @@ describe("flow board mounted device ordering", () => {
         expect(menu.nextElementSibling?.textContent).toMatch(/Add (source|destination)/);
         expect(menu.querySelector('[aria-pressed="true"]')?.textContent?.trim()).toBe("All devices");
       }
+      expect(optionLabels(menus()[0])).toEqual([
+        "All devices",
+        "Mounted devices",
+        "Camera A · Card 1",
+        "Camera A · Card 2",
+        "Drone card",
+      ]);
+      expect(optionLabels(menus()[1])).toEqual([
+        "All devices",
+        "Mounted devices",
+        "Archive HDD",
+        "Home NAS",
+        "Travel SSD",
+      ]);
     });
 
     it("filters each column by the same availability used by cards and keeps app destinations", async () => {
@@ -110,8 +126,8 @@ describe("flow board mounted device ordering", () => {
     it("keeps source and destination device selections independent", async () => {
       await mount();
       store.snapshot!.sources.push({ ...store.snapshot!.sources[0], id: "ssd-source", device_id: "ssd" });
-      await choose("Travel SSD", 0);
-      expect(cardIds("source")).toEqual(["ssd-source"]);
+      await choose("Camera A · Card 1", 0);
+      expect(cardIds("source")).toEqual(["s1"]);
       expect(cardIds("destination")).toHaveLength(4);
       const destinationId = store.snapshot!.destinations.find((d) => d.device_id && d.kind !== "app")!;
       const deviceName = store.snapshot!.devices.find((d) => d.id === destinationId.device_id)!.name;
@@ -124,7 +140,7 @@ describe("flow board mounted device ordering", () => {
             store.snapshot!.destinations.find((d) => d.id === id)!.device_id === destinationId.device_id,
         ),
       ).toBe(true);
-      expect(cardIds("source")).toEqual(["ssd-source"]);
+      expect(cardIds("source")).toEqual(["s1"]);
       await choose("All devices", 0);
       expect(cardIds("source")).toHaveLength(4);
       expect(cardIds("destination").length).toBeLessThan(4);
@@ -149,7 +165,9 @@ describe("flow board mounted device ordering", () => {
       store.snapshot!.destinations = store.snapshot!.destinations.filter(
         (destination) => destination.kind !== "app",
       );
-      await choose("Camera A · Card 1", 1);
+      store.status!.destinations.forEach((destination) => (destination.available = false));
+      store.dispatchEvent(new Event("change"));
+      await choose("Mounted devices", 1);
       expect(cardIds("destination")).toEqual([]);
       expect(board.textContent).toContain("No destinations match this filter.");
       expect(board.textContent).not.toContain("Add an SSD, NAS or folder");
