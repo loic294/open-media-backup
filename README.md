@@ -183,7 +183,8 @@ explicitly reports that no real files were hashed.
 ## Thumbnails
 
 - Embedded previews are pulled from JPEG and RAW files.
-- Video thumbnails need `ffmpeg`. The app looks in `OMB_FFMPEG`, then `PATH`, then the Homebrew locations. Without ffmpeg, videos show a placeholder.
+- Videos first use the thumbnail the camera already saved on the card, which is read-only and never copied. Defaults cover Sony (`PRIVATE/M4ROOT/THMBNL/<clip>T01.JPG`), DJI (`MISC/THM/<folder>/<clip>.SCR` or `.THM`), and cameras that store `<clip>.THM` beside the clip, such as GoPro and Canon. Edit the list in **Settings > General > Camera thumbnails**. Paths are relative to the video's folder, with `{stem}` (file name without extension) and `{folder}` (the video's folder name); the first existing JPEG wins. Settings apply per computer.
+- Otherwise, video thumbnails need `ffmpeg`. The app looks in `OMB_FFMPEG`, then `PATH`, then the Homebrew locations. Without ffmpeg, videos show a placeholder.
 - FFmpeg must be able to start and decode the clip. Extraction failures are shown in the thumbnail's error tooltip. If `ffmpeg -version` fails with a missing-library error on macOS, repair the Homebrew installation (for example, `brew upgrade ffmpeg`) and reopen the media view after restarting the app. `OMB_FFMPEG` can point to an alternative working executable.
 
 ## Development

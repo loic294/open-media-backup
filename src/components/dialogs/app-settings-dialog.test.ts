@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockBackend } from "../../api/mock/mock-backend";
 import { store } from "../../state";
+import { DEFAULT_CAMERA_THUMBNAIL_PATHS } from "../../utils/camera-thumbnails";
 import { emptyAnalysisTotals } from "../../utils/speed-analysis";
 import { OmbAppSettingsDialog } from "./app-settings-dialog";
 
@@ -87,6 +88,35 @@ describe("app settings dialog", () => {
     await until(() => store.snapshot?.settings.keep_awake_during_transfers === true);
     expect(store.backend.saveSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ keep_awake_during_transfers: true }),
+    );
+  });
+
+  it("edits, adds, removes and resets camera thumbnail paths", async () => {
+    delete store.snapshot!.settings.camera_thumbnail_paths;
+    const element = await dialog();
+    const inputs = () => [...element.querySelectorAll<HTMLInputElement>('input[aria-label^="Camera thumbnail path"]')];
+    const button = (label: string) =>
+      [...element.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes(label))!;
+    expect(inputs().map((input) => input.value)).toEqual(DEFAULT_CAMERA_THUMBNAIL_PATHS);
+
+    inputs()[3].value = " {stem}.JPG ";
+    inputs()[3].dispatchEvent(new Event("change"));
+    await until(() => store.snapshot?.settings.camera_thumbnail_paths?.[3] === "{stem}.JPG");
+
+    await element.updateComplete;
+    button("Add path").click();
+    await until(() => store.snapshot?.settings.camera_thumbnail_paths?.length === 5);
+
+    await element.updateComplete;
+    element.querySelector<HTMLButtonElement>('[aria-label="Remove camera thumbnail path 1"]')!.click();
+    await until(() => store.snapshot?.settings.camera_thumbnail_paths?.length === 4);
+    expect(store.snapshot!.settings.camera_thumbnail_paths![0]).toBe(DEFAULT_CAMERA_THUMBNAIL_PATHS[1]);
+
+    await element.updateComplete;
+    button("Reset to defaults").click();
+    await until(() => store.snapshot?.settings.camera_thumbnail_paths?.[0] === DEFAULT_CAMERA_THUMBNAIL_PATHS[0]);
+    expect(store.backend.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ camera_thumbnail_paths: DEFAULT_CAMERA_THUMBNAIL_PATHS }),
     );
   });
 

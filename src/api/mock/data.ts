@@ -1,4 +1,5 @@
 import type { Device, Destination, Flow, Project, Snapshot, Source, Space } from "../types";
+import { DEFAULT_CAMERA_THUMBNAIL_PATHS } from "../../utils/camera-thumbnails";
 
 const space = (id: string, name: string, icon: string, position: number): Space => ({
   id,
@@ -213,6 +214,7 @@ export function demoSnapshot(): Snapshot {
       keep_awake_during_transfers: true,
       app_destinations: { d4: "/Applications/Adobe Lightroom.app" },
       transfer_speeds: { ssd: 185_000_000, nas: 92_000_000, _global: 140_000_000 },
+      camera_thumbnail_paths: [...DEFAULT_CAMERA_THUMBNAIL_PATHS],
     },
   } satisfies Snapshot);
 }

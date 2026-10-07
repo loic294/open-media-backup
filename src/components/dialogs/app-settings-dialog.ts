@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { PreviewAppMediaType, ThemePreference } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
+import { cameraThumbnailPaths, DEFAULT_CAMERA_THUMBNAIL_PATHS } from "../../utils/camera-thumbnails";
 import { previewAppChoiceLabel, previewApps } from "../../utils/preview-apps";
 import { DialogBase } from "./dialog-base";
 import "../settings/devices-settings";
@@ -47,6 +48,10 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
     await this.store.saveSettings({ preview_apps: { ...previewApps(s), [type]: null } });
   }
 
+  #saveCameraPaths(paths: string[]) {
+    void this.store.saveSettings({ camera_thumbnail_paths: paths });
+  }
+
   async #checkForUpdate() {
     if (this.store.availableUpdate) {
       this.store.openUpdateDialog(this.store.availableUpdate);
@@ -70,6 +75,7 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
     const computer = this.store.snapshot?.computer;
     if (!s) return nothing;
     const apps = previewApps(s);
+    const cameraPaths = cameraThumbnailPaths(s);
     const os = computer?.os;
     const previewRows: [PreviewAppMediaType, string][] = [
       ["photos", "Photos"],
@@ -162,6 +168,52 @@ export class OmbAppSettingsDialog extends DialogBase<Extract<DialogRequest, { ty
           <p class="text-xs text-base-content/60">
             Used when double-clicking a thumbnail or choosing Open in app. Set separately on each computer
             (macOS / Windows).
+          </p>
+        </section>
+        <section class="flex flex-col gap-3" aria-labelledby="camera-thumbnails-heading">
+          <h4 id="camera-thumbnails-heading" class="font-medium">Camera thumbnails</h4>
+          <div class="flex flex-col gap-2">
+            ${cameraPaths.map(
+              (path, index) =>
+                html`<div class="flex items-center gap-2">
+                  <input
+                    class="input input-sm w-full font-mono"
+                    aria-label=${`Camera thumbnail path ${index + 1}`}
+                    placeholder="../THMBNL/{stem}T01.JPG"
+                    .value=${path}
+                    @change=${(e: Event) =>
+                      this.#saveCameraPaths(
+                        cameraPaths.map((p, i) => (i === index ? (e.target as HTMLInputElement).value.trim() : p)),
+                      )}
+                  />
+                  <button
+                    class="btn btn-ghost btn-sm btn-square"
+                    type="button"
+                    aria-label=${`Remove camera thumbnail path ${index + 1}`}
+                    @click=${() => this.#saveCameraPaths(cameraPaths.filter((_, i) => i !== index))}
+                  >
+                    <omb-icon name="x"></omb-icon>
+                  </button>
+                </div>`,
+            )}
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-sm" type="button" @click=${() => this.#saveCameraPaths([...cameraPaths, ""])}>
+              <omb-icon name="plus"></omb-icon>Add path
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              type="button"
+              @click=${() => this.#saveCameraPaths([...DEFAULT_CAMERA_THUMBNAIL_PATHS])}
+            >
+              Reset to defaults
+            </button>
+          </div>
+          <p class="text-xs text-base-content/60">
+            Videos show the thumbnail the camera already saved on the card instead of extracting a frame.
+            Paths are relative to the video's folder: <code>{stem}</code> is the file name without extension and
+            <code>{folder}</code> is the video's folder name. The first existing file is used. Applies only to
+            this computer.
           </p>
         </section>
         ${

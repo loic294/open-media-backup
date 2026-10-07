@@ -1,3 +1,4 @@
+pub mod camera;
 mod embedded_jpeg;
 mod image_thumb;
 mod jpeg_scaled;

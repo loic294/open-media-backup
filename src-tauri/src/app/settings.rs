@@ -23,6 +23,8 @@ pub struct AppSettings {
     pub keep_awake_during_transfers: bool,
     pub app_destinations: HashMap<String, String>,
     pub transfer_speeds: HashMap<String, u64>,
+    /// Where cameras store ready-made video thumbnails, relative to the clip's folder.
+    pub camera_thumbnail_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -45,6 +47,7 @@ impl Default for AppSettings {
             keep_awake_during_transfers: true,
             app_destinations: HashMap::new(),
             transfer_speeds: HashMap::new(),
+            camera_thumbnail_paths: crate::thumbnails::camera::default_paths(),
         }
     }
 }
@@ -111,6 +114,15 @@ mod tests {
     fn missing_mounted_device_preference_defaults_to_enabled() {
         let settings: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert!(settings.show_mounted_devices_first);
+    }
+
+    #[test]
+    fn camera_thumbnail_paths_default_on_older_settings() {
+        let settings: AppSettings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(
+            settings.camera_thumbnail_paths,
+            crate::thumbnails::camera::default_paths()
+        );
     }
 
     #[test]

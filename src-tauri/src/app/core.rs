@@ -243,8 +243,15 @@ impl AppCore {
     }
 
     pub fn thumbnail(&self, path: &Path) -> Result<Option<PathBuf>, String> {
-        if crate::media::media_kind(path) == crate::media::MediaKind::Other {
+        let kind = crate::media::media_kind(path);
+        if kind == crate::media::MediaKind::Other {
             return Ok(None);
+        }
+        if kind == crate::media::MediaKind::Video {
+            let rules = self.settings().camera_thumbnail_paths;
+            if let Some(found) = crate::thumbnails::camera::find(path, &rules) {
+                return Ok(Some(found));
+            }
         }
         self.thumbnails
             .get_or_create(path)

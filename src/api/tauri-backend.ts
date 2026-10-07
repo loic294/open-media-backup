@@ -2,29 +2,61 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Backend } from "./backend";
+import type { Snapshot } from "./types";
 import { appPickerOptions } from "../utils/app-picker";
 
 const thumbnails = new Map<string, Promise<string | null>>();
+
+/**
+ * Raw IPC responses are an ArrayBuffer over the custom protocol, but a plain number array when
+ * Tauri falls back to postMessage (always on macOS for that path).
+ */
+export function jpegBytes(payload: ArrayBuffer | Uint8Array | number[] | null | undefined): Uint8Array<ArrayBuffer> {
+  if (!payload) return new Uint8Array();
+  if (payload instanceof ArrayBuffer) return new Uint8Array(payload);
+  if (Array.isArray(payload)) return Uint8Array.from(payload);
+  return Uint8Array.from(payload);
+}
 
 /** Thumbnails arrive as raw JPEG bytes; each becomes a blob URL, cached for the session. */
 function thumbnailUrl(absPath: string): Promise<string | null> {
   let url = thumbnails.get(absPath);
   if (!url) {
-    url = invoke<ArrayBuffer>("thumbnail", { absPath }).then((bytes) =>
-      bytes.byteLength ? URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) : null,
-    );
+    url = invoke<ArrayBuffer | Uint8Array | number[]>("thumbnail", { absPath }).then((payload) => {
+      const bytes = jpegBytes(payload);
+      return bytes.byteLength ? URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) : null;
+    });
     url.catch(() => thumbnails.delete(absPath));
     thumbnails.set(absPath, url);
   }
   return url;
 }
 
+let cameraThumbnailRules: string | undefined;
+
+/** Drops cached thumbnails when the camera thumbnail paths change so new rules apply immediately. */
+function noteCameraThumbnailRules(paths: string[] | undefined) {
+  const rules = JSON.stringify(paths ?? null);
+  if (cameraThumbnailRules !== undefined && cameraThumbnailRules !== rules) {
+    for (const url of thumbnails.values()) url.then((u) => u && URL.revokeObjectURL(u)).catch(() => {});
+    thumbnails.clear();
+  }
+  cameraThumbnailRules = rules;
+}
+
 /** Thin typed wrapper over Tauri commands (see src-tauri/src/commands). */
 export const tauriBackend: Backend = {
-  getSnapshot: () => invoke("get_snapshot"),
+  getSnapshot: async () => {
+    const snapshot = await invoke<Snapshot>("get_snapshot");
+    noteCameraThumbnailRules(snapshot.settings.camera_thumbnail_paths);
+    return snapshot;
+  },
   saveEntity: (kind, entity) => invoke("save_entity", { kind, entity }),
   deleteEntity: (kind, id) => invoke("delete_entity", { kind, id }),
-  saveSettings: (settings) => invoke("save_settings", { settings }),
+  saveSettings: async (settings) => {
+    await invoke("save_settings", { settings });
+    noteCameraThumbnailRules(settings.camera_thumbnail_paths);
+  },
 
   getProjectStatus: (projectId) => invoke("get_project_status", { projectId }),
   getWorkspaceStatus: (context) => invoke("get_workspace_status", { context }),
