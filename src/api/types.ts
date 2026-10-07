@@ -67,6 +67,8 @@ export interface Device {
   hw_serial: string | null;
   volume_uuid: string | null;
   capacity_bytes: number | null;
+  /** Rules shared by every source task on this device; absent in older snapshots. */
+  safe_copy_rules?: FileRule[];
 }
 
 export interface DeviceMapping {
@@ -112,8 +114,6 @@ export interface Source {
   position: number;
   /** Missing in older snapshots means all projects. */
   project_scope?: ProjectScope;
-  /** Synced rules for safety requirements only; do not filter transfers. */
-  safe_copy_rules?: FileRule[];
 }
 
 export interface SafeCopyFile {
@@ -134,6 +134,7 @@ export interface SourceSafeCopyDetails {
   wipe_eligible: boolean;
   blocking_reason: string | null;
   editable: boolean;
+  rules: FileRule[];
   files: SafeCopyFile[];
 }
 

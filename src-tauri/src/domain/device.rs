@@ -1,4 +1,4 @@
-use super::entity::impl_entity;
+use super::{entity::impl_entity, FileRule};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -36,6 +36,8 @@ pub struct Device {
     pub hw_serial: Option<String>,
     pub volume_uuid: Option<String>,
     pub capacity_bytes: Option<u64>,
+    /// Shared safe-copy rules, evaluated relative to each source folder on this device.
+    pub safe_copy_rules: Vec<FileRule>,
 }
 impl_entity!(Device, Device);
 

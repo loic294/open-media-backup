@@ -74,15 +74,15 @@ pub async fn get_source_safe_copy_details(
 }
 
 #[tauri::command]
-pub async fn save_source_safe_copy_rules(
+pub async fn save_device_safe_copy_rules(
     state: State<'_, Shared>,
     context: WorkspaceContext,
-    source_id: String,
+    device_id: String,
     rules: Vec<crate::domain::FileRule>,
 ) -> CmdResult<()> {
     blocking(&state, move |s| {
         s.core
-            .save_source_safe_copy_rules(&context, &source_id, rules)
+            .save_device_safe_copy_rules(&context, &device_id, rules)
     })
     .await
 }

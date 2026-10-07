@@ -163,7 +163,7 @@ pub fn assess_workspace_source(
     let root = resolver.device_root(&device.id).filter(|p| p.exists());
     let vars = super::source_template_vars(space, project, device, source);
     let expanded = expand(&source.path_template, &vars);
-    let safe_copy_rules = RuleSet::compile(&source.safe_copy_rules);
+    let safe_copy_rules = RuleSet::compile(&device.safe_copy_rules);
     let folder = expanded
         .as_ref()
         .map(|s| s.trim_matches('/').to_string())
@@ -202,7 +202,7 @@ pub fn assess_workspace_source(
         path_error: safe_copy_rules
             .as_ref()
             .err()
-            .map(|error| format!("Source safe-copy rules: {error}"))
+            .map(|error| format!("Device safe-copy rules: {error}"))
             .or_else(|| {
                 expanded
                     .as_ref()

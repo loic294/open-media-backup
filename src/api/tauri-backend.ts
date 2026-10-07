@@ -30,8 +30,8 @@ export const tauriBackend: Backend = {
   getWorkspaceStatus: (context) => invoke("get_workspace_status", { context }),
   getSourceSafeCopyDetails: (context, sourceId) =>
     invoke("get_source_safe_copy_details", { context, sourceId }),
-  saveSourceSafeCopyRules: (context, sourceId, rules) =>
-    invoke("save_source_safe_copy_rules", { context, sourceId, rules }),
+  saveDeviceSafeCopyRules: (context, deviceId, rules) =>
+    invoke("save_device_safe_copy_rules", { context, deviceId, rules }),
   listWorkspaceFiles: (req) => invoke("list_workspace_files", { req }),
   listFiles: (req) => invoke("list_files", { req }),
   thumbnail: (absPath) => thumbnailUrl(absPath),

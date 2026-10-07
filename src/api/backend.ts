@@ -73,7 +73,7 @@ export interface Backend {
   getProjectStatus(projectId: string): Promise<ProjectStatus>;
   getWorkspaceStatus(context: WorkspaceContext): Promise<WorkspaceStatus>;
   getSourceSafeCopyDetails(context: WorkspaceContext, sourceId: string): Promise<SourceSafeCopyDetails>;
-  saveSourceSafeCopyRules(context: WorkspaceContext, sourceId: string, rules: FileRule[]): Promise<void>;
+  saveDeviceSafeCopyRules(context: WorkspaceContext, deviceId: string, rules: FileRule[]): Promise<void>;
   listWorkspaceFiles(req: WorkspaceFilesRequest): Promise<FilePage>;
   listFiles(req: {
     projectId: string;

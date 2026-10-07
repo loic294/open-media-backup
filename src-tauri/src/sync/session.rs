@@ -55,6 +55,7 @@ pub async fn sync_peer_with_page_size(
     // policies. Migrate only after the complete pull so pagination cannot lock
     // in the new-space default before older project requirements arrive.
     store.migrate_copy_policy()?;
+    store.migrate_device_safe_copy_rules()?;
 
     let mut pushed = 0;
     loop {

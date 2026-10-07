@@ -17,27 +17,18 @@ fn put<E: Entity>(store: &Store, value: Value) -> Result<()> {
 
 /// Saves a configuration entity coming from the UI. Catalog entities are engine-owned.
 pub fn save_entity(store: &Store, kind: &str, value: Value) -> Result<()> {
-    if kind == "source" {
-        let source: Source = serde_json::from_value(value.clone())
-            .map_err(|error| format!("invalid source: {error}"))?;
-        let existing: Option<Source> = store.get(&source.id).map_err(|error| error.to_string())?;
-        let previous = existing
+    if kind == "device" {
+        let device: Device = serde_json::from_value(value.clone())
+            .map_err(|error| format!("invalid device: {error}"))?;
+        let existing: Option<Device> = store.get(&device.id).map_err(|error| error.to_string())?;
+        if existing
             .as_ref()
-            .map(|source| source.safe_copy_rules.as_slice())
-            .unwrap_or_default();
-        if source.safe_copy_rules != previous {
-            return Err("Use save_source_safe_copy_rules to change source safe-copy rules".into());
-        }
-        if !previous.is_empty()
-            && existing.as_ref().is_some_and(|existing| {
-                existing.device_id != source.device_id
-                    || existing.space_id != source.space_id
-                    || existing.path_template != source.path_template
-            })
+            .is_some_and(|existing| existing.safe_copy_rules != device.safe_copy_rules)
         {
-            return Err(
-                "Clear source safe-copy rules before changing its device, space, or path".into(),
-            );
+            return Err("Use save_device_safe_copy_rules to change device safe-copy rules".into());
+        }
+        if existing.is_none() && !device.safe_copy_rules.is_empty() {
+            return Err("Use save_device_safe_copy_rules to set device safe-copy rules".into());
         }
     }
     validate_save(store, kind, &value)?;

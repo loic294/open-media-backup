@@ -87,7 +87,7 @@ fn write(root: &std::path::Path, rel: &str, bytes: &[u8]) {
 
 #[test]
 fn safe_copy_details_and_rule_save_ipc_contract_and_authorization() {
-    use crate::domain::{DeviceMapping, Source};
+    use crate::domain::DeviceMapping;
     use crate::store::VersionVector;
     use crate::testing::Fixture;
     use tauri::Manager;
@@ -110,10 +110,13 @@ fn safe_copy_details_and_rule_save_ipc_contract_and_authorization() {
     assert_eq!(details["wipe_eligible"], false);
     assert_eq!(details["editable"], false);
     let rules = json!([{"action": "exclude", "syntax": "glob", "pattern": "A.JPG"}]);
-    let mut save = args.clone();
+    let mut save = json!({
+        "context": {"spaceId": "space", "projectId": "project"},
+        "deviceId": "card"
+    });
     save["rules"] = rules.clone();
     assert!(ui
-        .call("save_source_safe_copy_rules", save.clone())
+        .call("save_device_safe_copy_rules", save.clone())
         .is_err());
     state
         .core
@@ -131,8 +134,8 @@ fn safe_copy_details_and_rule_save_ipc_contract_and_authorization() {
     assert_eq!(details["files"][0]["verified_destinations"], json!([]));
     assert_eq!(details["files"][0]["acknowledged_destinations"], json!([]));
     assert_eq!(details["files"][0].as_object().unwrap().len(), 6);
-    assert_eq!(details.as_object().unwrap().len(), 9);
-    ui.ok("save_source_safe_copy_rules", save.clone());
+    assert_eq!(details.as_object().unwrap().len(), 10);
+    ui.ok("save_device_safe_copy_rules", save.clone());
     let excluded = ui.ok("get_source_safe_copy_details", args.clone());
     assert_eq!(excluded["files"][0]["state"], "excluded");
     assert_eq!(excluded["wipe_eligible"], true);
@@ -142,28 +145,35 @@ fn safe_copy_details_and_rule_save_ipc_contract_and_authorization() {
         .is_empty());
     let mut invalid = save.clone();
     invalid["rules"] = json!([{"action":"exclude","syntax":"regex","pattern":"("}]);
-    assert!(ui.call("save_source_safe_copy_rules", invalid).is_err());
+    assert!(ui.call("save_device_safe_copy_rules", invalid).is_err());
     let mut wrong_context = args.clone();
     wrong_context["context"]["spaceId"] = json!("elsewhere");
     assert!(ui
         .call("get_source_safe_copy_details", wrong_context)
         .is_err());
-    let mut wrong_source = save.clone();
-    wrong_source["sourceId"] = json!("/arbitrary/path");
+    let mut wrong_device = save.clone();
+    wrong_device["deviceId"] = json!("/arbitrary/path");
     assert!(ui
-        .call("save_source_safe_copy_rules", wrong_source)
+        .call("save_device_safe_copy_rules", wrong_device)
         .is_err());
-    let mut source =
-        serde_json::to_value(state.core.store.get::<Source>("src").unwrap().unwrap()).unwrap();
-    source["safe_copy_rules"] = json!([]);
+    let mut device = serde_json::to_value(
+        state
+            .core
+            .store
+            .get::<crate::domain::Device>("card")
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    device["safe_copy_rules"] = json!([]);
     assert!(ui
-        .call("save_entity", json!({"kind": "source", "entity": source}))
+        .call("save_entity", json!({"kind": "device", "entity": device}))
         .is_err());
     assert_eq!(
         state
             .core
             .store
-            .get::<Source>("src")
+            .get::<crate::domain::Device>("card")
             .unwrap()
             .unwrap()
             .safe_copy_rules
@@ -586,10 +596,10 @@ fn fresh_setup_backs_up_card_and_wipes_it() {
         "Destination rules do not exclude source safety requirements"
     );
     ui.ok(
-        "save_source_safe_copy_rules",
+        "save_device_safe_copy_rules",
         json!({
             "context": {"spaceId": "sp", "projectId": "pr"},
-            "sourceId": "src",
+            "deviceId": "card",
             "rules": [
                 {"action":"exclude","syntax":"glob","pattern":"PRIVATE/"},
                 {"action":"exclude","syntax":"glob","pattern":"*.THM"},

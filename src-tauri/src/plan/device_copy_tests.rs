@@ -52,15 +52,15 @@ fn status(fx: &Fixture) -> ProjectStatus {
 }
 
 #[test]
-fn source_exclusion_is_relative_and_overlapping_required_view_wins() {
+fn device_exclusion_is_shared_by_source_views_on_the_same_device() {
     let fx = Fixture::new();
-    let mut source = fx.source.clone();
-    source.safe_copy_rules = vec![FileRule::path(
+    let mut device = fx.card.clone();
+    device.safe_copy_rules = vec![FileRule::path(
         RuleAction::Exclude,
         RuleSyntax::Glob,
         "A.JPG",
     )];
-    fx.store.put(&source).unwrap();
+    fx.store.put(&device).unwrap();
     fx.write_card_file("DCIM/A.JPG", b"a");
     let finals = FinalSet::load_for_space(&fx.store, "space").unwrap();
     let assess = |sources: &[Source]| {
@@ -69,12 +69,13 @@ fn source_exclusion_is_relative_and_overlapping_required_view_wins() {
             &Catalog::load(&fx.store).unwrap(),
             &fx.space,
             Some(&fx.project),
-            &fx.card,
+            &device,
             sources,
             &finals.targets(),
         )
     };
-    let excluded = assess(&[source.clone()]);
+    let source = fx.source.clone();
+    let excluded = assess(std::slice::from_ref(&source));
     assert!(excluded[0].1.status.wipe_eligible);
     assert_eq!(excluded[0].1.report.ignored, 1);
     assert_eq!(excluded[0].1.device_files[0].path, "DCIM/A.JPG");
@@ -82,16 +83,15 @@ fn source_exclusion_is_relative_and_overlapping_required_view_wins() {
     let parent = Source {
         id: "parent".into(),
         path_template: "".into(),
-        safe_copy_rules: vec![],
         ..source.clone()
     };
     let overlap = assess(&[source, parent]);
     assert!(overlap
         .iter()
-        .all(|(_, assessment)| !assessment.status.wipe_eligible));
+        .all(|(_, assessment)| assessment.status.wipe_eligible));
     assert_eq!(overlap[0].1.device_files.len(), 1);
-    assert_eq!(overlap[0].1.device_files[0].state, SafeCopyState::Unsafe);
-    assert_eq!(overlap[0].1.report.ignored, 0);
+    assert_eq!(overlap[0].1.device_files[0].state, SafeCopyState::Excluded);
+    assert_eq!(overlap[0].1.report.ignored, 1);
 }
 
 #[test]
@@ -282,21 +282,21 @@ fn excluded_files_do_not_lower_completed_space_copy_count() {
     copy(&fx, "a", "nas", "A.JPG");
     copy(&fx, "a", "other", "A.JPG");
     assert_eq!(status(&fx).sources[0].safe_copies, 0);
-    let mut source = fx.source.clone();
-    source.safe_copy_rules = vec![FileRule::path(
+    let mut card = fx.card.clone();
+    card.safe_copy_rules = vec![FileRule::path(
         RuleAction::Exclude,
         RuleSyntax::Glob,
         "*.THM",
     )];
-    fx.store.put(&source).unwrap();
+    fx.store.put(&card).unwrap();
     assert_eq!(status(&fx).sources[0].safe_copies, 2);
     assert!(status(&fx).sources[0].wipe_eligible);
-    source.safe_copy_rules = vec![FileRule::path(RuleAction::Exclude, RuleSyntax::Glob, "*")];
-    fx.store.put(&source).unwrap();
+    card.safe_copy_rules = vec![FileRule::path(RuleAction::Exclude, RuleSyntax::Glob, "*")];
+    fx.store.put(&card).unwrap();
     assert_eq!(status(&fx).sources[0].safe_copies, 2);
     assert!(status(&fx).sources[0].wipe_eligible);
-    source.safe_copy_rules.clear();
-    fx.store.put(&source).unwrap();
+    card.safe_copy_rules.clear();
+    fx.store.put(&card).unwrap();
     assert_eq!(status(&fx).sources[0].safe_copies, 0);
     assert!(!status(&fx).sources[0].wipe_eligible);
 }

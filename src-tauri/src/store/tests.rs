@@ -58,6 +58,7 @@ fn copy_policy_migration_preserves_per_space_maximum_and_syncs_once() {
         )
         .unwrap();
     }
+
     let store = Store::from_connection(conn).unwrap();
     for (id, expected) in [("a", 5), ("b", 3), ("empty", 2), ("explicit", 1)] {
         assert_eq!(
@@ -69,6 +70,7 @@ fn copy_policy_migration_preserves_per_space_maximum_and_syncs_once() {
             expected
         );
     }
+
     let project = store.get::<Project>("a2").unwrap().unwrap();
     assert!(serde_json::to_value(project)
         .unwrap()
@@ -132,6 +134,108 @@ fn copy_policy_migration_preserves_per_space_maximum_and_syncs_once() {
         reopened.ops_since(&VersionVector::new(), 1000).unwrap(),
         before_restart
     );
+}
+
+#[test]
+fn device_safe_copy_migration_merges_legacy_source_rules_without_overwriting_device_policy() {
+    use crate::domain::{Device, FileRule, Source};
+    use serde_json::json;
+    let conn = Connection::open_in_memory().unwrap();
+    schema::migrate(&conn).unwrap();
+    for (kind, id, data) in [
+        ("device", "shared", json!({"id":"shared"})),
+        (
+            "device",
+            "configured",
+            json!({"id":"configured","safe_copy_rules":[]}),
+        ),
+        (
+            "source",
+            "one",
+            json!({"id":"one","space_id":"space","device_id":"shared","safe_copy_rules":[
+                {"action":"exclude","syntax":"glob","pattern":"*.THM"}
+            ]}),
+        ),
+        (
+            "source",
+            "two",
+            json!({"id":"two","space_id":"space","device_id":"shared","safe_copy_rules":[
+                {"action":"exclude","syntax":"glob","pattern":"*.THM"},
+                {"action":"exclude","syntax":"glob","pattern":"PRIVATE/"}
+            ]}),
+        ),
+        (
+            "source",
+            "three",
+            json!({"id":"three","space_id":"space","device_id":"configured","safe_copy_rules":[
+                {"action":"exclude","syntax":"glob","pattern":"*.JPG"}
+            ]}),
+        ),
+    ] {
+        conn.execute(
+            "INSERT INTO entities(kind,id,data,deleted) VALUES (?1,?2,?3,0)",
+            rusqlite::params![kind, id, data.to_string()],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT INTO field_clocks(kind,id,field,hlc) VALUES ('source','one','safe_copy_rules','999999999999999-00000000-peer')",
+        [],
+    )
+    .unwrap();
+    let store = Store::from_connection(conn).unwrap();
+    let expected = vec![
+        FileRule::path(
+            crate::domain::RuleAction::Exclude,
+            crate::domain::RuleSyntax::Glob,
+            "*.THM",
+        ),
+        FileRule::path(
+            crate::domain::RuleAction::Exclude,
+            crate::domain::RuleSyntax::Glob,
+            "PRIVATE/",
+        ),
+    ];
+    assert_eq!(
+        store
+            .get::<Device>("shared")
+            .unwrap()
+            .unwrap()
+            .safe_copy_rules,
+        expected
+    );
+    assert!(store
+        .get::<Device>("configured")
+        .unwrap()
+        .unwrap()
+        .safe_copy_rules
+        .is_empty());
+    assert_eq!(store.get::<Source>("one").unwrap().unwrap().id, "one");
+    let legacy_rules: String = store
+        .conn
+        .lock()
+        .query_row(
+            "SELECT json_extract(data, '$.safe_copy_rules') FROM entities WHERE kind='source' AND id='one'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(legacy_rules, "[]");
+    let ops = store.ops_since(&VersionVector::new(), 100).unwrap();
+    assert!(ops.iter().any(|op| op.kind == EntityKind::Device.as_str()
+        && op.entity_id == "shared"
+        && op.field == "safe_copy_rules"));
+    assert!(ops.iter().any(|op| op.kind == EntityKind::Source.as_str()
+        && op.entity_id == "one"
+        && op.field == "safe_copy_rules"
+        && op.value == json!([])));
+    assert!(ops
+        .iter()
+        .filter(|op| op.field == "safe_copy_rules")
+        .all(|op| op.hlc.as_str() > "999999999999999-00000000-peer"));
+    let before = ops.clone();
+    store.migrate_device_safe_copy_rules().unwrap();
+    assert_eq!(store.ops_since(&VersionVector::new(), 100).unwrap(), before);
 }
 
 #[test]

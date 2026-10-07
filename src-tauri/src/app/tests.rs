@@ -27,13 +27,21 @@ fn wait_idle(core: &AppCore) {
 }
 
 #[test]
-fn safe_copy_rules_require_local_mapping_context_and_valid_rules_and_sync_as_source() {
-    use crate::domain::{DeviceMapping, FileRule, RuleAction, RuleSyntax};
+fn safe_copy_rules_require_local_mapping_context_and_sync_as_device() {
+    use crate::domain::{Device, DeviceMapping, FileRule, RuleAction, RuleSyntax};
     use crate::plan::WorkspaceContext;
     use crate::store::{Store, VersionVector};
     let fx = Fixture::new();
     let (core, _t) = core(&fx);
     let context = WorkspaceContext::for_project(&fx.store, "project").unwrap();
+    fx.write_card_file("VIDEO/META.THM", b"metadata");
+    fx.store
+        .put(&Source {
+            id: "sibling".into(),
+            path_template: "VIDEO".into(),
+            ..fx.source.clone()
+        })
+        .unwrap();
     let rules = vec![FileRule::path(
         RuleAction::Exclude,
         RuleSyntax::Glob,
@@ -46,7 +54,7 @@ fn safe_copy_rules_require_local_mapping_context_and_valid_rules_and_sync_as_sou
             .editable
     );
     assert!(core
-        .save_source_safe_copy_rules(&context, "src", rules.clone())
+        .save_device_safe_copy_rules(&context, "card", rules.clone())
         .is_err());
     let mut mapping = DeviceMapping {
         id: format!("card@{}", fx.store.computer_id()),
@@ -56,7 +64,7 @@ fn safe_copy_rules_require_local_mapping_context_and_valid_rules_and_sync_as_sou
     };
     fx.store.put(&mapping).unwrap();
     assert!(core
-        .save_source_safe_copy_rules(&context, "src", rules.clone())
+        .save_device_safe_copy_rules(&context, "card", rules.clone())
         .is_err());
     mapping.computer_id = fx.store.computer_id().into();
     fx.store.put(&mapping).unwrap();
@@ -70,54 +78,52 @@ fn safe_copy_rules_require_local_mapping_context_and_valid_rules_and_sync_as_sou
         project_id: Some("project".into()),
     };
     assert!(core
-        .save_source_safe_copy_rules(&wrong, "src", rules.clone())
+        .save_device_safe_copy_rules(&wrong, "card", rules.clone())
         .is_err());
     assert!(core
-        .save_source_safe_copy_rules(&context, "/arbitrary/path", rules.clone())
+        .save_device_safe_copy_rules(&context, "/arbitrary/path", rules.clone())
         .is_err());
     assert!(core
-        .save_source_safe_copy_rules(
+        .save_device_safe_copy_rules(
             &context,
-            "src",
+            "card",
             vec![FileRule::path(RuleAction::Exclude, RuleSyntax::Regex, "(")]
         )
         .is_err());
     assert!(fx
         .store
-        .get::<Source>("src")
+        .get::<Device>("card")
         .unwrap()
         .unwrap()
         .safe_copy_rules
         .is_empty());
-    core.save_source_safe_copy_rules(&context, "src", rules.clone())
+    core.save_device_safe_copy_rules(&context, "card", rules.clone())
         .unwrap();
-    let source: Source = fx.store.get("src").unwrap().unwrap();
-    assert_eq!(source.safe_copy_rules, rules);
+    let device: Device = fx.store.get("card").unwrap().unwrap();
+    assert_eq!(device.safe_copy_rules, rules);
+    let sibling_details = core.source_safe_copy_details(&context, "sibling").unwrap();
+    assert_eq!(sibling_details.rules, rules);
+    assert!(sibling_details
+        .files
+        .iter()
+        .any(|file| file.path == "VIDEO/META.THM"
+            && file.state == crate::plan::SafeCopyState::Excluded));
     let peer = Store::open_in_memory().unwrap();
     peer.apply_remote(&fx.store.ops_since(&VersionVector::new(), 10000).unwrap())
         .unwrap();
     assert_eq!(
-        peer.get::<Source>("src").unwrap().unwrap().safe_copy_rules,
+        peer.get::<Device>("card").unwrap().unwrap().safe_copy_rules,
         rules
     );
-    let mut old_json = serde_json::to_value(&source).unwrap();
-    old_json.as_object_mut().unwrap().remove("safe_copy_rules");
-    assert!(serde_json::from_value::<Source>(old_json)
-        .unwrap()
-        .safe_copy_rules
-        .is_empty());
-    let mut bypass = source.clone();
+    let mut bypass = device.clone();
     bypass.safe_copy_rules.clear();
     assert!(core
-        .save_entity("source", serde_json::to_value(bypass).unwrap())
+        .save_entity("device", serde_json::to_value(bypass).unwrap())
         .unwrap_err()
-        .contains("save_source_safe_copy_rules"));
-    let mut moved = source.clone();
+        .contains("save_device_safe_copy_rules"));
+    let mut moved = fx.source.clone();
     moved.path_template = "PRIVATE".into();
-    assert!(core
-        .save_entity("source", serde_json::to_value(moved).unwrap())
-        .is_err());
-    core.save_entity("source", serde_json::to_value(source).unwrap())
+    core.save_entity("source", serde_json::to_value(moved).unwrap())
         .unwrap();
 }
 

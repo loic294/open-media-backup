@@ -24,7 +24,7 @@ describe("demo file safety", () => {
     const pending = mockSafeCopyDetails(data, { ...context, projectId: null }, "s1", counts, new Set());
     expect(pending.safe_copies).toBe(1);
     expect(pending.files.filter((file) => file.state === "unsafe")).toHaveLength(2);
-    data.sources[0].safe_copy_rules = pending.files
+    data.devices.find((device) => device.id === data.sources[0].device_id)!.safe_copy_rules = pending.files
       .filter((file) => file.state === "unsafe")
       .map((file) => ({ action: "exclude", syntax: "glob", pattern: file.path.replace(/^DCIM\//, "") }));
     const completed = mockSafeCopyDetails(data, { ...context, projectId: null }, "s1", counts, new Set());
@@ -32,7 +32,9 @@ describe("demo file safety", () => {
     expect(completed.safe_copies).toBe(2);
     expect(completed.required_copies).toBe(2);
     expect(completed.wipe_eligible).toBe(true);
-    data.sources[0].safe_copy_rules = [{ action: "exclude", syntax: "glob", pattern: "*" }];
+    data.devices.find((device) => device.id === data.sources[0].device_id)!.safe_copy_rules = [
+      { action: "exclude", syntax: "glob", pattern: "*" },
+    ];
     expect(mockSafeCopyDetails(data, context, "s1", counts, new Set()).safe_copies).toBe(2);
   });
 
@@ -85,17 +87,19 @@ describe("demo file safety", () => {
     const data = fixture();
     const counts = { f1: [1, 0, 0, 0], f2: [0, 1, 0, 0] } satisfies import("./status").Counts;
     expect(mockStatus(data, "trip", counts, new Set()).sources[0].wipe_eligible).toBe(false);
-    data.sources[0].safe_copy_rules = [{ action: "exclude", syntax: "glob", pattern: "*" }];
+    data.devices.find((device) => device.id === data.sources[0].device_id)!.safe_copy_rules = [
+      { action: "exclude", syntax: "glob", pattern: "*" },
+    ];
     const details = mockSafeCopyDetails(data, context, "s1", counts, new Set());
     expect(details.files[0].state).toBe("excluded");
     expect(details.wipe_eligible).toBe(true);
     expect(mockStatus(data, "trip", counts, new Set()).sources[0].wipe_eligible).toBe(true);
-    data.sources.push({ ...data.sources[0], id: "overlap", safe_copy_rules: [] });
+    data.sources.push({ ...data.sources[0], id: "overlap" });
     data.flows.push({ ...data.flows[0], id: "overlap-flow", source_id: "overlap" });
     expect(
       mockSafeCopyDetails(data, context, "s1", { ...counts, "overlap-flow": [0, 1, 0, 0] }, new Set())
         .files[0].state,
-    ).toBe("unsafe");
+    ).toBe("excluded");
   });
 
   it("reports missing destination rules without inventing coverage", () => {
@@ -115,25 +119,40 @@ describe("demo file safety", () => {
     expect(details.safe_copies).toBe(0);
   });
 
-  it("persists synced source rules, emits updates and rejects remote/invalid editing", async () => {
+  it("persists synced device rules, shares them across sources and rejects invalid editing", async () => {
     const backend = createMockBackend({ seedRunningTransfer: false });
     const changed = { count: 0 };
     await backend.on("snapshot-changed", () => changed.count++);
-    const rules = [{ action: "exclude", syntax: "glob", pattern: "*.THM" }] as const;
-    await backend.saveSourceSafeCopyRules(context, "s1", [...rules]);
-    expect((await backend.getSnapshot()).sources[0].safe_copy_rules).toEqual(rules);
+    const rules = [{ action: "exclude", syntax: "glob", pattern: "*" }] as const;
+    await backend.saveDeviceSafeCopyRules(context, "card1", [...rules]);
+    const saved = await backend.getSnapshot();
+    expect(saved.devices.find((device) => device.id === "card1")?.safe_copy_rules).toEqual(rules);
+    expect(mockSafeCopyDetails(saved, context, "s1", { f1: [0, 0, 0, 0] }, new Set()).rules).toEqual(rules);
     expect(changed.count).toBe(1);
+    await backend.saveEntity("source", {
+      ...saved.sources[0],
+      id: "sibling",
+      path_template: "VIDEO",
+    });
+    await backend.saveEntity("flow", {
+      ...saved.flows.find((flow) => flow.source_id === "s1")!,
+      id: "sibling-flow",
+      source_id: "sibling",
+    });
+    const siblingDetails = await backend.getSourceSafeCopyDetails(context, "sibling");
+    expect(siblingDetails.rules).toEqual(rules);
+    expect(siblingDetails.files.length).toBeGreaterThan(0);
+    expect(siblingDetails.files.every((file) => file.state === "excluded")).toBe(true);
     await expect(
-      backend.saveSourceSafeCopyRules(context, "s1", [{ action: "exclude", syntax: "regex", pattern: "[" }]),
+      backend.saveDeviceSafeCopyRules(context, "card1", [{ action: "exclude", syntax: "regex", pattern: "[" }]),
     ).rejects.toThrow();
     const snapshot = await backend.getSnapshot();
     await backend.saveEntity("source", {
       ...snapshot.sources[0],
       id: "remote",
       device_id: "hdd",
-      safe_copy_rules: [],
     });
-    await expect(backend.saveSourceSafeCopyRules(context, "remote", [...rules])).rejects.toThrow(
+    await expect(backend.saveDeviceSafeCopyRules(context, "hdd", [...rules])).rejects.toThrow(
       "mapped on this computer",
     );
     await expect(

@@ -21,8 +21,6 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
 
   override connectedCallback(): void {
     super.connectedCallback();
-    const source = this.store.snapshot?.sources.find((item) => item.id === this.request.sourceId);
-    this.rules = structuredClone(source?.safe_copy_rules ?? []);
     void this.load();
   }
 
@@ -43,7 +41,10 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
         this.context(),
         this.request.sourceId,
       );
-      if (sequence === this.sequence) this.details = details;
+      if (sequence === this.sequence) {
+        this.details = details;
+        if (!this.dirty) this.rules = structuredClone(details.rules);
+      }
     } catch (error) {
       if (sequence === this.sequence) this.error = String(error);
     } finally {
@@ -55,7 +56,9 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
     this.busy = true;
     this.error = "";
     try {
-      await this.store.backend.saveSourceSafeCopyRules(this.context(), this.request.sourceId, this.rules);
+      const deviceId = this.details?.device_id;
+      if (!deviceId) throw new Error("Source device is unavailable");
+      await this.store.backend.saveDeviceSafeCopyRules(this.context(), deviceId, this.rules);
       this.dirty = false;
       await this.store.reloadSnapshot();
       this.store.refreshStatus();
@@ -207,8 +210,9 @@ export class OmbSafeCopyDialog extends DialogBase<Extract<DialogRequest, { type:
                   <section class="rounded-box border border-base-300 p-4">
                     <h4 class="font-semibold">Files not required for safe copy</h4>
                     <p class="text-sm text-base-content/70 mt-1 mb-3">
-                      Rules apply relative to this source folder (${source?.path_template || "whole device"}),
-                      and sync to peers. Excluded files do not block readiness; transfers are unchanged.
+                      Rules are shared by every source task on this device. Patterns apply relative to each source
+                      folder (${source?.path_template || "whole device"}) and sync to peers. Excluded files do not block
+                      readiness; transfers are unchanged.
                       Delete backed-up files preserves them, but quick format erases them. A file required by
                       another source task still counts.
                     </p>

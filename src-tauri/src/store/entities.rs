@@ -1,11 +1,125 @@
 use super::{
-    apply::apply_op, ops::DELETED_FIELD, Op, Store, StoreError, StoreResult, VersionVector,
+    apply::apply_op, ops::DELETED_FIELD, Hlc, Op, Store, StoreError, StoreResult, VersionVector,
 };
 use crate::domain::{Entity, EntityKind};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{Map, Value};
 
+type DeviceDoc = (String, Value);
+type SourceDoc = (String, String, Value);
+
 impl Store {
+    /// Moves legacy source rules to their device, merging differing source rules.
+    pub(crate) fn migrate_device_safe_copy_rules(&self) -> StoreResult<()> {
+        let (devices, sources): (Vec<DeviceDoc>, Vec<SourceDoc>) = {
+            let conn = self.conn.lock();
+            let mut device_stmt = conn
+                .prepare("SELECT id, data FROM entities WHERE kind = 'device' AND deleted = 0")?;
+            let devices = device_stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .map(|row| {
+                    let (id, data) = row?;
+                    Ok((id, serde_json::from_str(&data)?))
+                })
+                .collect::<StoreResult<_>>()?;
+            let mut source_stmt = conn.prepare(
+                "SELECT id, json_extract(data, '$.device_id'), data
+                 FROM entities WHERE kind = 'source' AND deleted = 0",
+            )?;
+            let sources = source_stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .map(|row| {
+                    let (id, device_id, data) = row?;
+                    Ok((id, device_id, serde_json::from_str(&data)?))
+                })
+                .collect::<StoreResult<_>>()?;
+            (devices, sources)
+        };
+
+        let configured: std::collections::HashSet<String> = devices
+            .iter()
+            .filter_map(|(id, data)| data.get("safe_copy_rules").map(|_| id.clone()))
+            .collect();
+        let mut merged: std::collections::HashMap<String, Vec<Value>> =
+            std::collections::HashMap::new();
+        let mut legacy_sources = Vec::new();
+        let known_devices: std::collections::HashSet<_> =
+            devices.iter().map(|(id, _)| id.as_str()).collect();
+        for (source_id, device_id, data) in sources {
+            let Some(rules) = data
+                .get("safe_copy_rules")
+                .and_then(Value::as_array)
+                .filter(|rules| !rules.is_empty())
+            else {
+                continue;
+            };
+            if !known_devices.contains(device_id.as_str()) {
+                continue;
+            }
+            legacy_sources.push(source_id);
+            if !configured.contains(&device_id) {
+                let device_rules = merged.entry(device_id).or_default();
+                for rule in rules {
+                    if !device_rules.contains(rule) {
+                        device_rules.push(rule.clone());
+                    }
+                }
+            }
+        }
+
+        let changed = !merged.is_empty() || !legacy_sources.is_empty();
+        if !changed {
+            return Ok(());
+        }
+
+        let latest_clock: Option<String> =
+            self.conn
+                .lock()
+                .query_row("SELECT MAX(hlc) FROM field_clocks", [], |row| row.get(0))?;
+        if let Some(clock) = latest_clock.as_deref().and_then(Hlc::decode) {
+            self.clock.observe(&clock);
+        }
+
+        let mut kinds = Vec::new();
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        for (id, rules) in merged {
+            apply_op(
+                &tx,
+                &self.local_op(
+                    EntityKind::Device,
+                    &id,
+                    "safe_copy_rules",
+                    Value::Array(rules),
+                ),
+            )?;
+        }
+        for source_id in legacy_sources {
+            apply_op(
+                &tx,
+                &self.local_op(
+                    EntityKind::Source,
+                    &source_id,
+                    "safe_copy_rules",
+                    Value::Array(Vec::new()),
+                ),
+            )?;
+        }
+        tx.commit()?;
+        kinds.push(EntityKind::Device.as_str().to_string());
+        kinds.push(EntityKind::Source.as_str().to_string());
+        self.notify(kinds, false);
+        Ok(())
+    }
+
     /// Use normal field-clock operations so migrated policies reach existing peers.
     pub(crate) fn migrate_copy_policy(&self) -> StoreResult<()> {
         let policies: Vec<(String, u32)> = {

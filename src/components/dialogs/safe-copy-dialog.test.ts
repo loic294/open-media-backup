@@ -15,6 +15,7 @@ const details: SourceSafeCopyDetails = {
   wipe_eligible: false,
   blocking_reason: "Needs Home NAS",
   editable: true,
+  rules: [],
   files: [
     {
       path: "DCIM/safe.ARW",
@@ -38,7 +39,7 @@ const details: SourceSafeCopyDetails = {
       safe_copies: 0,
       verified_destinations: [],
       acknowledged_destinations: [],
-      reasons: ["Excluded by source rules"],
+      reasons: ["Excluded by device rules"],
     },
   ],
 };
@@ -134,11 +135,11 @@ describe("safe-copy dialog", () => {
     expect(element!.textContent).toContain("effective device copies");
   });
 
-  it("saves rules using only source identity and refreshes persisted coverage", async () => {
+  it("saves shared device rules and refreshes persisted coverage", async () => {
     await open();
     vi.spyOn(store, "reloadSnapshot").mockResolvedValue();
     vi.spyOn(store, "refreshStatus").mockImplementation(() => undefined);
-    const save = vi.spyOn(store.backend, "saveSourceSafeCopyRules").mockResolvedValue();
+    const save = vi.spyOn(store.backend, "saveDeviceSafeCopyRules").mockResolvedValue();
     const rules = [{ action: "exclude" as const, syntax: "glob" as const, pattern: "*.THM" }];
     element!
       .querySelector("omb-rules-editor")!
@@ -147,7 +148,7 @@ describe("safe-copy dialog", () => {
     expect(element!.textContent).toContain("Unsaved rules");
     button("Save exclusions").click();
     await settle();
-    expect(save).toHaveBeenCalledWith({ spaceId: "travel", projectId: null }, "s1", rules);
+    expect(save).toHaveBeenCalledWith({ spaceId: "travel", projectId: null }, "card1", rules);
     expect(store.reloadSnapshot).toHaveBeenCalled();
     expect(store.backend.getSourceSafeCopyDetails).toHaveBeenCalledTimes(2);
     expect(button("Save exclusions").disabled).toBe(true);
@@ -170,7 +171,7 @@ describe("safe-copy dialog", () => {
 
   it("retains an unsaved draft on rejected persistence", async () => {
     await open();
-    vi.spyOn(store.backend, "saveSourceSafeCopyRules").mockRejectedValue(new Error("Device is busy"));
+    vi.spyOn(store.backend, "saveDeviceSafeCopyRules").mockRejectedValue(new Error("Device is busy"));
     element!
       .querySelector("omb-rules-editor")!
       .dispatchEvent(

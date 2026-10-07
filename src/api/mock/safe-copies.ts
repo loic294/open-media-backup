@@ -62,7 +62,7 @@ export function mockSafeCopyDetails(
         rel: file.rel_path,
         sourceId: item.id,
         index,
-        excluded: !rulesAllowPath(item.safe_copy_rules ?? [], file.rel_path, vars),
+        excluded: !rulesAllowPath(device.safe_copy_rules ?? [], file.rel_path, vars),
         vars,
       });
       views.set(path, entries);
@@ -144,7 +144,7 @@ export function mockSafeCopyDetails(
         (device.role !== "temporary" ||
           [...verified, ...acknowledged].some((key) => targets.get(key)!.role === "final"));
       if (excluded)
-        reasons.push("Excluded from safe-copy requirements by source rules; transfers are unchanged");
+        reasons.push("Excluded from safe-copy requirements by device rules; transfers are unchanged");
       else if (!safe)
         reasons.push(
           `Requires ${requiredCopies} effective copies; currently ${copies}. Add safe destinations or finish pending transfers`,
@@ -198,6 +198,7 @@ export function mockSafeCopyDetails(
         mapping.computer_id === snapshot.computer.id &&
         !!mapping.root_path.trim(),
     ),
+    rules: structuredClone(device.safe_copy_rules ?? []),
     files: evidence.map((item) => item.file),
   };
 }

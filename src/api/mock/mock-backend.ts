@@ -434,14 +434,18 @@ export function createMockBackend(
       details.blocking_reason = workspace.blocking_reason;
       return details;
     },
-    saveSourceSafeCopyRules: async (context, sourceId, rules) => {
-      const details = mockSafeCopyDetails(snapshot, context, sourceId, counts, offline, safeSkipCounts());
+    saveDeviceSafeCopyRules: async (context, deviceId, rules) => {
+      const source = snapshot.sources.find(
+        (item) => item.space_id === context.spaceId && item.device_id === deviceId,
+      );
+      if (!source) throw new Error("Device must have a source in the workspace space");
+      const details = mockSafeCopyDetails(snapshot, context, source.id, counts, offline, safeSkipCounts());
       if (!details.editable)
         throw new Error("Safe-copy rules can only be edited for a device mapped on this computer");
       for (const rule of rules) {
         if (!("kind" in rule) && rule.syntax === "regex") new RegExp(rule.pattern, "i");
       }
-      snapshot.sources.find((source) => source.id === sourceId)!.safe_copy_rules = structuredClone(rules);
+      snapshot.devices.find((device) => device.id === deviceId)!.safe_copy_rules = structuredClone(rules);
       changed();
     },
     listWorkspaceFiles: async (req) => {

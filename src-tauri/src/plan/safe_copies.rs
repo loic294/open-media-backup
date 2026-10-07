@@ -177,7 +177,7 @@ pub fn device_safe_copy_report(
             let exclusion = source
                 .safe_copy_rules
                 .and_then(|rules| rules.ignore_reason(rel, source.vars))
-                .map(|reason| reason.replace("destination rule", "source safe-copy rule"));
+                .map(|reason| reason.replace("destination rule", "device safe-copy rule"));
             files
                 .entry(path)
                 .or_default()

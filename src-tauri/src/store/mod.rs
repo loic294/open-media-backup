@@ -60,6 +60,7 @@ impl Store {
             analysis_recovery_error,
         };
         store.migrate_copy_policy()?;
+        store.migrate_device_safe_copy_rules()?;
         Ok(store)
     }
 

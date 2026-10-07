@@ -14,6 +14,7 @@ pub struct SourceSafeCopyDetails {
     pub wipe_eligible: bool,
     pub blocking_reason: Option<String>,
     pub editable: bool,
+    pub rules: Vec<FileRule>,
     pub files: Vec<SafeCopyFile>,
 }
 
@@ -54,13 +55,29 @@ impl AppCore {
             }))
     }
 
-    pub fn save_source_safe_copy_rules(
+    pub fn save_device_safe_copy_rules(
         &self,
         context: &WorkspaceContext,
-        source_id: &str,
+        device_id: &str,
         rules: Vec<FileRule>,
     ) -> Result<(), String> {
-        let (mut source, device) = self.safe_copy_source(context, source_id)?;
+        let (space, _) = context
+            .load(&self.store)
+            .map_err(|error| error.to_string())?;
+        if !self
+            .store
+            .list_by::<Source>("space_id", &space.id)
+            .map_err(|error| error.to_string())?
+            .iter()
+            .any(|source| source.device_id == device_id)
+        {
+            return Err("Device must have a source in the workspace space".into());
+        }
+        let mut device: Device = self
+            .store
+            .get(device_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("device not found")?;
         if !self.safe_copy_editable(&device.id)? {
             return Err(
                 "Safe-copy rules can only be edited for a device mapped on this computer".into(),
@@ -69,8 +86,8 @@ impl AppCore {
         RuleSet::compile(&rules).map_err(|error| error.to_string())?;
         self.transfers
             .with_idle_resource(&format!("device:{}", device.id), || {
-                source.safe_copy_rules = rules;
-                self.store.put(&source).map_err(|error| error.to_string())
+                device.safe_copy_rules = rules;
+                self.store.put(&device).map_err(|error| error.to_string())
             })
     }
 
@@ -147,6 +164,7 @@ impl AppCore {
             wipe_eligible: wipe.eligible,
             blocking_reason: wipe.reason,
             editable: self.safe_copy_editable(&device.id)?,
+            rules: device.safe_copy_rules,
             files: assessment.device_files,
         })
     }
