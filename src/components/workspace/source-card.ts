@@ -89,20 +89,7 @@ export class OmbSourceCard extends OmbElement {
   }
 
   #footer() {
-    const st = sourceStatus(this.store.status, this.source.id);
-    if (!st)
-      return this.store.statusLoading
-        ? html`<span class="skeleton h-6 w-32"></span>`
-        : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
-    return html`
-      ${
-        this.#canOfferWipe()
-          ? this.#wipeButton()
-          : this.source.offer_wipe
-            ? html`<span class="text-sm text-base-content/60 truncate">${st.blocking_reason ?? ""}</span>`
-            : nothing
-      }
-    `;
+    return this.#canOfferWipe() ? this.#wipeButton() : nothing;
   }
 
   #safeCopiesIndicator() {
@@ -171,6 +158,7 @@ export class OmbSourceCard extends OmbElement {
         >
           <span class="block font-semibold">${device.name} · ${label}</span>
           ${details.map((line) => html`<span class="block break-words">${line}</span>`)}
+          ${this.source.offer_wipe && st.blocking_reason ? html`<span class="block break-words">${st.blocking_reason}</span>` : nothing}
         </span>
         <span
           class="badge badge-soft ${st.available ? "badge-success" : "badge-ghost"} cursor-help"
@@ -240,7 +228,13 @@ export class OmbSourceCard extends OmbElement {
               ${this.#safeCopiesIndicator()} ${this.#mountIndicator()}
             </div>
           </div>
-          <div class="flex items-center justify-between gap-3 min-h-8">${this.#footer()}</div>
+          ${
+            this.#canOfferWipe()
+              ? html`<div data-source-wipe-footer class="flex items-center justify-between gap-3 min-h-8">
+                  ${this.#footer()}
+                </div>`
+              : nothing
+          }
         </div>
         <span
           data-port-source=${this.source.id}

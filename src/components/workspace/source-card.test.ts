@@ -69,17 +69,38 @@ describe("source card status indicators", () => {
   it("shows Wipe card only for mounted sources with wiping enabled", async () => {
     const card = await renderCard();
     expect(card.textContent).toContain("Wipe card");
+    expect(card.querySelector("[data-source-wipe-footer]")?.textContent).toContain("Wipe card");
     store.status!.sources[0].available = false;
     card.requestUpdate();
     await card.updateComplete;
     expect(card.textContent).not.toContain("Wipe card");
     store.status!.sources[0].blocking_reason = "Wipe safety is checked against every active project";
+    expect(card.textContent).not.toContain("Wipe safety");
+    expect(card.querySelector("[data-source-wipe-footer]")).toBeNull();
     card.source = { ...card.source, offer_wipe: false };
     await card.updateComplete;
     expect(card.textContent).not.toContain("Wipe safety");
     expect(card.textContent).not.toContain("Wipe card");
     expect(card.textContent).toContain("safe copies");
     expect(card.textContent).toContain("Not mounted");
+  });
+
+  it("keeps wipe-blocking explanations in the mount tooltip, not below the indicator row", async () => {
+    store.status!.sources[0].available = false;
+    store.status!.sources[0].blocking_reason = "Connect the card before wiping";
+    const card = await renderCard();
+
+    const mounted = card.querySelector('[role="status"][aria-label="Not mounted"]')!;
+    const tooltip = card.querySelector(`#${mounted.getAttribute("aria-describedby")}`)!;
+    expect(tooltip.textContent).toContain("Connect the card before wiping");
+    expect(card.textContent).not.toContain("Wipe card");
+    expect(card.querySelector("[data-source-wipe-footer]")).toBeNull();
+
+    card.source = { ...card.source, offer_wipe: false };
+    await card.updateComplete;
+    const updatedMounted = card.querySelector('[role="status"][aria-label="Not mounted"]')!;
+    const updatedTooltip = card.querySelector(`#${updatedMounted.getAttribute("aria-describedby")}`)!;
+    expect(updatedTooltip.textContent).not.toContain("Connect the card before wiping");
   });
 
   it("places safe-copy and mounted indicators beside Browse media", async () => {
