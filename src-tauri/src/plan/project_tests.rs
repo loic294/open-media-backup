@@ -622,3 +622,63 @@ fn each_project_requires_its_own_destination_path_but_safe_copies_remain_device_
     assert!(assessment.status.wipe_eligible);
     assert_eq!(assessment.status.safe_copies, 1);
 }
+
+#[test]
+fn offline_sources_infer_projects_from_existing_destination_copies() {
+    use crate::domain::{FileCopy, FileRecord, HashAlgo};
+    let fx = Fixture::new();
+    let a = project(
+        "a",
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z",
+        ProjectGranularity::Day,
+    );
+    let mut b = a.clone();
+    b.id = "b".into();
+    b.name = "b".into();
+    fx.store.put_all(&[a, b]).unwrap();
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{project_name}".into();
+    destination.subfolder_per_source = false;
+    fx.store.put(&destination).unwrap();
+    let record = |hash: &str| FileRecord {
+        id: FileRecord::id_for(HashAlgo::Xxh64, hash),
+        size: 1,
+        hash: hash.into(),
+        ..Default::default()
+    };
+    let copy = |hash: &str, device: &str, path: &str| {
+        let file_id = FileRecord::id_for(HashAlgo::Xxh64, hash);
+        FileCopy {
+            id: FileCopy::id_for(&file_id, device, path),
+            file_id,
+            device_id: device.into(),
+            path: path.into(),
+            ..Default::default()
+        }
+    };
+    fx.store.put_all(&[record("sent"), record("new")]).unwrap();
+    fx.store
+        .put_all(&[
+            copy("sent", "card", "DCIM/A.JPG"),
+            copy("sent", "nas", "a/A.JPG"),
+            copy("new", "card", "DCIM/B.JPG"),
+        ])
+        .unwrap();
+    fx.unmount("card");
+    let catalog = Catalog::load(&fx.store).unwrap();
+    let ctx = resolve_flow(&fx.store, &fx.resolver, "project", "flow").unwrap();
+    assert!(ctx.source_root.is_none());
+    let files = source_files(None, "DCIM", "card", &catalog);
+    let planned = classify_files_with_capture_times(&ctx, &catalog, files, &HashMap::new(), None);
+    let sent: Vec<_> = planned.iter().filter(|f| f.rel_path == "A.JPG").collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].project_id.as_deref(), Some("a"));
+    assert_eq!(sent[0].category, Category::Transferred);
+    let new = planned.iter().find(|f| f.rel_path == "B.JPG").unwrap();
+    assert_eq!(new.category, Category::Ignored);
+    assert_eq!(
+        new.ignore_reason.as_deref(),
+        Some("Connect the source to match this file to a project")
+    );
+}

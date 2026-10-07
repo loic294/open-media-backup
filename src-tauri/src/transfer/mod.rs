@@ -2,6 +2,7 @@
 mod check;
 mod copy;
 mod destination_check;
+mod destination_folders;
 pub mod destination_hasher;
 mod handle;
 mod history;

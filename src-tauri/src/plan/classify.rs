@@ -165,6 +165,37 @@ pub fn classify_files_with_capture_times(
                             .any(|time| project.matches_capture_time(Some(*time)))
                 })
                 .collect();
+            // Offline sources have no readable capture time. Their projects are
+            // inferred from where the catalog already recorded the file on this
+            // destination, so earlier transfers still count as done.
+            let matches = if matches.is_empty() && ctx.source_root.is_none() {
+                file_id
+                    .as_ref()
+                    .filter(|id| catalog.has_copy_on(id, &ctx.dest_device.id))
+                    .map(|id| {
+                        ctx.projects
+                            .iter()
+                            .filter(|project| {
+                                !project.archived
+                                    && ctx.source.project_scope.allows(&project.id)
+                                    && ctx
+                                        .target_for_project(&file.rel_path, Some(project))
+                                        .ok()
+                                        .flatten()
+                                        .is_some_and(|target| {
+                                            catalog.has_copy_for_target(
+                                                id,
+                                                &ctx.dest_device.id,
+                                                &target,
+                                            )
+                                        })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                matches
+            };
             let projects: Vec<_> = if matches.is_empty() {
                 vec![None]
             } else {
@@ -195,8 +226,13 @@ pub fn classify_files_with_capture_times(
                         });
                     let target_path = target.ok().flatten();
                     let ignore_reason = rule_ignore_reason.or_else(|| {
-                        (missing_target && !configuration_failed && error.is_none())
-                            .then(|| "No matching project to build the destination path".into())
+                        (missing_target && !configuration_failed && error.is_none()).then(|| {
+                            if ctx.source_root.is_some() {
+                                "No matching project to build the destination path".into()
+                            } else {
+                                "Connect the source to match this file to a project".into()
+                            }
+                        })
                     });
                     let category = if ignore_reason.is_some() {
                         Category::Ignored

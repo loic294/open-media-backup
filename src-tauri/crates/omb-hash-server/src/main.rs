@@ -18,5 +18,9 @@ async fn main() -> std::io::Result<()> {
         config.id
     );
     println!("Pairing token: {}", config.token);
-    axum::serve(listener, router(server)).await
+    axum::serve(
+        listener,
+        router(server).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
 }

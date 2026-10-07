@@ -28,6 +28,24 @@ pub struct Browse {
     pub directories: Vec<String>,
 }
 
+/// One non-recursive directory listing. Symlinks and special files are reported
+/// in `other` so clients can surface them instead of treating them as missing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Listing {
+    pub path: String,
+    pub directories: Vec<String>,
+    pub files: Vec<ListedFile>,
+    #[serde(default)]
+    pub other: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedFile {
+    pub name: String,
+    pub size: u64,
+    pub modified: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HashRequest {

@@ -75,11 +75,42 @@ describe("destination check scope chooser", () => {
     );
   });
 
+  it("disables offline sources and never sends them", async () => {
+    const check = await render();
+    const incoming = [
+      ...new Set(store.snapshot!.flows.filter((f) => f.destination_id === "d2").map((f) => f.source_id)),
+    ];
+    const previousStatus = store.status;
+    store.status = {
+      sources: incoming.map((id, index) => ({ source_id: id, available: index !== 0 })),
+    } as unknown as typeof store.status;
+    try {
+      await choose("selectedSources");
+      dialog.requestUpdate();
+      await update();
+      const inputs = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+      expect(inputs[0].disabled).toBe(true);
+      expect(inputs[1].disabled).toBe(false);
+      expect(dialog.textContent).toContain("Offline");
+      inputs[1].click();
+      await update();
+      start().click();
+      await Promise.resolve();
+      expect(check).toHaveBeenCalledWith(
+        "d2",
+        { kind: "selectedSources", sourceIds: [incoming[1]] },
+        dialog.request.context,
+      );
+    } finally {
+      store.status = previousStatus;
+    }
+  });
+
   it("starts a source-independent inventory only after explicit confirmation", async () => {
     const check = await render();
     await choose("allDestination");
     expect(dialog.textContent).toContain("not verified");
-    expect(dialog.textContent).toContain("device root");
+    expect(dialog.textContent).toContain("existing destination folders");
     expect(check).not.toHaveBeenCalled();
     start().click();
     await Promise.resolve();

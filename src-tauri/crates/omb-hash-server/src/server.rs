@@ -1,6 +1,8 @@
-use crate::{validate_relative, Browse, HashRequest, HashResponse, Hello, Root};
+use crate::{
+    validate_relative, Browse, HashRequest, HashResponse, Hello, ListedFile, Listing, Root,
+};
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -12,12 +14,13 @@ use omb_hash::{constant_time_eq, hash_reader};
 use serde::Deserialize;
 use std::{
     io,
+    net::SocketAddr,
     path::{Path as FsPath, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::UNIX_EPOCH,
+    time::{Instant, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
 
@@ -208,6 +211,70 @@ impl HashServer {
             directories,
         })
     }
+
+    fn list(&self, root: &str, path: &str) -> io::Result<Listing> {
+        let (root, relative) = self.resolve(root, path)?;
+        let dir = root.dir.open_dir(if relative.as_os_str().is_empty() {
+            FsPath::new(".")
+        } else {
+            &relative
+        })?;
+        let mut listing = Listing {
+            path: path.into(),
+            directories: Vec::new(),
+            files: Vec::new(),
+            other: Vec::new(),
+        };
+        for entry in dir.entries()? {
+            let entry = entry?;
+            let Ok(name) = entry.file_name().into_string() else {
+                listing
+                    .other
+                    .push(entry.file_name().to_string_lossy().into_owned());
+                continue;
+            };
+            // Synology metadata folders are hidden from SMB clients too.
+            if name == "@eaDir" {
+                continue;
+            }
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                listing.directories.push(name);
+            } else if file_type.is_file() {
+                let metadata = entry.metadata()?;
+                listing.files.push(ListedFile {
+                    name,
+                    size: metadata.len(),
+                    modified: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|m| m.into_std().duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as u64),
+                });
+            } else {
+                listing.other.push(name);
+            }
+        }
+        listing.directories.sort();
+        listing.files.sort_by(|a, b| a.name.cmp(&b.name));
+        listing.other.sort();
+        Ok(listing)
+    }
+
+    fn root_name(&self, selection: &str) -> String {
+        let (id, subfolder) = selection.split_once('/').unwrap_or((selection, ""));
+        let name = self
+            .roots
+            .iter()
+            .find(|r| r.info.id == id)
+            .map(|r| r.info.name.as_str())
+            .unwrap_or("unknown-root");
+        if subfolder.is_empty() {
+            name.into()
+        } else {
+            format!("{name}/{subfolder}")
+        }
+    }
 }
 
 pub fn router(server: HashServer) -> Router {
@@ -215,10 +282,71 @@ pub fn router(server: HashServer) -> Router {
         .route("/v1/hello", get(hello))
         .route("/v1/roots", get(roots))
         .route("/v1/roots/{id}/browse", get(browse))
+        .route("/v1/roots/{id}/list", get(list))
         .route("/v1/hash", post(hash))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(server.clone(), auth))
+        .layer(middleware::from_fn(log_request))
         .with_state(server)
+}
+
+/// One line per request, including rejected ones. Tokens and bodies are never logged.
+async fn log_request(req: axum::extract::Request, next: Next) -> Response {
+    let started = Instant::now();
+    let method = req.method().clone();
+    let path = req.uri().path().to_owned();
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().to_string())
+        .unwrap_or_else(|| "-".into());
+    let response = next.run(req).await;
+    let detail = response
+        .extensions()
+        .get::<LogDetail>()
+        .map(|d| format!(" {}", d.0))
+        .unwrap_or_default();
+    println!(
+        "{} {peer} {method} {path} {} {}ms{detail}",
+        timestamp(),
+        response.status().as_u16(),
+        started.elapsed().as_millis(),
+    );
+    response
+}
+
+#[derive(Clone)]
+struct LogDetail(String);
+
+fn with_detail(mut response: Response, detail: String) -> Response {
+    response.extensions_mut().insert(LogDetail(detail));
+    response
+}
+
+/// RFC 3339 UTC timestamp without pulling in a date library.
+fn timestamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs() as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Howard Hinnant's civil-from-days algorithm.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rem / 3_600,
+        rem % 3_600 / 60,
+        rem % 60,
+        now.subsec_millis()
+    )
 }
 
 async fn auth(
@@ -253,21 +381,34 @@ impl Drop for CancelOnDrop {
 }
 
 async fn hash(State(server): State<HashServer>, Json(req): Json<HashRequest>) -> Response {
+    let detail = format!(
+        "hash {:?} {}/{}",
+        req.algo,
+        server.root_name(&req.root),
+        req.rel_path
+    );
     let Ok(permit) = server.permits.clone().try_acquire_owned() else {
-        return (StatusCode::TOO_MANY_REQUESTS, "hash server is busy").into_response();
+        return with_detail(
+            (StatusCode::TOO_MANY_REQUESTS, "hash server is busy").into_response(),
+            format!("{detail} busy"),
+        );
     };
     let flag = Arc::new(AtomicBool::new(false));
     let _guard = CancelOnDrop(flag.clone());
-    match tokio::task::spawn_blocking(move || {
+    let response = match tokio::task::spawn_blocking(move || {
         let _permit = permit;
         server.hash(req, &flag)
     })
     .await
     {
-        Ok(Ok(result)) => Json(result).into_response(),
-        Ok(Err(error)) => io_response(error),
+        Ok(Ok(result)) => {
+            let detail = format!("{detail} {} bytes", result.size);
+            return with_detail(Json(result).into_response(), detail);
+        }
+        Ok(Err(error)) => return with_detail(io_response(&error), format!("{detail}: {error}")),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "hash worker failed").into_response(),
-    }
+    };
+    with_detail(response, detail)
 }
 
 #[derive(Deserialize)]
@@ -291,12 +432,43 @@ async fn browse(
     .await
     {
         Ok(Ok(result)) => Json(result).into_response(),
-        Ok(Err(error)) => io_response(error),
+        Ok(Err(error)) => io_response(&error),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
-fn io_response(error: io::Error) -> Response {
+async fn list(
+    State(server): State<HashServer>,
+    Path(id): Path<String>,
+    Query(query): Query<BrowseQuery>,
+) -> Response {
+    let detail = format!("list {}/{}", server.root_name(&id), query.path);
+    let Ok(permit) = server.permits.clone().try_acquire_owned() else {
+        return with_detail(
+            StatusCode::TOO_MANY_REQUESTS.into_response(),
+            format!("{detail} busy"),
+        );
+    };
+    match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        server.list(&id, &query.path)
+    })
+    .await
+    {
+        Ok(Ok(result)) => {
+            let detail = format!(
+                "{detail} {} dirs {} files",
+                result.directories.len(),
+                result.files.len()
+            );
+            with_detail(Json(result).into_response(), detail)
+        }
+        Ok(Err(error)) => with_detail(io_response(&error), format!("{detail}: {error}")),
+        Err(_) => with_detail(StatusCode::INTERNAL_SERVER_ERROR.into_response(), detail),
+    }
+}
+
+fn io_response(error: &io::Error) -> Response {
     let status = match error.kind() {
         io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
         io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
@@ -399,6 +571,39 @@ mod tests {
         .await
         .expect("disconnected client must release the hashing slot promptly");
         serving.abort();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_reports_files_directories_and_non_regular_entries() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("a/@eaDir")).unwrap();
+        std::fs::create_dir(root.path().join("a/sub")).unwrap();
+        std::fs::write(root.path().join("a/file.mp4"), b"12345").unwrap();
+        std::os::unix::fs::symlink("file.mp4", root.path().join("a/link")).unwrap();
+        let server = HashServer::new(
+            "id".into(),
+            "test".into(),
+            "token".into(),
+            vec![root.path().into()],
+            1,
+        )
+        .unwrap();
+        let listing = server.list(&server.roots()[0].id, "a").unwrap();
+        assert_eq!(listing.directories, vec!["sub"]);
+        assert_eq!(listing.files.len(), 1);
+        assert_eq!(listing.files[0].name, "file.mp4");
+        assert_eq!(listing.files[0].size, 5);
+        assert!(listing.files[0].modified.is_some());
+        assert_eq!(listing.other, vec!["link"]);
+        assert!(server.list(&server.roots()[0].id, "../").is_err());
+    }
+
+    #[test]
+    fn timestamps_are_rfc3339_utc() {
+        let stamp = timestamp();
+        assert_eq!(stamp.len(), 24, "{stamp}");
+        assert!(stamp.starts_with("20") && stamp.ends_with('Z'), "{stamp}");
     }
 
     #[cfg(unix)]

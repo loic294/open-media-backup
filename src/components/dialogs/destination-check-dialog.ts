@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { DestinationCheckScope } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
+import { sourceStatus } from "../../state/derived";
 import { deviceById } from "../../state/selectors";
 import { destinationTaskName, sourceTaskName } from "../../utils/names";
 import { DialogBase } from "./dialog-base";
@@ -20,12 +21,21 @@ export class OmbDestinationCheckDialog extends DialogBase<
   @state() private selected: string[] = [];
   @state() private busy = false;
 
+  /** Unknown status (not loaded yet) is not treated as offline. */
+  #offline(sourceId: string) {
+    return sourceStatus(this.store.status, sourceId)?.available === false;
+  }
+
+  #selectedOnline() {
+    return this.selected.filter((id) => !this.#offline(id));
+  }
+
   async #start() {
     this.busy = true;
     try {
       const scope: DestinationCheckScope =
         this.scope === "selectedSources"
-          ? { kind: this.scope, sourceIds: [...this.selected] }
+          ? { kind: this.scope, sourceIds: this.#selectedOnline() }
           : { kind: this.scope };
       if (await this.store.checkDestination(this.request.destinationId, scope, this.request.context))
         this.dismiss();
@@ -83,30 +93,34 @@ export class OmbDestinationCheckDialog extends DialogBase<
             this.scope === "selectedSources"
               ? html`<fieldset class="border border-base-300 rounded-box p-3 space-y-3">
                   <legend class="text-sm px-1">Configured sources</legend>
-                  ${sources.map(
-                    (source) =>
-                      html`<label class="flex items-start gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          class="checkbox checkbox-sm mt-0.5"
-                          value=${source.id}
-                          .checked=${this.selected.includes(source.id)}
-                          @change=${(event: Event) => {
-                            this.selected = (event.target as HTMLInputElement).checked
-                              ? [...this.selected, source.id]
-                              : this.selected.filter((id) => id !== source.id);
-                          }}
-                        />
-                        <span class="text-sm">
-                          ${sourceTaskName(source, deviceById(snapshot, source.device_id))}
-                          <span class="block text-xs text-base-content/60">${source.path_template}</span>
-                        </span>
-                      </label>`,
-                  )}
+                  ${sources.map((source) => {
+                    const offline = this.#offline(source.id);
+                    return html`<label
+                      class="flex items-start gap-3 ${offline ? "cursor-not-allowed opacity-60" : "cursor-pointer"}"
+                    >
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-sm mt-0.5"
+                        value=${source.id}
+                        ?disabled=${offline}
+                        .checked=${!offline && this.selected.includes(source.id)}
+                        @change=${(event: Event) => {
+                          this.selected = (event.target as HTMLInputElement).checked
+                            ? [...this.selected, source.id]
+                            : this.selected.filter((id) => id !== source.id);
+                        }}
+                      />
+                      <span class="text-sm">
+                        ${sourceTaskName(source, deviceById(snapshot, source.device_id))}
+                        ${offline ? html`<span class="badge badge-ghost badge-sm ml-1">Offline</span>` : nothing}
+                        <span class="block text-xs text-base-content/60">${source.path_template}</span>
+                      </span>
+                    </label>`;
+                  })}
                   <p class="text-xs text-base-content/60">
                     ${
                       sources.length
-                        ? "Select at least one source. Selected sources must be valid and connected."
+                        ? "Select at least one connected source. Offline sources cannot be checked."
                         : "No sources are configured for this destination."
                     }
                   </p>
@@ -117,12 +131,13 @@ export class OmbDestinationCheckDialog extends DialogBase<
         <p class="text-sm text-base-content/70 mt-4">
           ${
             this.scope === "allDestination"
-              ? html`Scans the static folder prefix of the destination template, including all project/source
-                subfolders. If the template starts with a variable, scans the device root. Tracked files are
+              ? html`Checks every file in the existing destination folders, resolved from projects and from
+                folders already recorded in the catalog (such as previous backup folders). Tracked files are
                 checked against catalog hashes, even with sources offline. Files without comparable catalog
                 evidence are reported as untracked, not verified. Symlinks are not followed.`
               : html`Compares connected, valid sources with their expected destination paths using fresh
-                hashes and configured file rules. Reports missing or different files.`
+                hashes and configured file rules. Offline sources are skipped. Reports missing or different
+                files.`
           }
         </p>
         <p class="text-xs text-base-content/60 mt-3">
@@ -135,7 +150,7 @@ export class OmbDestinationCheckDialog extends DialogBase<
         <button
           class="btn btn-primary"
           ?disabled=${
-            this.busy || !destination || (this.scope === "selectedSources" && !this.selected.length)
+            this.busy || !destination || (this.scope === "selectedSources" && !this.#selectedOnline().length)
           }
           @click=${() => this.#start()}
         >

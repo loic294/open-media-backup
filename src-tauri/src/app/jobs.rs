@@ -221,7 +221,9 @@ impl AppCore {
             .list_by("space_id", &context.space_id)
             .map_err(|e| e.to_string())?;
         // Resolve and validate the complete request before enqueueing any work.
+        // Sources are rarely all connected at once, so offline ones are skipped.
         let mut valid = Vec::new();
+        let mut offline = Vec::new();
         for flow in flows.iter().filter(|f| {
             f.destination_id == destination_id
                 && selected
@@ -231,15 +233,22 @@ impl AppCore {
             let ctx =
                 resolve_workspace_flow(&self.store, self.resolver.as_ref(), context, &flow.id)
                     .map_err(|error| error.to_string())?;
-            if ctx.config_error.is_some()
-                || !ctx.source_path_valid
-                || ctx.source_root.is_none()
-                || ctx.dest_root.is_none()
-            {
+            if ctx.dest_root.is_none() {
+                return Err("Connect the destination device to check".into());
+            }
+            if ctx.source_root.is_none() {
+                offline.push(
+                    ctx.source
+                        .resolved_task_name(&ctx.source_device)
+                        .to_string(),
+                );
+                continue;
+            }
+            if ctx.config_error.is_some() || !ctx.source_path_valid {
                 if selected.is_some() {
                     return Err(format!(
-                        "Source {} is not valid and connected for this destination",
-                        flow.source_id
+                        "Source {} is not valid for this destination",
+                        ctx.source.resolved_task_name(&ctx.source_device)
                     ));
                 }
                 continue;
@@ -247,22 +256,36 @@ impl AppCore {
             valid.push(ctx);
         }
         if let Some(selected) = &selected {
-            if let Some(id) = selected
-                .iter()
-                .find(|id| !valid.iter().any(|ctx| &ctx.source.id == **id))
-            {
+            if let Some(id) = selected.iter().find(|id| {
+                !valid.iter().any(|ctx| &ctx.source.id == **id)
+                    && !flows
+                        .iter()
+                        .any(|f| f.destination_id == destination_id && &f.source_id == **id)
+            }) {
                 return Err(format!(
                     "Source {id} is not a valid incoming source for this destination"
                 ));
             }
         }
         if valid.is_empty() {
-            return Err("Connect the source and destination devices to check".into());
+            return Err(if offline.is_empty() {
+                "No valid sources to check for this destination".into()
+            } else {
+                format!(
+                    "Connect a source device to check. Offline: {}",
+                    offline.join(", ")
+                )
+            });
         }
+        offline.sort();
+        offline.dedup();
+        let skipped = (!offline.is_empty())
+            .then(|| format!("Skipped offline sources: {}", offline.join(", ")));
         let mut ids = Vec::new();
         for ctx in valid {
             let (store, resolver) = (self.store.clone(), self.resolver.clone());
             let (context, flow_id) = (context.clone(), ctx.flow.id.clone());
+            let skipped = skipped.clone();
             let destination_path = format!(
                 "destination-path:{}:{}",
                 ctx.dest_device.id, ctx.dest_folder_rel
@@ -280,6 +303,9 @@ impl AppCore {
                     kind: JobKind::Check,
                     queue: None,
                     work: Box::new(move |handle| {
+                        if let Some(warning) = skipped {
+                            handle.update(|job| job.warnings.push(warning));
+                        }
                         run_workspace_check(&store, resolver.as_ref(), &context, &flow_id, handle)
                     }),
                 },

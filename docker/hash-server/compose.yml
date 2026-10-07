@@ -13,9 +13,17 @@ services:
       - hash-config:/config
       # Replace with your actual NAS share. The server needs read/traverse permissions.
       - /volume1/photos:/data/photos:ro
+    # Synology shared folders are ACL-only (mode 000), so the default non-root
+    # UID 65532 cannot read them. On Synology, uncomment both lines below.
+    # user: "0:0"
     read_only: true
     cap_drop: [ALL]
+    # cap_add: [DAC_READ_SEARCH]
     security_opt: [no-new-privileges:true]
+    # Every request is logged; keep the log bounded.
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
 volumes:
   hash-config:

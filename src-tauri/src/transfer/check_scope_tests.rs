@@ -90,6 +90,13 @@ fn second_source(fx: &Fixture) {
     fx.write_card_file("OTHER/B.JPG", b"b");
 }
 
+/// Files directly in the destination template folder, without per-source subfolders.
+fn flat(fx: &Fixture) {
+    let mut destination: crate::domain::Destination = fx.store.get("dst").unwrap().unwrap();
+    destination.subfolder_per_source = false;
+    fx.store.put(&destination).unwrap();
+}
+
 fn selected(ids: &[&str]) -> CheckScope {
     CheckScope::SelectedSources {
         source_ids: ids.iter().map(|id| (*id).into()).collect(),
@@ -222,6 +229,7 @@ fn check_scope_configured_sources_wrapper_preserves_valid_incoming_checks() {
 #[test]
 fn check_scope_all_destination_works_without_sources_or_flows() {
     let fx = Fixture::new();
+    flat(&fx);
     fx.store.delete(EntityKind::Flow, "flow").unwrap();
     fx.unmount("card");
     write(fx.nas_dir.path(), "photo/Trip/old-source/A.JPG", b"a");
@@ -240,6 +248,7 @@ fn check_scope_all_destination_works_without_sources_or_flows() {
 #[test]
 fn check_scope_full_scan_verifies_recorded_algorithms_and_inventories_missing_changed_untracked() {
     let fx = Fixture::new();
+    flat(&fx);
     fx.unmount("card");
     for (name, algo) in [("A.JPG", HashAlgo::Blake3), ("B.JPG", HashAlgo::Xxh64)] {
         let path = format!("photo/Trip/old/{name}");
@@ -300,20 +309,82 @@ fn check_scope_full_scan_verifies_recorded_algorithms_and_inventories_missing_ch
 }
 
 #[test]
-fn check_scope_full_scan_dynamic_template_covers_all_subfolders_only_under_static_prefix() {
+fn check_scope_full_scan_only_scans_existing_project_and_catalog_folders() {
     let fx = Fixture::new();
+    fx.unmount("card");
     let mut destination = fx.destination.clone();
-    destination.path_template = "photo/{project}/{source_name}".into();
+    destination.path_template = "photo/{project}/{backup_folder}".into();
+    destination.use_backup_marker = true;
     fx.store.put(&destination).unwrap();
-    write(fx.nas_dir.path(), "photo/Trip/A/one", b"1");
-    write(fx.nas_dir.path(), "photo/Old/B/two", b"2");
+    // Card name subfolder of a backup folder recorded in the catalog.
+    let known = claim(
+        &fx,
+        "photo/Trip/2026-01-01/Camera A Card 1/A.JPG",
+        b"a",
+        HashAlgo::Xxh64,
+    );
+    write(fx.nas_dir.path(), &known.path, b"a");
+    write(
+        fx.nas_dir.path(),
+        "photo/Trip/2026-01-01/Camera A Card 1/new.JPG",
+        b"n",
+    );
+    // Not a recorded backup folder, another source's folder, an unknown project.
+    write(
+        fx.nas_dir.path(),
+        "photo/Trip/2026-02-02/Camera A Card 1/x",
+        b"x",
+    );
+    write(
+        fx.nas_dir.path(),
+        "photo/Trip/2026-01-01/Other card/y",
+        b"y",
+    );
+    write(
+        fx.nas_dir.path(),
+        "photo/Old/2026-01-01/Camera A Card 1/z",
+        b"z",
+    );
     write(fx.nas_dir.path(), "unrelated/three", b"3");
+    let results = scan(&fx);
+    assert_eq!((results.verified, results.untracked), (1, 1));
+    assert_eq!(results.missing + results.errors, 0);
+    // A connected card's marker adds its current backup folder.
+    fx.resolver
+        .0
+        .lock()
+        .insert("card".into(), fx.card_dir.path().to_path_buf());
+    crate::paths::ensure_backup_folder(fx.card_dir.path(), "2026-02-02").unwrap();
     assert_eq!(scan(&fx).untracked, 2);
+}
+
+#[test]
+fn check_scope_full_scan_reports_nothing_without_known_folders() {
+    let fx = Fixture::new();
+    fx.unmount("card");
+    let mut destination = fx.destination.clone();
+    destination.path_template = "{backup_folder}".into();
+    destination.use_backup_marker = true;
+    fx.store.put(&destination).unwrap();
+    write(fx.nas_dir.path(), "2026-01-01/Camera A Card 1/A.JPG", b"a");
+    let handle = handle();
+    run_destination_check(
+        &fx.store,
+        &fx.resolver,
+        &context(&fx),
+        &destination,
+        &handle,
+    )
+    .unwrap();
+    let job = handle.snapshot();
+    assert_eq!(job.check_results.unwrap().items.len(), 0);
+    assert_eq!(job.warnings.len(), 1, "{:?}", job.warnings);
 }
 
 #[test]
 fn check_scope_full_scan_never_fabricates_pass_for_unusable_catalog_evidence() {
     let fx = Fixture::new();
+    flat(&fx);
     let copy = claim(&fx, "photo/Trip/bad.JPG", b"same", HashAlgo::Blake3);
     write(fx.nas_dir.path(), &copy.path, b"different");
     fx.store
@@ -330,6 +401,7 @@ fn check_scope_full_scan_never_fabricates_pass_for_unusable_catalog_evidence() {
 #[test]
 fn check_scope_full_scan_assesses_every_live_claim_at_the_same_location() {
     let fx = Fixture::new();
+    flat(&fx);
     let path = "photo/Trip/A.JPG";
     let stale = claim(&fx, path, b"old", HashAlgo::Blake3);
     let current = claim(&fx, path, b"new", HashAlgo::Xxh64);
@@ -355,6 +427,7 @@ fn check_scope_full_scan_assesses_every_live_claim_at_the_same_location() {
 #[test]
 fn check_scope_full_scan_reports_unsafe_claim_paths_without_invalidating_or_reading_them() {
     let fx = Fixture::new();
+    flat(&fx);
     let unsafe_copy = claim(
         &fx,
         "photo/Trip/../../secret.JPG",
@@ -413,6 +486,7 @@ fn check_scope_rejects_invalid_destination_and_workspace_before_enqueue() {
 #[test]
 fn check_scope_full_scan_checks_acknowledged_destination_hash_not_source_hash() {
     let fx = Fixture::new();
+    flat(&fx);
     let copy = claim(&fx, "photo/Trip/skipped.JPG", b"source", HashAlgo::Xxh64);
     let mut destination_hash = omb_hash::hasher(HashAlgo::Xxh64);
     destination_hash.update(b"destination");
@@ -450,6 +524,7 @@ fn check_scope_full_scan_checks_acknowledged_destination_hash_not_source_hash() 
 fn check_scope_full_scan_does_not_follow_file_directory_or_root_symlinks() {
     use std::os::unix::fs::symlink;
     let fx = Fixture::new();
+    flat(&fx);
     let external = fx.write_card_file("external/secret.JPG", b"secret");
     std::fs::create_dir_all(fx.nas_dir.path().join("photo/Trip")).unwrap();
     symlink(
@@ -507,6 +582,7 @@ fn check_scope_full_scan_uses_remote_hasher_for_catalog_algorithm() {
     use axum::{routing::post, Json, Router};
     use std::sync::atomic::{AtomicUsize, Ordering};
     let fx = Fixture::new();
+    flat(&fx);
     let copy = claim(&fx, "photo/Trip/A.JPG", b"same", HashAlgo::Xxh64);
     write(fx.nas_dir.path(), &copy.path, b"same");
     let record = fx.store.get::<FileRecord>(&copy.file_id).unwrap().unwrap();
@@ -537,10 +613,10 @@ fn check_scope_full_scan_uses_remote_hasher_for_catalog_algorithm() {
             ..Default::default()
         })
         .unwrap();
-    let mut destination = fx.destination.clone();
+    let mut destination: crate::domain::Destination = fx.store.get("dst").unwrap().unwrap();
     destination.remote_hash = Some(RemoteHash {
         server_id: "remote".into(),
-        root: "root".into(),
+        root: "a".repeat(64),
         enabled: true,
     });
     fx.store.put(&destination).unwrap();
@@ -558,4 +634,43 @@ fn check_scope_full_scan_uses_remote_hasher_for_catalog_algorithm() {
     assert!(job.remote_hash_active);
     assert!(job.warnings.is_empty(), "{:?}", job.warnings);
     assert_eq!(job.check_results.unwrap().verified, 1);
+}
+
+#[test]
+fn check_scope_source_checks_skip_offline_sources_with_a_warning() {
+    for scope in [CheckScope::ConfiguredSources, selected(&["src", "src2"])] {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", b"a");
+        second_source(&fx);
+        let mut source: crate::domain::Source = fx.store.get("src2").unwrap().unwrap();
+        source.device_id = "offline".into();
+        source.task_name = "Offline card".into();
+        let mut device = fx.card.clone();
+        device.id = "offline".into();
+        fx.store.put(&device).unwrap();
+        fx.store.put(&source).unwrap();
+        let app = app(&fx);
+        let ids = app
+            .check_workspace_destination_scoped(&context(&fx), "dst", scope.clone())
+            .unwrap();
+        assert_eq!(ids.len(), 1, "{scope:?}");
+        wait(&app);
+        let job = &app.transfers.jobs()[0];
+        assert_eq!(job.flow_id, "check:flow");
+        assert_eq!(job.warnings, vec!["Skipped offline sources: Offline card"]);
+    }
+}
+
+#[test]
+fn check_scope_source_checks_fail_when_every_source_is_offline() {
+    let fx = Fixture::new();
+    fx.unmount("card");
+    let app = app(&fx);
+    for scope in [CheckScope::ConfiguredSources, selected(&["src"])] {
+        let error = app
+            .check_workspace_destination_scoped(&context(&fx), "dst", scope)
+            .unwrap_err();
+        assert!(error.starts_with("Connect a source device"), "{error}");
+    }
+    assert!(app.transfers.jobs().is_empty());
 }
