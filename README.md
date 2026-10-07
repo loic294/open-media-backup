@@ -44,7 +44,13 @@ Help me keep the lights on by making a donation via "Buy me a coffee". Any amoun
 
 You can browse, preview, and transfer files before creating a project. Files without
 a matching project stay unassigned and can use project-independent destination paths.
-App destinations still require a manual import and confirmation.
+App destinations still require a manual import and confirmation. **Mark as transferred**
+queues a background import-confirmation job and closes the dialog after enqueueing.
+Follow hashing and file progress in **Active jobs**, where you can pause, resume, or
+cancel it. Completed files are recorded as the job progresses; cancellation or a
+failure preserves those completed records without marking unfinished files.
+Completion, cancellation, and failures produce a notification. These jobs do not
+copy media or contribute to learned transfer speeds.
 
 Paths needing project values are blocked until those values are available. An existing
 backup-folder marker can resolve `{backup_folder}` without a project; a new marker

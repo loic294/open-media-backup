@@ -89,9 +89,9 @@ export interface Backend {
   openMedia(absPath: string): Promise<void>;
   revealInFileManager(kind: RevealKind, id: string): Promise<void>;
   openFlowInApp(projectId: string, flowId: string): Promise<OpenAppImportResult>;
-  confirmAppImport(projectId: string, flowId: string, token: string): Promise<number>;
+  confirmAppImport(projectId: string, flowId: string, token: string): Promise<string>;
   openWorkspaceFlowInApp(context: WorkspaceContext, flowId: string): Promise<OpenAppImportResult>;
-  confirmWorkspaceAppImport(context: WorkspaceContext, flowId: string, token: string): Promise<number>;
+  confirmWorkspaceAppImport(context: WorkspaceContext, flowId: string, token: string): Promise<string>;
   checkForUpdate(): Promise<UpdateInfo | null>;
   installUpdate(): Promise<void>;
 

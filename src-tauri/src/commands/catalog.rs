@@ -225,7 +225,7 @@ pub async fn confirm_app_import(
     project_id: String,
     flow_id: String,
     token: String,
-) -> CmdResult<usize> {
+) -> CmdResult<String> {
     blocking(&state, move |s| {
         s.core.confirm_app_import(&project_id, &flow_id, &token)
     })
@@ -238,7 +238,7 @@ pub async fn confirm_workspace_app_import(
     context: WorkspaceContext,
     flow_id: String,
     token: String,
-) -> CmdResult<usize> {
+) -> CmdResult<String> {
     blocking(&state, move |s| {
         s.core
             .confirm_workspace_app_import(&context, &flow_id, &token)

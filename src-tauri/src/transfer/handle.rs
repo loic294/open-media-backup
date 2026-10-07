@@ -35,6 +35,7 @@ pub enum JobKind {
     #[default]
     Transfer,
     Check,
+    AppImport,
     Wipe,
 }
 
@@ -247,7 +248,7 @@ impl JobHandle {
     ) -> Self {
         if let Some(context) = context {
             let mut job = self.job.lock();
-            if job.kind != JobKind::Wipe {
+            if matches!(job.kind, JobKind::Transfer | JobKind::Check) {
                 let tracker = PhaseTracker::new(job.id.clone(), context, job.kind);
                 job.analysis = Some(tracker.job.clone());
                 *self.analysis.lock() = Some(tracker);

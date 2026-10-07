@@ -48,4 +48,15 @@ describe("job progress states", () => {
     expect(element.textContent).toContain("destination check");
     expect(element.textContent).toContain("Checking hashes");
   });
+
+  it("shows background import confirmation with pause and cancel controls", async () => {
+    store.transfers = [{ ...job, kind: "app_import", state: "running" }];
+    element = new OmbTransferProgress();
+    document.body.append(element);
+    await element.updateComplete;
+    expect(element.textContent).toContain("import confirmation");
+    expect(element.textContent).toContain("Marking as transferred");
+    expect(element.querySelector<HTMLButtonElement>('button[title="Pause"]')?.disabled).toBe(false);
+    expect(element.querySelector('button[title="Cancel job"]')).not.toBeNull();
+  });
 });

@@ -25,7 +25,7 @@ export class OmbActiveJobsPanel extends OmbElement {
           <div class="flex justify-between text-sm gap-3">
             <span class="font-medium truncate">${job.label}</span>
             <span class="text-base-content/60 whitespace-nowrap"
-              >${waiting ? "Waiting for your decision" : paused ? "Paused" : job.state === "queued" ? "Queued" : job.kind === "check" ? "Checking hashes" : speed || `${pct}%`}</span
+              >${waiting ? "Waiting for your decision" : paused ? "Paused" : job.state === "queued" ? "Queued" : job.kind === "check" ? "Checking hashes" : job.kind === "app_import" ? "Marking as transferred" : speed || `${pct}%`}</span
             >
           </div>
           <progress

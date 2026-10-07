@@ -51,7 +51,12 @@ export class OmbDestinationCard extends OmbElement {
         (job) =>
           isActive(job) &&
           (job.flow_id === `check:destination:${this.destination.id}` ||
-            this.#incoming.some((flow) => job.flow_id === flow.id || job.flow_id === `check:${flow.id}`)),
+            this.#incoming.some(
+              (flow) =>
+                job.flow_id === flow.id ||
+                job.flow_id === `check:${flow.id}` ||
+                job.flow_id === `app-import:${flow.id}`,
+            )),
       )
     );
   }

@@ -66,6 +66,7 @@ export class AppStore extends EventTarget {
   #statusFlight: { signature: string; promise: Promise<void> } | null = null;
   #statusRefreshPending = false;
   #shownCheckResults = new Set<string>();
+  #shownImportResults = new Set<string>();
   #transfersSeq = 0;
   #activeJobsOnly = false;
   #shownHashWarnings = new Set<string>();
@@ -338,8 +339,26 @@ export class AppStore extends EventTarget {
           requestId: waiting.pending_conflict.request_id,
         });
     }
-    let completedCheck = false;
+    let completedJob = false;
     for (const job of jobs) {
+      if (
+        job.kind === "app_import" &&
+        ["done", "failed", "cancelled"].includes(job.state) &&
+        !this.#shownImportResults.has(job.id)
+      ) {
+        this.#shownImportResults.add(job.id);
+        const count = job.files_done.toLocaleString("en-US");
+        const result = `${count} ${job.files_done === 1 ? "file" : "files"} marked transferred`;
+        this.toast(
+          job.state === "failed" ? "error" : job.state === "cancelled" ? "warning" : "success",
+          job.state === "failed"
+            ? `${job.label}: ${job.errors.join("; ")}. ${result}`
+            : job.state === "cancelled"
+              ? `Mark as transferred cancelled. ${result}`
+              : result,
+        );
+        completedJob = true;
+      }
       if (
         job.kind !== "check" ||
         !["done", "failed", "cancelled"].includes(job.state) ||
@@ -348,12 +367,12 @@ export class AppStore extends EventTarget {
         continue;
       this.#shownCheckResults.add(job.id);
       dialogs.push({ type: "destination-check-results", job });
-      completedCheck = true;
+      completedJob = true;
     }
     const conflictIndex = dialogs.findIndex((dialog) => dialog.type === "transfer-conflict");
     if (conflictIndex >= 0) dialogs.push(...dialogs.splice(conflictIndex, 1));
     this.#set({ transfers: jobs, dialogs });
-    if (completedCheck) this.refreshStatus();
+    if (completedJob) this.refreshStatus();
   }
 
   async runDestination(destinationId: string): Promise<void> {
@@ -420,12 +439,10 @@ export class AppStore extends EventTarget {
       confirmLabel: "Mark as transferred",
       cancelLabel: "Not yet",
       onConfirm: async () => {
-        const marked = await this.backend.confirmWorkspaceAppImport(context, flowId, opened.token);
-        this.toast(
-          "success",
-          `${marked.toLocaleString("en-US")} ${marked === 1 ? "file" : "files"} marked transferred`,
-        );
-        this.refreshStatus();
+        await this.#guard(async () => {
+          await this.backend.confirmWorkspaceAppImport(context, flowId, opened.token);
+          this.toast("info", "Mark as transferred queued. Follow progress in Active jobs.");
+        });
       },
     });
   }

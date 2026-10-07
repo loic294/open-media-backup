@@ -384,7 +384,7 @@ impl AppCore {
         project_id: &str,
         flow_id: &str,
         token: &str,
-    ) -> Result<usize, String> {
+    ) -> Result<String, String> {
         let context =
             WorkspaceContext::for_project(&self.store, project_id).map_err(|e| e.to_string())?;
         self.confirm_workspace_app_import(&context, flow_id, token)
@@ -395,13 +395,15 @@ impl AppCore {
         context: &WorkspaceContext,
         flow_id: &str,
         token: &str,
-    ) -> Result<usize, String> {
-        use crate::domain::{DestinationKind, FileCopy, FileRecord};
-        use crate::plan::{classify_flow, resolve_workspace_flow, Category};
+    ) -> Result<String, String> {
+        use crate::plan::resolve_workspace_flow;
+        use crate::transfer::{JobKind, JobSpec, ResourceClaim};
 
-        let mut imports = self.app_imports.lock();
-        let session = imports
-            .remove(token)
+        let session = self
+            .app_imports
+            .lock()
+            .get(token)
+            .cloned()
             .ok_or_else(|| "This app import confirmation is no longer valid".to_string())?;
         if session.context != *context || session.flow_id != flow_id {
             return Err("This app import confirmation does not match the flow".into());
@@ -411,8 +413,49 @@ impl AppCore {
         if ctx.destination.kind != DestinationKind::App {
             return Err("This destination is not an app destination".into());
         }
-        let catalog = Catalog::load(&self.store).map_err(|e| e.to_string())?;
-        let failures = self.failures.lock().get(flow_id).cloned();
+        if ctx.source_root.is_none() {
+            return Err(format!("{} is not connected", ctx.source_device.name));
+        }
+        let (store, resolver, failures) = (
+            self.store.clone(),
+            self.resolver.clone(),
+            self.failures.clone(),
+        );
+        let id = self.transfers.enqueue(JobSpec {
+            key: format!("app-import:{flow_id}"),
+            label: format!("Mark as transferred - {}", ctx.label()),
+            resources: vec![
+                ResourceClaim::shared(format!("device:{}", ctx.source_device.id)),
+                ResourceClaim::exclusive(format!("app-import:{}", ctx.destination.id)),
+            ],
+            kind: JobKind::AppImport,
+            queue: None,
+            work: Box::new(move |handle| {
+                Self::record_app_import(&store, resolver.as_ref(), &failures, session, handle)
+            }),
+        });
+        self.app_imports.lock().remove(token);
+        Ok(id)
+    }
+
+    fn record_app_import(
+        store: &Store,
+        resolver: &dyn RootResolver,
+        failures: &Mutex<FailureMap>,
+        session: AppImportSession,
+        handle: &crate::transfer::JobHandle,
+    ) -> Result<(), String> {
+        use crate::domain::{FileCopy, FileRecord};
+        use crate::plan::{classify_flow, resolve_workspace_flow, Category};
+        use crate::transfer::{hash_checked_with_progress, CopyError};
+
+        let ctx = resolve_workspace_flow(store, resolver, &session.context, &session.flow_id)
+            .map_err(|e| e.to_string())?;
+        if ctx.destination.kind != DestinationKind::App {
+            return Err("This destination is not an app destination".into());
+        }
+        let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
+        let failures = failures.lock().get(&session.flow_id).cloned();
         let allowed: HashSet<AppImportFile> = classify_flow(&ctx, &catalog, failures.as_ref())
             .into_iter()
             .filter(|f| f.category == Category::ToTransfer)
@@ -422,38 +465,70 @@ impl AppCore {
             })
             .collect();
         let requested: HashSet<AppImportFile> = session.files.into_iter().collect();
-        let mut records = Vec::new();
-        let mut copies = Vec::new();
-        let now = chrono::Utc::now().timestamp_millis();
-        let mut marked = 0;
-        for file in requested.intersection(&allowed) {
+        let files: Vec<_> = requested.intersection(&allowed).collect();
+        let root = ctx
+            .source_folder()
+            .ok_or_else(|| format!("{} is not connected", ctx.source_device.name))?;
+        let sizes: Vec<_> = files
+            .iter()
+            .map(|file| {
+                root.join(&file.rel_path)
+                    .metadata()
+                    .map(|metadata| metadata.len())
+                    .map_err(|error| format!("{}: {error}", file.rel_path))
+            })
+            .collect::<Result<_, _>>()?;
+        handle.update(|job| {
+            job.files_total = files.len();
+            job.bytes_total = sizes.iter().sum();
+        });
+        for (file, size) in files.into_iter().zip(sizes) {
+            if handle.checkpoint().is_err() {
+                break;
+            }
             let abs = ctx
                 .source_folder()
                 .ok_or_else(|| format!("{} is not connected", ctx.source_device.name))?
                 .join(&file.rel_path);
-            if !abs.is_file() {
-                continue;
-            }
-            let hash = crate::hashing::hash_file(&abs, ctx.space.hash_algo, |_| true)
-                .map_err(|e| format!("{}: {e}", file.rel_path))?;
+            let before = handle.snapshot().bytes_done;
+            let mut read = 0;
+            handle.update(|job| job.current_file = Some(file.rel_path.clone()));
+            let hash = match hash_checked_with_progress(
+                &abs,
+                ctx.space.hash_algo,
+                handle,
+                true,
+                |bytes, _| {
+                    read += bytes;
+                    handle.update(|job| job.bytes_done = before + read);
+                },
+            ) {
+                Ok(hash) => hash,
+                Err(CopyError::Cancelled) => break,
+                Err(error) => return Err(format!("{}: {error}", file.rel_path)),
+            };
             let file_id = FileRecord::id_for(ctx.space.hash_algo, &hash);
             if catalog.record(&file_id).is_none() {
-                records.push(FileRecord {
-                    id: file_id.clone(),
-                    hash,
-                    hash_algo: ctx.space.hash_algo,
-                    size: abs.metadata().map_err(|e| e.to_string())?.len(),
-                    name: file
-                        .rel_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or_default()
-                        .to_string(),
-                    origin_device_id: ctx.source_device.id.clone(),
-                    origin_path: ctx.source_device_path(&file.rel_path),
-                    modified_at: None,
-                });
+                store
+                    .put(&FileRecord {
+                        id: file_id.clone(),
+                        hash,
+                        hash_algo: ctx.space.hash_algo,
+                        size,
+                        name: file
+                            .rel_path
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or_default()
+                            .to_string(),
+                        origin_device_id: ctx.source_device.id.clone(),
+                        origin_path: ctx.source_device_path(&file.rel_path),
+                        modified_at: None,
+                    })
+                    .map_err(|e| e.to_string())?;
             }
+            let mut copies = Vec::new();
+            let now = chrono::Utc::now().timestamp_millis();
             let source_path = ctx.source_device_path(&file.rel_path);
             let app_path = match &file.project_id {
                 Some(project_id) => format!("{project_id}/{}", file.rel_path),
@@ -472,15 +547,14 @@ impl AppCore {
                     removed: false,
                 });
             }
-            marked += 1;
+            store.put_all(&copies).map_err(|e| e.to_string())?;
+            handle.update(|job| {
+                job.files_done += 1;
+                job.bytes_done = before + size;
+            });
         }
-        if !records.is_empty() {
-            self.store.put_all(&records).map_err(|e| e.to_string())?;
-        }
-        if !copies.is_empty() {
-            self.store.put_all(&copies).map_err(|e| e.to_string())?;
-        }
-        Ok(marked)
+        handle.update(|job| job.current_file = None);
+        Ok(())
     }
 }
 

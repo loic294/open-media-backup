@@ -222,6 +222,13 @@ describe("AppStore with the mock backend", () => {
       if (dialog?.type !== "confirm") throw new Error("Missing import confirmation");
       await dialog.onConfirm();
       expect(confirm).toHaveBeenCalledWith({ spaceId: "travel", projectId: null }, "f7", expect.any(String));
+      expect(store.transfers.some((job) => job.kind === "app_import" && job.state === "queued")).toBe(true);
+      expect(store.toasts.at(-1)?.kind).toBe("info");
+      await until(
+        () => store.transfers.some((job) => job.kind === "app_import" && job.state === "done"),
+        8000,
+      );
+      expect(store.toasts.at(-1)?.kind).toBe("success");
       await store.retryStatus();
       expect(store.status?.destinations.find((d) => d.destination_id === "d4")?.transferred).toBeGreaterThan(
         0,
@@ -242,6 +249,42 @@ describe("AppStore with the mock backend", () => {
     await store.remove("space", space.id);
     expect(store.snapshot!.spaces.some((s) => s.id === space.id)).toBe(false);
   });
+
+  it.each(["done", "failed", "cancelled"] as const)(
+    "reports a background import %s result once without opening a dialog",
+    async (state) => {
+      const backend = createMockBackend();
+      const on = vi.spyOn(backend, "on");
+      store = new AppStore(backend);
+      await store.init();
+      const receive = on.mock.calls.find(([event]) => event === "transfers")![1];
+      const job = {
+        id: "mark-result",
+        flow_id: "app-import:f7",
+        label: "Mark as transferred",
+        kind: "app_import" as const,
+        state,
+        files_done: 2,
+        files_total: 3,
+        bytes_done: 20,
+        bytes_total: 30,
+        current_file: null,
+        speed_bps: 0,
+        bytes_per_sec: null,
+        eta_secs: null,
+        errors: state === "failed" ? ["Source disconnected"] : [],
+      };
+      receive([job]);
+      const result = store.toasts.at(-1);
+      expect(result?.kind).toBe(state === "failed" ? "error" : state === "cancelled" ? "warning" : "success");
+      expect(result?.message).toContain("2 files marked transferred");
+      if (state === "failed") expect(result?.message).toContain("Source disconnected");
+      expect(store.dialogs).toHaveLength(0);
+      const count = store.toasts.length;
+      receive([job]);
+      expect(store.toasts).toHaveLength(count);
+    },
+  );
 
   it("stacks and closes dialogs", async () => {
     await setup();

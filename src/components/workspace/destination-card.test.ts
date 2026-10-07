@@ -105,7 +105,7 @@ describe("app destination card", () => {
       app_name: "Lightroom",
       files: [{ rel_path: "100MSDCF/IMG_07412.JPG", project_id: null }],
     }));
-    store.backend.confirmWorkspaceAppImport = vi.fn(async () => 1);
+    store.backend.confirmWorkspaceAppImport = vi.fn(async () => "mark-job");
 
     card = new OmbDestinationCard();
     card.destination = snapshot.destinations.find((d) => d.id === "d4")!;
@@ -127,6 +127,8 @@ describe("app destination card", () => {
       "f7",
       "token",
     );
+    expect(store.dialogs).toHaveLength(0);
+    expect(store.toasts.at(-1)?.message).toContain("queued");
   });
 
   it("opens the scope chooser for fully transferred destinations without starting jobs", async () => {

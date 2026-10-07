@@ -227,7 +227,7 @@ export function createMockBackend(
         checkItemsByJob.delete(job.id);
         const flow = snapshot.flows.find((f) => f.id === job.flow_id);
         const dst = snapshot.destinations.find((d) => d.id === flow?.destination_id);
-        if (job.kind !== "check" && !skippedJobs.has(job.id) && dst?.device_id && job.bytes_total > 0) {
+        if (job.kind === "transfer" && !skippedJobs.has(job.id) && dst?.device_id && job.bytes_total > 0) {
           snapshot.settings.transfer_speeds ??= {};
           snapshot.settings.transfer_speeds[dst.device_id] = job.bytes_per_sec ?? job.speed_bps;
           snapshot.settings.transfer_speeds._global = job.bytes_per_sec ?? job.speed_bps;
@@ -329,6 +329,35 @@ export function createMockBackend(
     return { flow, status: st };
   };
   const imports = new Map<string, { context: WorkspaceContext; flowId: string; count: number }>();
+  const enqueueAppImport = (flowId: string, count: number): string => {
+    const existing = jobs.find(
+      (job) => job.flow_id === flowId && !["done", "failed", "cancelled"].includes(job.state),
+    );
+    if (existing) return existing.id;
+    const flow = snapshot.flows.find((item) => item.id === flowId);
+    if (!flow) throw new Error("Flow not found");
+    const id = crypto.randomUUID();
+    const total = Math.min(count, counts[flowId]?.[1] ?? 0);
+    jobs.push({
+      id,
+      flow_id: flowId,
+      label: `Mark as transferred · ${flowLabel(snapshot, flow)}`,
+      kind: "app_import",
+      state: "queued",
+      files_done: 0,
+      files_total: total,
+      bytes_done: 0,
+      bytes_total: total * AVG_FILE,
+      current_file: null,
+      speed_bps: 0,
+      bytes_per_sec: null,
+      eta_secs: null,
+      errors: [],
+    });
+    timer ??= setInterval(tick, options.tickMs ?? 400);
+    events.emit("transfers", structuredClone(jobs));
+    return id;
+  };
   const openMockApp = (flowId: string) => {
     const flow = snapshot.flows.find((f) => f.id === flowId);
     const dest = snapshot.destinations.find((d) => d.id === flow?.destination_id);
@@ -552,14 +581,23 @@ export function createMockBackend(
     revealInFileManager: async (kind, id) => {
       console.info(`Demo mode would reveal ${kind} ${id} in the file manager`);
     },
-    openFlowInApp: async (_projectId, flowId) => openMockApp(flowId),
-    confirmAppImport: async (_projectId, flowId) => {
-      const c = counts[flowId] ?? [0, 0, 0, 0];
-      const marked = c[1];
-      c[0] += marked;
-      c[1] = 0;
-      changed();
-      return marked;
+    openFlowInApp: async (projectId, flowId) => {
+      const flow = snapshot.flows.find((item) => item.id === flowId);
+      if (!flow) throw new Error("Flow not found");
+      const opened = openMockApp(flowId);
+      imports.set(opened.token, {
+        context: { spaceId: flow.space_id, projectId },
+        flowId,
+        count: opened.files.length,
+      });
+      return opened;
+    },
+    confirmAppImport: async (projectId, flowId, token) => {
+      const session = imports.get(token);
+      if (!session || session.flowId !== flowId || session.context.projectId !== projectId)
+        throw new Error("This app import confirmation does not match the workspace and flow");
+      imports.delete(token);
+      return enqueueAppImport(flowId, session.count);
     },
     openWorkspaceFlowInApp: async (context, flowId) => {
       const { status } = workspaceFlow(context, flowId);
@@ -578,12 +616,7 @@ export function createMockBackend(
       )
         throw new Error("This app import confirmation does not match the workspace and flow");
       workspaceFlow(context, flowId);
-      const c = counts[flowId];
-      const marked = Math.min(session.count, c[1]);
-      c[0] += marked;
-      c[1] -= marked;
-      changed();
-      return marked;
+      return enqueueAppImport(flowId, session.count);
     },
     checkForUpdate: async () => structuredClone(pendingUpdate),
     installUpdate: async () => {

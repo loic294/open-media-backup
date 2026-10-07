@@ -473,7 +473,7 @@ export interface TransferJob {
   errors: string[];
   warnings?: string[];
   remote_hash_active?: boolean;
-  kind?: "transfer" | "check" | "wipe";
+  kind?: "transfer" | "check" | "wipe" | "app_import";
   pending_conflict?: TransferConflict | null;
   check_results?: DestinationCheckResults | null;
   analysis?: AnalysisJob | null;

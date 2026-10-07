@@ -517,7 +517,7 @@ fn hash_checked_side(
     hash_checked_reporting(path, algo, handle, source, |_| {})
 }
 
-pub(super) fn hash_checked_with_progress(
+pub(crate) fn hash_checked_with_progress(
     path: &Path,
     algo: HashAlgo,
     handle: &JobHandle,

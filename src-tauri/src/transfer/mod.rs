@@ -13,6 +13,7 @@ mod power;
 mod speed;
 
 pub use check::{run_workspace_check, CheckScope};
+pub(crate) use copy::hash_checked_with_progress;
 pub use copy::{compare_files, copy_resolving, copy_verified, Comparison, CopyError, CopyOutcome};
 pub(crate) use destination_check::{prepare_destination_check, run_destination_check};
 pub use handle::{

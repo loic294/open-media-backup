@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { demoCounts, demoSnapshot } from "./data";
 import { manuallyWipedCounts } from "./manual-wipe";
 import { createMockBackend } from "./mock-backend";
@@ -96,7 +96,7 @@ describe("manual wipe mock transition", () => {
   });
 
   it("blocks pending app imports so their old confirmations cannot repopulate the wiped catalog", async () => {
-    const backend = createMockBackend();
+    const backend = createMockBackend({ tickMs: 1 });
     const snapshot = await backend.getSnapshot();
     const flow = snapshot.flows.find((item) =>
       snapshot.destinations.some(
@@ -107,6 +107,10 @@ describe("manual wipe mock transition", () => {
     const opened = await backend.openWorkspaceFlowInApp(context, flow.id);
     await expect(backend.markSourceManuallyWiped(flow.source_id)).rejects.toThrow("pending app imports");
     await backend.confirmWorkspaceAppImport(context, flow.id, opened.token);
+    await expect(backend.markSourceManuallyWiped(flow.source_id)).rejects.toThrow("active jobs");
+    await vi.waitFor(async () => {
+      expect((await backend.listTransfers()).every((job) => job.state === "done")).toBe(true);
+    });
     await backend.markSourceManuallyWiped(flow.source_id);
     const status = await backend.getWorkspaceStatus(context);
     expect(status.sources.find((source) => source.source_id === flow.source_id)?.safe_copies).toBe(0);

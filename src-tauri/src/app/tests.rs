@@ -326,11 +326,18 @@ fn manual_wipe_blocks_pending_app_imports_and_resets_confirmed_app_coverage() {
         .mark_source_manually_wiped("src")
         .unwrap_err()
         .contains("pending app imports"));
-    assert_eq!(
-        core.confirm_app_import("project", "flow", &prepared.token)
-            .unwrap(),
-        1
-    );
+    let job = core
+        .confirm_app_import("project", "flow", &prepared.token)
+        .unwrap();
+    wait_idle(&core);
+    let job = core
+        .transfers
+        .jobs()
+        .into_iter()
+        .find(|item| item.id == job)
+        .unwrap();
+    assert_eq!(job.state, crate::transfer::JobState::Done);
+    assert_eq!(job.files_done, 1);
     assert_eq!(
         core.project_status("project").unwrap().sources[0].safe_copies,
         1
@@ -878,11 +885,19 @@ fn project_free_app_imports_are_manual_and_confirmations_are_context_bound() {
         .contains("manually"));
     let prepared = core.prepare_workspace_app_import(&context, "flow").unwrap();
     assert_eq!(prepared.files[0].project_id, None);
-    assert_eq!(
-        core.confirm_workspace_app_import(&context, "flow", &prepared.token)
-            .unwrap(),
-        1
-    );
+    let job = core
+        .confirm_workspace_app_import(&context, "flow", &prepared.token)
+        .unwrap();
+    wait_idle(&core);
+    let job = core
+        .transfers
+        .jobs()
+        .into_iter()
+        .find(|item| item.id == job)
+        .unwrap();
+    assert_eq!(job.state, crate::transfer::JobState::Done);
+    assert_eq!(job.kind, crate::transfer::JobKind::AppImport);
+    assert_eq!(job.files_done, 1);
     assert_eq!(
         core.workspace_status(&context).unwrap().destinations[0].transferred,
         1
@@ -1026,11 +1041,18 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
         "*.JPG",
     ));
     fx.store.put(&destination).unwrap();
-    assert_eq!(
-        core.confirm_app_import("project", "flow", &prepared.token)
-            .unwrap(),
-        0
-    );
+    let job = core
+        .confirm_app_import("project", "flow", &prepared.token)
+        .unwrap();
+    wait_idle(&core);
+    let job = core
+        .transfers
+        .jobs()
+        .into_iter()
+        .find(|item| item.id == job)
+        .unwrap();
+    assert_eq!(job.state, crate::transfer::JobState::Done);
+    assert_eq!(job.files_done, 0);
     assert_eq!(
         core.list_files(&ListFilesRequest {
             project_id: "project".into(),
@@ -1045,6 +1067,85 @@ fn confirming_app_import_only_marks_current_to_transfer_files() {
         .total,
         0
     );
+}
+
+#[test]
+fn app_import_confirmation_queues_without_waiting_and_can_be_cancelled() {
+    use crate::transfer::{JobKind, JobSpec, JobState, ResourceClaim};
+    let fx = Fixture::new();
+    fx.write_card_file("DCIM/A.JPG", b"photo");
+    let mut destination = fx.destination.clone();
+    destination.kind = DestinationKind::App;
+    destination.device_id.clear();
+    destination.path_template.clear();
+    fx.store.put(&destination).unwrap();
+    let (core, _t) = core(&fx);
+    let mut settings = core.settings();
+    settings.app_destinations.insert(
+        destination.id.clone(),
+        fake_app(fx.card_dir.path()).to_string_lossy().into_owned(),
+    );
+    core.save_settings(&settings).unwrap();
+    let prepared = core.prepare_app_import("project", "flow").unwrap();
+    let (started, running) = std::sync::mpsc::channel();
+    let (release, resume) = std::sync::mpsc::channel();
+    core.transfers.enqueue(JobSpec {
+        key: "hold-source".into(),
+        label: "Hold source".into(),
+        resources: vec![ResourceClaim::exclusive("device:card")],
+        kind: JobKind::Check,
+        queue: None,
+        work: Box::new(move |_| {
+            started.send(()).unwrap();
+            resume.recv().unwrap();
+            Ok(())
+        }),
+    });
+    running.recv_timeout(Duration::from_secs(5)).unwrap();
+    let id = core
+        .confirm_app_import("project", "flow", &prepared.token)
+        .unwrap();
+    let job = core
+        .transfers
+        .jobs()
+        .into_iter()
+        .find(|job| job.id == id)
+        .unwrap();
+    assert_eq!(job.state, JobState::Queued);
+    assert_eq!(job.kind, JobKind::AppImport);
+    assert!(core
+        .mark_source_manually_wiped("src")
+        .unwrap_err()
+        .contains("active jobs"));
+    assert!(core
+        .confirm_app_import("project", "flow", &prepared.token)
+        .is_err());
+    core.transfers.set_paused(&id, true);
+    assert_eq!(
+        core.transfers
+            .jobs()
+            .into_iter()
+            .find(|job| job.id == id)
+            .unwrap()
+            .state,
+        JobState::Paused,
+    );
+    core.transfers.cancel(&id);
+    release.send(()).unwrap();
+    wait_idle(&core);
+    let job = core
+        .transfers
+        .jobs()
+        .into_iter()
+        .find(|job| job.id == id)
+        .unwrap();
+    assert_eq!(job.state, JobState::Cancelled);
+    assert_eq!(job.files_done, 0);
+    assert!(fx
+        .store
+        .list::<crate::domain::FileCopy>()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

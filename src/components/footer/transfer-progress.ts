@@ -14,6 +14,7 @@ export class OmbTransferProgress extends OmbElement {
     const pct = percent(t.bytesDone, t.bytesTotal);
     const idle = t.active.length === 0;
     const checking = t.active.filter((job) => job.kind === "check").length;
+    const marking = t.active.filter((job) => job.kind === "app_import").length;
     const waiting = t.active.filter(
       (job) => job.pending_conflict || job.state === "awaiting_decision",
     ).length;
@@ -25,9 +26,11 @@ export class OmbTransferProgress extends OmbElement {
           ? "Jobs paused"
           : checking
             ? `${plural(checking, "destination check")} active`
-            : t.running
-              ? `${plural(t.running, "transfer")} running`
-              : "Jobs queued";
+            : marking
+              ? `${plural(marking, "import confirmation")} active`
+              : t.running
+                ? `${plural(t.running, "transfer")} running`
+                : "Jobs queued";
     const speed = formatSpeed(t.bytesPerSec);
     const eta = formatEta(t.etaSeconds);
     const details = [

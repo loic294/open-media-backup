@@ -245,7 +245,7 @@ impl PhaseTracker {
                 kind: match kind {
                     JobKind::Check => AnalysisKind::Check,
                     JobKind::Transfer => AnalysisKind::Transfer,
-                    JobKind::Wipe => panic!("wipe jobs have no analysis"),
+                    JobKind::Wipe | JobKind::AppImport => panic!("this job kind has no analysis"),
                 },
                 state: AnalysisState::Queued,
                 phase: AnalysisPhase::Queued,
