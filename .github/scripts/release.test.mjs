@@ -26,6 +26,14 @@ const version = "0.1.19";
 const tag = `v${version}`;
 const runUrl = "https://github.com/owner/repo/actions/runs/19";
 
+test("macOS bundles receive a complete code signature independently of updater signing", () => {
+  const config = JSON.parse(
+    readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+  );
+  assert.equal(config.bundle.macOS.signingIdentity, "-");
+  assert.equal(config.bundle.createUpdaterArtifacts, false);
+});
+
 function fixture(draft = true) {
   const names = [
     "Open.Media.Backup_0.1.19_universal.dmg",

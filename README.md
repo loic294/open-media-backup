@@ -321,7 +321,11 @@ The release stays a draft until both platform builds finish and the workflow ver
 
 Explicit `vX.Y.Z` tag pushes still publish signed stable releases, with the tag's version embedded in the build. Avoid tags reserved by automatic CI numbering: an existing tag/release for another commit causes an explicit failure rather than replacing its assets. Versions must fit Windows MSI limits (`255.255.65535`); advance the checked-in major/minor before CI numbering would collide with a manually tagged patch version.
 
-`src-tauri/tauri.conf.json` leaves `bundle.createUpdaterArtifacts` disabled, so local `npx tauri build` runs produce unsigned installers without needing `TAURI_SIGNING_PRIVATE_KEY`. The release workflow merges `src-tauri/tauri.release.conf.json`, which enables updater artifacts, and signs them with the repository secrets. To build signed updater artifacts locally, export `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and run `npx tauri build --config src-tauri/tauri.release.conf.json`.
+`src-tauri/tauri.conf.json` leaves `bundle.createUpdaterArtifacts` disabled, so local `npx tauri build` runs do not need `TAURI_SIGNING_PRIVATE_KEY`. macOS bundles use ad-hoc code signing (`bundle.macOS.signingIdentity: "-"`) to seal the complete app, including its bundle identity. This is separate from updater signing and does not provide Developer ID signing or notarization. Leaving only the linker's executable signature can cause macOS to reject saved removable-volume permissions and repeatedly prompt even after **Allow**. Ad-hoc signatures can still require permission again after rebuilding or updating; Developer ID signing is needed for a stable trusted identity across versions.
+
+If an older build loops on the removable-volume prompt, quit all running copies, rebuild with this configuration, and reopen just the new bundle before granting access. Do not overwrite an app bundle while that copy is running. Check the new bundle with `codesign --verify --deep --strict --verbose=2 "/path/to/Open Media Backup.app"`.
+
+The release workflow merges `src-tauri/tauri.release.conf.json`, which enables updater artifacts, and signs them with the repository secrets. To build signed updater artifacts locally, export `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and run `npx tauri build --config src-tauri/tauri.release.conf.json`.
 
 Run the release automation regression tests with `node --test .github/scripts/release.test.mjs`.
 
