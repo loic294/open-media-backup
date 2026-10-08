@@ -4,6 +4,17 @@ use crate::domain::Device;
 use tauri::State;
 
 #[tauri::command]
+pub async fn connect_destination_network_drive(
+    state: State<'_, Shared>,
+    destination_id: String,
+) -> CmdResult<()> {
+    blocking(&state, move |s| {
+        s.core.connect_destination_network_drive(&destination_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn list_volumes(state: State<'_, Shared>) -> CmdResult<Vec<VolumeInfo>> {
     blocking(&state, |s| Ok(crate::devices::list_volumes(&s.core.store))).await
 }

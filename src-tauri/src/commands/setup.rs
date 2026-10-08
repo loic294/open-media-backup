@@ -70,6 +70,9 @@ pub fn init<R: Runtime>(
     forward_store_changes(handle.clone(), store.clone());
     let emitter = handle;
     crate::devices::spawn_watcher(store, move |volumes| {
+        if let Err(error) = emitter.state::<Shared>().core.remember_network_drives() {
+            log::warn!("{error}");
+        }
         let _ = emitter.emit("volumes-changed", volumes);
         let _ = emitter.emit("status-changed", ());
     });

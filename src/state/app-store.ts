@@ -451,6 +451,17 @@ export class AppStore extends EventTarget {
     await this.#guard(() => this.backend.revealInFileManager(kind, id));
   }
 
+  async connectDestinationNetworkDrive(destinationId: string): Promise<void> {
+    await this.#guard(async () => {
+      await this.backend.connectDestinationNetworkDrive(destinationId);
+      this.toast(
+        "info",
+        "Connection requested. Complete any macOS sign-in prompt; the destination will update when available.",
+      );
+      this.refreshStatus();
+    });
+  }
+
   confirmSourceManuallyWiped(sourceId: string): void {
     const source = this.snapshot?.sources.find((item) => item.id === sourceId);
     const device = this.snapshot?.devices.find((item) => item.id === source?.device_id);

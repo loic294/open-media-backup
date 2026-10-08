@@ -4,6 +4,7 @@ mod core;
 mod entities;
 mod files;
 mod jobs;
+mod network_drives;
 mod resolver;
 mod reveal;
 mod safe_copies;

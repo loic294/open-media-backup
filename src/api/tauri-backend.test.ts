@@ -6,6 +6,13 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 const { jpegBytes } = await import("./tauri-backend");
 
+it("connects a network drive by destination ID only", async () => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { tauriBackend } = await import("./tauri-backend");
+  await tauriBackend.connectDestinationNetworkDrive("d2");
+  expect(invoke).toHaveBeenCalledWith("connect_destination_network_drive", { destinationId: "d2" });
+});
+
 describe("jpegBytes", () => {
   it("accepts every raw IPC payload shape", () => {
     expect([...jpegBytes(new Uint8Array([0xff, 0xd8]).buffer)]).toEqual([0xff, 0xd8]);

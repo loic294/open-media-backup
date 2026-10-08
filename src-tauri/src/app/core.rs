@@ -28,7 +28,7 @@ pub struct AppCore {
     pub thumbnails: ThumbnailCache,
     preview_paths: Mutex<HashSet<PathBuf>>,
     app_imports: Mutex<HashMap<String, AppImportSession>>,
-    settings_save: Mutex<()>,
+    pub(super) settings_save: Mutex<()>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -103,6 +103,9 @@ impl AppCore {
     }
 
     pub fn snapshot(&self) -> Result<Snapshot, String> {
+        if let Err(error) = self.remember_network_drives() {
+            log::warn!("{error}");
+        }
         Snapshot::load(&self.store).map_err(|e| e.to_string())
     }
 
@@ -161,6 +164,7 @@ impl AppCore {
         let _save = self.settings_save.lock();
         let current = AppSettings::load(&self.store);
         let mut settings = settings.clone();
+        settings.network_drives = current.network_drives.clone();
         super::app_paths::normalize_app_settings(&mut settings, &current)?;
         settings.save(&self.store).map_err(|e| e.to_string())?;
         self.transfers

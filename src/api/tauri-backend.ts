@@ -11,7 +11,9 @@ const thumbnails = new Map<string, Promise<string | null>>();
  * Raw IPC responses are an ArrayBuffer over the custom protocol, but a plain number array when
  * Tauri falls back to postMessage (always on macOS for that path).
  */
-export function jpegBytes(payload: ArrayBuffer | Uint8Array | number[] | null | undefined): Uint8Array<ArrayBuffer> {
+export function jpegBytes(
+  payload: ArrayBuffer | Uint8Array | number[] | null | undefined,
+): Uint8Array<ArrayBuffer> {
   if (!payload) return new Uint8Array();
   if (payload instanceof ArrayBuffer) return new Uint8Array(payload);
   if (Array.isArray(payload)) return Uint8Array.from(payload);
@@ -70,6 +72,8 @@ export const tauriBackend: Backend = {
   getMediaMetadata: (absPath) => invoke("get_media_metadata", { absPath }),
   openMedia: (absPath) => invoke("open_media_file", { absPath }),
   revealInFileManager: (kind, id) => invoke("reveal_in_file_manager", { kind, id }),
+  connectDestinationNetworkDrive: (destinationId) =>
+    invoke("connect_destination_network_drive", { destinationId }),
   openFlowInApp: (projectId, flowId) => invoke("open_flow_in_app", { projectId, flowId }),
   confirmAppImport: (projectId, flowId, token) => invoke("confirm_app_import", { projectId, flowId, token }),
   openWorkspaceFlowInApp: (context, flowId) => invoke("open_workspace_flow_in_app", { context, flowId }),

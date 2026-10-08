@@ -13,6 +13,7 @@ describe("app destination card", () => {
   const previousDialogs = store.dialogs;
   const previousTransfers = store.transfers;
   const previousHashServers = store.hashServers;
+  const previousToasts = store.toasts;
   const previousBackend = {
     openFlowInApp: store.backend.openFlowInApp,
     confirmAppImport: store.backend.confirmAppImport,
@@ -30,11 +31,100 @@ describe("app destination card", () => {
     store.dialogs = previousDialogs;
     store.transfers = previousTransfers;
     store.hashServers = previousHashServers;
+    store.toasts = previousToasts;
     vi.restoreAllMocks();
     store.backend.openFlowInApp = previousBackend.openFlowInApp;
     store.backend.confirmAppImport = previousBackend.confirmAppImport;
     store.backend.openWorkspaceFlowInApp = previousBackend.openWorkspaceFlowInApp;
     store.backend.confirmWorkspaceAppImport = previousBackend.confirmWorkspaceAppImport;
+  });
+
+  it("connects an offline NAS by ID, disables duplicate requests, and keeps offline status", async () => {
+    const snapshot = demoSnapshot();
+    snapshot.computer.os = "macos";
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set(["nas"]));
+    let finish!: () => void;
+    const connect = vi.spyOn(store.backend, "connectDestinationNetworkDrive").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const refresh = vi.spyOn(store, "refreshStatus").mockImplementation(() => {});
+    card = new OmbDestinationCard();
+    card.destination = snapshot.destinations.find((d) => d.id === "d2")!;
+    document.body.append(card);
+    await card.updateComplete;
+    const button = [...card.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Connect drive"),
+    )!;
+    expect(button.disabled).toBe(false);
+    expect(card.textContent).toContain("Offline");
+    expect(card.textContent).toContain("waiting");
+    button.click();
+    button.click();
+    await card.updateComplete;
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toContain("Connecting…");
+    expect(connect).toHaveBeenCalledExactlyOnceWith("d2");
+    finish();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    await card.updateComplete;
+    expect(button.disabled).toBe(false);
+    expect(card.textContent).toContain("Offline");
+    expect(store.toasts.at(-1)?.message).toContain("macOS sign-in");
+    store.status.destinations.find((d) => d.destination_id === "d2")!.available = true;
+    card.requestUpdate();
+    await card.updateComplete;
+    expect(card.textContent).not.toContain("Connect drive");
+  });
+
+  it("reports connection failures without changing offline availability", async () => {
+    const snapshot = demoSnapshot();
+    snapshot.computer.os = "macos";
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set(["nas"]));
+    vi.spyOn(store.backend, "connectDestinationNetworkDrive").mockRejectedValue(
+      new Error("NAS not remembered"),
+    );
+    const refresh = vi.spyOn(store, "refreshStatus").mockImplementation(() => {});
+    card = new OmbDestinationCard();
+    card.destination = snapshot.destinations.find((d) => d.id === "d2")!;
+    document.body.append(card);
+    await card.updateComplete;
+    [...card.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect drive"))!.click();
+    await vi.waitFor(() => expect(store.toasts.at(-1)?.message).toContain("NAS not remembered"));
+    await card.updateComplete;
+    expect(card.textContent).toContain("Offline");
+    expect(refresh).not.toHaveBeenCalled();
+    expect(
+      [...card.querySelectorAll("button")].find((b) => b.textContent?.includes("Connect drive"))!.disabled,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["d2", "macos", false],
+    ["d2", "windows", true],
+    ["d2", "linux", true],
+    ["d1", "macos", true],
+    ["d4", "macos", true],
+  ] as const)("hides connect for %s on %s with offline=%s", async (id, os, offline) => {
+    const snapshot = demoSnapshot();
+    snapshot.computer.os = os;
+    store.snapshot = snapshot;
+    const destination = snapshot.destinations.find((d) => d.id === id)!;
+    store.status = mockStatus(
+      snapshot,
+      "trip",
+      structuredClone(demoCounts),
+      new Set(offline ? [destination.device_id] : []),
+    );
+    card = new OmbDestinationCard();
+    card.destination = destination;
+    document.body.append(card);
+    await card.updateComplete;
+    expect(card.textContent).not.toContain("Connect drive");
   });
 
   it("updates NAS hash badge color and tooltip from runtime connection state", async () => {

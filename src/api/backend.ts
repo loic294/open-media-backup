@@ -88,6 +88,7 @@ export interface Backend {
   getMediaMetadata(absPath: string): Promise<MediaMetadata>;
   openMedia(absPath: string): Promise<void>;
   revealInFileManager(kind: RevealKind, id: string): Promise<void>;
+  connectDestinationNetworkDrive(destinationId: string): Promise<void>;
   openFlowInApp(projectId: string, flowId: string): Promise<OpenAppImportResult>;
   confirmAppImport(projectId: string, flowId: string, token: string): Promise<string>;
   openWorkspaceFlowInApp(context: WorkspaceContext, flowId: string): Promise<OpenAppImportResult>;

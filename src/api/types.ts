@@ -220,6 +220,8 @@ export interface AppSettings {
   keep_awake_during_transfers?: boolean;
   /** Local per-computer app paths for App destinations, keyed by destination id. */
   app_destinations?: Record<string, string>;
+  /** Backend-owned credential-free SMB locations, remembered locally by device id. */
+  network_drives?: Record<string, string>;
   /** Learned transfer throughput in bytes/sec, keyed by destination device id. `_global` is the fallback. */
   transfer_speeds?: Record<string, number>;
   /** Where cameras store ready-made video thumbnails, relative to the clip's folder. Missing means defaults. */

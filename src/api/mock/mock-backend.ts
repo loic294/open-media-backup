@@ -581,6 +581,14 @@ export function createMockBackend(
     revealInFileManager: async (kind, id) => {
       console.info(`Demo mode would reveal ${kind} ${id} in the file manager`);
     },
+    connectDestinationNetworkDrive: async (destinationId) => {
+      const destination = snapshot.destinations.find((d) => d.id === destinationId);
+      const device = snapshot.devices.find((d) => d.id === destination?.device_id);
+      if (!destination || destination.kind === "app" || device?.kind !== "nas")
+        throw new Error("Only NAS folder destinations can connect a network drive");
+      offline.delete(device.id);
+      events.emit("status-changed", undefined);
+    },
     openFlowInApp: async (projectId, flowId) => {
       const flow = snapshot.flows.find((item) => item.id === flowId);
       if (!flow) throw new Error("Flow not found");

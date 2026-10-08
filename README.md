@@ -88,6 +88,20 @@ The app has no discovery and no encryption of its own. It relies on a private ov
 
 A shared server (for example Supabase) is planned as an alternative backend.
 
+### Connecting a NAS on macOS
+
+Offline NAS folder destination cards offer **Connect drive** on macOS. The app
+opens the remembered SMB share with macOS; complete any system sign-in prompt.
+The destination stays offline until the share and destination folder are available.
+Authentication remains with macOS/Keychain; the app never stores NAS credentials.
+
+To initialize an existing NAS, connect its SMB share once in Finder while the app
+is running, and ensure the device is registered or linked on this Mac. The backend
+remembers its credential-free share address in local AppSettings, not peer sync.
+If no share has been remembered, Connect drive explains this setup requirement.
+Other destinations and platforms do not show the button. AFP/NFS reconnection
+is not currently supported.
+
 ## Remote hash server
 
 Destination **NAS hash** badges are blue after a successful connection check and

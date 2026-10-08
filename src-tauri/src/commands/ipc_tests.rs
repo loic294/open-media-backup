@@ -86,6 +86,31 @@ fn write(root: &std::path::Path, rel: &str, bytes: &[u8]) {
 }
 
 #[test]
+fn connect_network_drive_ipc_requires_destination_id_and_rejects_unknown_destination() {
+    let ui = Ui::start();
+    assert!(ui
+        .call(
+            "connect_destination_network_drive",
+            json!({"path": "smb://nas/share"})
+        )
+        .is_err());
+    let error = ui
+        .call(
+            "connect_destination_network_drive",
+            json!({"destinationId": "missing"}),
+        )
+        .unwrap_err();
+    if cfg!(target_os = "macos") {
+        assert_eq!(error, json!("Destination not found"));
+    } else {
+        assert_eq!(
+            error,
+            json!("Connecting network drives is only supported on macOS")
+        );
+    }
+}
+
+#[test]
 fn safe_copy_details_and_rule_save_ipc_contract_and_authorization() {
     use crate::domain::DeviceMapping;
     use crate::store::VersionVector;

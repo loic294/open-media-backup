@@ -22,6 +22,8 @@ pub struct AppSettings {
     pub show_mounted_devices_first: bool,
     pub keep_awake_during_transfers: bool,
     pub app_destinations: HashMap<String, String>,
+    /// Backend-discovered, credential-free SMB locations. Local only, never peer synced.
+    pub network_drives: HashMap<String, String>,
     pub transfer_speeds: HashMap<String, u64>,
     /// Where cameras store ready-made video thumbnails, relative to the clip's folder.
     pub camera_thumbnail_paths: Vec<String>,
@@ -46,6 +48,7 @@ impl Default for AppSettings {
             show_mounted_devices_first: true,
             keep_awake_during_transfers: true,
             app_destinations: HashMap::new(),
+            network_drives: HashMap::new(),
             transfer_speeds: HashMap::new(),
             camera_thumbnail_paths: crate::thumbnails::camera::default_paths(),
         }

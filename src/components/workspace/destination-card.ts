@@ -4,6 +4,7 @@ import type { Destination, DestinationStatus, FileCategory } from "../../api/typ
 import { destinationStatus, flowStatus, isActive, isRunnable } from "../../state/derived";
 import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { destinationFreeBytes } from "../../utils/destination-space";
+import { canConnectNetworkDrive } from "../../utils/connect-network-drive";
 import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, formatCount, formatEta } from "../../utils/format";
@@ -21,6 +22,17 @@ export class OmbDestinationCard extends OmbElement {
   @property({ attribute: false }) destination!: Destination;
   @state() private menuAt: { x: number; y: number } | null = null;
   @state() private actionBusy = false;
+  @state() private connecting = false;
+
+  async #connectNetworkDrive() {
+    if (this.connecting) return;
+    this.connecting = true;
+    try {
+      await this.store.connectDestinationNetworkDrive(this.destination.id);
+    } finally {
+      this.connecting = false;
+    }
+  }
 
   get #incoming() {
     return (this.store.snapshot?.flows ?? []).filter((f) => f.destination_id === this.destination.id);
@@ -368,6 +380,18 @@ export class OmbDestinationCard extends OmbElement {
           <div class="flex items-center gap-2 min-h-8">
             ${st ? this.#statusLine(st, hosts) : missingStatus}
             <span class="flex-1"></span>
+            ${
+              canConnectNetworkDrive(snapshot.computer.os, this.destination.kind, device?.kind, st)
+                ? html`<button
+                    class="btn btn-sm gap-1.5"
+                    title="Connect the remembered network drive using macOS"
+                    ?disabled=${this.connecting}
+                    @click=${() => this.#connectNetworkDrive()}
+                  >
+                    <omb-icon name="network"></omb-icon>${this.connecting ? "Connecting…" : "Connect drive"}
+                  </button>`
+                : nothing
+            }
             ${
               st && (st.transferred || st.ignored)
                 ? html`<span class="text-sm text-base-content/60 whitespace-nowrap">

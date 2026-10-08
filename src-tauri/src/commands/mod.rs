@@ -79,6 +79,7 @@ macro_rules! omb_handlers {
             $crate::commands::transfers::mark_source_manually_wiped,
             $crate::commands::transfers::wipe,
             $crate::commands::devices::list_volumes,
+            $crate::commands::devices::connect_destination_network_drive,
             $crate::commands::devices::register_device,
             $crate::commands::devices::relink_device,
             $crate::commands::sync::sync_status,
