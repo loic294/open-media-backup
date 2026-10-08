@@ -8,6 +8,7 @@ import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, formatCount, formatEta } from "../../utils/format";
 import { destinationTaskName } from "../../utils/names";
+import { nasHashBadge } from "../../utils/nas-hash-badge";
 import { appDisplayName, configuredDestinationApp } from "../../utils/preview-apps";
 import { DEVICE_ICON, DEVICE_TONE } from "../ui/device-icon";
 import { OmbElement } from "../ui/omb-element";
@@ -198,6 +199,7 @@ export class OmbDestinationCard extends OmbElement {
         ? `Counts toward safe copies in groups of ${temporaryCopiesPerFinal}`
         : "Counts as a safe copy";
     const canRun = online && this.#runnableIncoming().length > 0 && !this.#busy();
+    const hashBadge = nasHashBadge(this.destination.remote_hash, this.store.hashServers);
     const missingStatus = this.store.statusLoading
       ? html`<span class="skeleton h-5 w-48"></span>`
       : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
@@ -319,8 +321,8 @@ export class OmbDestinationCard extends OmbElement {
               <omb-icon name=${DEVICE_ICON[kind]} class="size-5"></omb-icon>
             </span>
             <div class="flex-1 min-w-0">
-              <div class="font-semibold truncate flex items-center gap-1.5">
-                ${destinationTaskName(this.destination, device)}
+              <div class="font-semibold flex items-center gap-1.5">
+                <span class="truncate">${destinationTaskName(this.destination, device)}</span>
                 ${
                   verified
                     ? html`<omb-icon
@@ -332,16 +334,14 @@ export class OmbDestinationCard extends OmbElement {
                 }
                 ${device?.role === "temporary" ? html`<span class="badge badge-ghost badge-xs">temporary</span>` : nothing}
                 ${
-                  this.destination.remote_hash?.enabled
-                    ? html`<span
-                        class="badge badge-xs ${this.store.hashServers.some((s) => s.id === this.destination.remote_hash?.server_id) ? "badge-info" : "badge-warning"}"
-                        title=${
-                          this.store.hashServers.some((s) => s.id === this.destination.remote_hash?.server_id)
-                            ? "NAS-side hash checks configured; errors fall back to local re-reads"
-                            : "Hash server not available on this computer; checks use local re-reads"
-                        }
-                      >
-                        ${this.store.hashServers.some((s) => s.id === this.destination.remote_hash?.server_id) ? "NAS hash" : "NAS hash unavailable"}
+                  hashBadge
+                    ? html`<span class="tooltip tooltip-bottom shrink-0" data-tip=${hashBadge.tooltip}>
+                        <span
+                          class="badge badge-xs ${hashBadge.available ? "badge-info" : "badge-error"}"
+                          tabindex="0"
+                          aria-label=${`NAS hash: ${hashBadge.tooltip}`}
+                          >NAS hash</span
+                        >
                       </span>`
                     : nothing
                 }

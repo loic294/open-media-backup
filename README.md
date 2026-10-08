@@ -90,6 +90,12 @@ A shared server (for example Supabase) is planned as an alternative backend.
 
 ## Remote hash server
 
+Destination **NAS hash** badges are blue after a successful connection check and
+red when the configured server is missing, has no successful connection, or its
+latest check failed. Hover or focus the badge for the recorded connection state
+and failure details. The badge does not guarantee remote verification; remote
+hash failures still fall back to local re-reads.
+
 `omb-hash-server` is a small, read-only NAS service. The desktop still copies files
 over SMB/NFS; the server reads destination files locally and sends back only the
 digest, size, and modification time. It has no Tauri runtime or SQLite catalog.

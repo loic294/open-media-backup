@@ -12,6 +12,7 @@ describe("app destination card", () => {
   const previousStatus = store.status;
   const previousDialogs = store.dialogs;
   const previousTransfers = store.transfers;
+  const previousHashServers = store.hashServers;
   const previousBackend = {
     openFlowInApp: store.backend.openFlowInApp,
     confirmAppImport: store.backend.confirmAppImport,
@@ -28,11 +29,56 @@ describe("app destination card", () => {
     store.status = previousStatus;
     store.dialogs = previousDialogs;
     store.transfers = previousTransfers;
+    store.hashServers = previousHashServers;
     vi.restoreAllMocks();
     store.backend.openFlowInApp = previousBackend.openFlowInApp;
     store.backend.confirmAppImport = previousBackend.confirmAppImport;
     store.backend.openWorkspaceFlowInApp = previousBackend.openWorkspaceFlowInApp;
     store.backend.confirmWorkspaceAppImport = previousBackend.confirmWorkspaceAppImport;
+  });
+
+  it("updates NAS hash badge color and tooltip from runtime connection state", async () => {
+    const snapshot = demoSnapshot();
+    const destination = snapshot.destinations.find((d) => d.id === "d2")!;
+    destination.remote_hash = { enabled: true, server_id: "nas", root: "photos" };
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
+    store.hashServers = [
+      { id: "nas", name: "Studio NAS", address: "nas:47822", last_seen: 123, last_error: null },
+    ];
+    card = new OmbDestinationCard();
+    card.destination = destination;
+    document.body.append(card);
+    await card.updateComplete;
+    expect(card.querySelector(".tooltip .badge-info")?.textContent).toContain("NAS hash");
+    expect(card.querySelector(".tooltip")?.getAttribute("data-tip")).toContain(
+      "Connected to Studio NAS at the last connection check",
+    );
+
+    store.hashServers[0].last_error = "Connection refused";
+    card.requestUpdate();
+    await card.updateComplete;
+    expect(card.querySelector(".tooltip .badge-error")?.textContent).toContain("NAS hash");
+    expect(card.querySelector(".tooltip .badge-info")).toBeNull();
+    expect(card.querySelector(".tooltip")?.getAttribute("data-tip")).toContain(
+      "Not connected to Studio NAS: Connection refused",
+    );
+    expect(card.querySelector(".tooltip [tabindex]")?.getAttribute("aria-label")).toContain(
+      "Connection refused",
+    );
+
+    store.hashServers = [];
+    card.requestUpdate();
+    await card.updateComplete;
+    expect(card.querySelector(".tooltip .badge-error")).not.toBeNull();
+    expect(card.querySelector(".tooltip")?.getAttribute("data-tip")).toContain(
+      "not available on this computer",
+    );
+
+    destination.remote_hash.enabled = false;
+    card.requestUpdate();
+    await card.updateComplete;
+    expect(card.textContent).not.toContain("NAS hash");
   });
 
   it("renders manual app import details", async () => {
