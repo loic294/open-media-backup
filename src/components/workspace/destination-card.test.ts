@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { demoCounts, demoSnapshot } from "../../api/mock/data";
 import { mockStatus } from "../../api/mock/status";
 import { store } from "../../state";
+import { formatBytes } from "../../utils/format";
 import { OmbDestinationCard } from "./destination-card";
 import type { OmbCardContextMenu } from "./card-context-menu";
 import "../dialogs/omb-dialog-host";
@@ -72,6 +73,29 @@ describe("app destination card", () => {
     expect(card.textContent).toContain("to transfer");
     expect(card.textContent).toContain("~6 min");
     expect(card.textContent).not.toContain("~2 min");
+  });
+
+  it.each([
+    ["d2", "nas", false],
+    ["d1", "ssd", true],
+  ] as const)("shows free space for %s only when it is not NAS storage", async (id, kind, showsSpace) => {
+    const snapshot = demoSnapshot();
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
+    const destination = snapshot.destinations.find((d) => d.id === id)!;
+    const device = snapshot.devices.find((d) => d.id === destination.device_id)!;
+    expect(device.kind).toBe(kind);
+    const status = store.status.destinations.find((d) => d.destination_id === id)!;
+    status.available = true;
+    status.free_bytes = 1.2e12;
+    card = new OmbDestinationCard();
+    card.destination = destination;
+    document.body.append(card);
+    await card.updateComplete;
+
+    expect(card.textContent).toContain(device.description);
+    expect(card.textContent).toContain("Online");
+    expect(card.textContent?.includes(`${formatBytes(status.free_bytes)} free`)).toBe(showsSpace);
   });
 
   it("asks to choose the local app when none is configured on this computer", async () => {

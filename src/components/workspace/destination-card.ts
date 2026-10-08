@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { Destination, DestinationStatus, FileCategory } from "../../api/types";
 import { destinationStatus, flowStatus, isActive, isRunnable } from "../../state/derived";
 import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
+import { destinationFreeBytes } from "../../utils/destination-space";
 import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
 import { formatBytes, formatCount, formatEta } from "../../utils/format";
@@ -181,9 +182,10 @@ export class OmbDestinationCard extends OmbElement {
     const localAppPath = configuredDestinationApp(snapshot.settings, this.destination.id);
     const appName =
       this.destination.app_name || (localAppPath ? appDisplayName(localAppPath) : "Application");
+    const freeBytes = destinationFreeBytes(device?.kind, st);
     const details = [
       isApp ? "App · manual import" : device?.description,
-      online && st?.free_bytes != null ? `${formatBytes(st.free_bytes)} free` : null,
+      freeBytes != null ? `${formatBytes(freeBytes)} free` : null,
       !online && hosts.length ? `on ${hosts.join(", ")}` : null,
     ].filter(Boolean);
     const temporaryCopiesPerFinal = space?.temporary_copies_per_final ?? 0;
