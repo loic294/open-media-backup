@@ -115,14 +115,23 @@ pub(super) fn wipe_preserving(
             removed
         }
         WipeMethod::QuickFormat => {
-            quick_format(&root, &device.name)?;
-            if let Err(e) = crate::devices::write_marker(&root, &device) {
-                log::warn!("could not rewrite device marker after format: {e}");
-            }
-            catalog
+            let formatted = quick_format(&root, &device)?;
+            let removed: Vec<_> = catalog
                 .copies_under(&device.id, "")
                 .map(|c| mark_removed(&c.file_id, &device.id, &c.path))
-                .collect()
+                .collect();
+            // The erase succeeded; retire old copies even if remount/relink fails.
+            store.put_all(&removed).map_err(|e| e.to_string())?;
+            let mounted_root = formatted.mounted_root()?;
+            crate::devices::relink_device(
+                store,
+                &device.id,
+                mounted_root
+                    .to_str()
+                    .ok_or("volume path is not valid UTF-8")?,
+            )
+            .map_err(|e| format!("volume was formatted, but could not be relinked: {e}"))?;
+            return Ok(());
         }
     };
     store.put_all(&removed).map_err(|e| e.to_string())

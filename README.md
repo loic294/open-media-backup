@@ -24,6 +24,7 @@ Help me keep the lights on by making a donation via "Buy me a coffee". Any amoun
 - **Templates.** Built-in variables are `project`, `project_name`, `source_name`, `backup_folder`, `date`, `year`, `month` and `day`. Space variables come after these, and project values override space defaults.
 - **Names.** The _Device name_ identifies physical hardware and is shared by every source/destination using it. Each source can override its _Device name for backup_: this supplies `{source_name}` and _Subfolder per source_, using the existing folder-name sanitization. Each source/destination also has a display-only _Task name_ for its card and transfer labels, including app destinations. Blank task names use the device/app name; blank backup names use the physical device name. Names sync between computers, but overrides belong to individual tasks, so tasks on the same device can be named differently. Changing a task name never changes paths. Changing a backup name affects future resolved paths (including source folders containing `{source_name}`) without moving existing files, changing recorded copy identities, or replacing existing backup-folder markers.
 - **Device management.** Open **Settings > Devices** to add, edit, or remove any registered device, including offline devices and devices not assigned to a task. Edit the shared name, description, type, and role; choose a mounted volume or folder to locate it on the current computer, or register it offline and locate it later. Hardware identifiers and capacity are read-only. Removing a device clears its assignment from every source and destination across all spaces and removes its mappings on all computers. Tasks, connections, physical files, and backup history stay intact. Affected tasks show **No device selected** and cannot transfer or wipe until you choose a replacement in their settings. Device changes sync to peers.
+- **Name when formatting.** In the device editor, set a separate volume name for **Quick format (exFAT)**. Leave it blank to use the device's display name, as before. The formatter removes everything except ASCII letters, numbers, spaces, and underscores, trims whitespace, keeps the first 11 characters, and converts them to uppercase; if nothing remains it uses `MEDIA`. This setting persists and syncs with the device. Saving it does not rename or format the current volume, change backup paths or task names, or affect **Delete backed-up files**.
 - **Device filters.** Use the filter button beside **Add source** or **Add destination** to show **All devices**, **Mounted devices**, or one registered device. Both columns share the selection and show the matching card counts; mounted filtering uses each card's current availability status. App destinations stay visible because they are not mounted devices. Filtering only changes the view, not tasks, connections, or transfers. Choose **All devices** to reset; removing the selected device also resets the filter.
 - **Rules.** An ordered list of include/exclude rules, written as glob (`*.ARW`, `DCIM/`) or regex. Glob rules match case-insensitively. They apply to both folders and files, and the last match wins. A pattern ending in `/` matches folders only.
 - **Backup marker.** If a destination has _use backup marker_ on, the backup folder name is read from `.openmediabackup/` on the card. When the card has no marker, the name is generated from the space's marker template and written to the card. Either way, every backup of the same card lands in the same folder.
@@ -205,6 +206,47 @@ npm run test:rust    # backend tests, incl. IPC end-to-end tests on real folders
 npm run lint && npm run typecheck
 npx tauri build      # installers (.dmg / .msi / .exe)
 ```
+
+### Keeping Rust/Tauri build output small
+
+Cargo keeps generated artifacts in `src-tauri/target` (or `CARGO_TARGET_DIR` if
+set), with no size cap. Incremental state and old debug/test binaries can grow
+to hundreds of GB after repeated builds. This is separate from the app's catalog
+and media.
+
+For routine local development and validation on macOS/Linux, set these once in
+the shell used for builds and tests:
+
+```sh
+export CARGO_INCREMENTAL=0
+export CARGO_PROFILE_DEV_DEBUG=1
+export CARGO_PROFILE_TEST_DEBUG=1
+du -sh src-tauri/target
+df -h .
+```
+
+On PowerShell, use `$env:CARGO_INCREMENTAL="0"`,
+`$env:CARGO_PROFILE_DEV_DEBUG="1"` and `$env:CARGO_PROFILE_TEST_DEBUG="1"`.
+These settings trade incremental rebuild speed and full debug information for
+less disk usage; release settings and optimized dependencies stay unchanged.
+Reuse the same settings and target directory instead of creating per-task caches.
+They reduce growth, but do not evict stale artifacts or enforce a size cap.
+
+Check cache size and free space before and after Rust/Tauri builds. At 20 GiB of
+build output or below 10 GiB of free space, clean disposable artifacts before
+another build. First stop debug builds, tests, and `tauri dev`, then run from the
+repository root:
+
+```sh
+cargo clean --manifest-path src-tauri/Cargo.toml --profile dev
+```
+
+This clears debug/test output and preserves release bundles. The next debug
+build recompiles dependencies. Omit `--profile dev` only if release bundles and
+installers are also disposable and no app is running from that directory.
+Never clear the app's data or media to reclaim build space. Verify disk usage
+afterward; Cargo's reported removed bytes can exceed space actually reclaimed
+because of hard-linked artifacts.
 
 ### Before committing or pushing
 

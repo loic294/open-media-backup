@@ -30,6 +30,8 @@ pub enum DeviceKind {
 pub struct Device {
     pub id: String,
     pub name: String,
+    /// Volume name used by quick format; blank keeps the device-name fallback.
+    pub format_name: String,
     pub description: String,
     pub role: DeviceRole,
     pub kind: DeviceKind,
@@ -60,3 +62,15 @@ pub struct Computer {
     pub os: String,
 }
 impl_entity!(Computer, Computer);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_name_defaults_for_older_devices() {
+        let device: Device = serde_json::from_str(r#"{"id":"card","name":"Camera card"}"#).unwrap();
+        assert!(device.format_name.is_empty());
+        assert_eq!(device.name, "Camera card");
+    }
+}

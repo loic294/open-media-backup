@@ -178,6 +178,7 @@ describe("device settings", () => {
     expect(device).toEqual({
       ...before.devices.find((d) => d.id === "card1")!,
       name: "Camera card renamed",
+      format_name: "",
       description: "Physical card",
       role: "temporary",
     });
@@ -186,9 +187,34 @@ describe("device settings", () => {
     expect(store.snapshot!.mappings).toEqual(before.mappings);
   });
 
+  it("persists a separate format name and restores it when reopening the editor", async () => {
+    const before = structuredClone(store.snapshot!);
+    const element = await editor("card1");
+    const original = before.devices.find((d) => d.id === "card1")!;
+    expect(element.querySelector<HTMLInputElement>('[aria-label="Name when formatting"]')!.value).toBe("");
+    await input(element, "Name when formatting", " A7_IV ");
+    button(element, "Save device").click();
+    await until(() => store.snapshot!.devices.find((d) => d.id === "card1")!.format_name === "A7_IV");
+    expect(store.snapshot!.devices.find((d) => d.id === "card1")).toEqual({
+      ...original,
+      format_name: "A7_IV",
+    });
+    expect(store.snapshot!.sources).toEqual(before.sources);
+    expect(store.snapshot!.mappings).toEqual(before.mappings);
+    const reopened = await editor("card1");
+    expect(reopened.querySelector<HTMLInputElement>('[aria-label="Name when formatting"]')!.value).toBe(
+      "A7_IV",
+    );
+    await input(reopened, "Name when formatting", "  ");
+    button(reopened, "Save device").click();
+    await until(() => store.snapshot!.devices.find((d) => d.id === "card1")!.format_name === "");
+    expect(store.snapshot!.devices.find((d) => d.id === "card1")!.name).toBe(original.name);
+  });
+
   it("registers a device on a selected volume and refreshes volume associations", async () => {
     const element = await editor();
     await input(element, "Device name", "New card");
+    await input(element, "Name when formatting", "CAMERA_B");
     element.querySelector<HTMLInputElement>('input[type="radio"]')!.dispatchEvent(new Event("change"));
     await element.updateComplete;
     await element.querySelector("omb-modal")!.updateComplete;
@@ -198,7 +224,7 @@ describe("device settings", () => {
     );
     expect(store.backend.registerDevice).toHaveBeenCalledWith(
       "/Volumes/Untitled",
-      expect.objectContaining({ name: "New card" }),
+      expect.objectContaining({ name: "New card", format_name: "CAMERA_B" }),
     );
   });
 
@@ -223,6 +249,7 @@ describe("device settings", () => {
     const element = await editor("card1");
     const before = store.snapshot;
     await input(element, "Device name", "Do not save");
+    await input(element, "Name when formatting", "DO_NOT_SAVE");
     button(element, "Cancel").click();
     expect(store.snapshot).toBe(before);
     expect(store.backend.saveEntity).not.toHaveBeenCalled();

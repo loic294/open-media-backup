@@ -37,6 +37,7 @@ export function newDevice(name: string, kind: Device["kind"], role: Device["role
   return {
     id: newId(),
     name,
+    format_name: "",
     description: "",
     role,
     kind,

@@ -46,6 +46,7 @@ export class OmbDeviceDialog extends DialogBase<Extract<DialogRequest, { type: "
       const device = {
         ...(current ?? this.draft),
         name: this.draft.name.trim(),
+        format_name: this.draft.format_name?.trim() ?? "",
         description: this.draft.description,
         kind: this.draft.kind,
         role: this.draft.role,
@@ -90,6 +91,23 @@ export class OmbDeviceDialog extends DialogBase<Extract<DialogRequest, { type: "
           <p class="label whitespace-normal">
             Shared by every source and destination using this physical device, and synced to your other
             computers.
+          </p>
+        </fieldset>
+        <fieldset class="fieldset" ?disabled=${this.busy}>
+          <legend class="fieldset-legend">Name when formatting</legend>
+          <input
+            aria-label="Name when formatting"
+            aria-describedby="omb-device-format-name-help"
+            class="input w-full"
+            placeholder="Use device name"
+            .value=${d.format_name ?? ""}
+            @input=${(e: Event) => set({ format_name: (e.target as HTMLInputElement).value })}
+          />
+          <p id="omb-device-format-name-help" class="label whitespace-normal">
+            Volume name used only by Quick format (exFAT). Leave blank to use the device name. The formatter
+            keeps letters A-Z, numbers, spaces and underscores, converts to uppercase, and uses the first 11
+            characters (or MEDIA if none remain). Synced to your other computers; saving does not rename or
+            format the mounted device.
           </p>
         </fieldset>
         <fieldset class="fieldset" ?disabled=${this.busy}>

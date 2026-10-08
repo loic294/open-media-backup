@@ -10,6 +10,37 @@ fn space(id: &str, name: &str) -> Space {
 }
 
 #[test]
+fn format_name_persists_and_syncs_independently_of_device_name() {
+    use crate::domain::Device;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("devices.sqlite");
+    let store = Store::open(&path).unwrap();
+    let mut device = Device {
+        id: "card".into(),
+        name: "Camera card".into(),
+        format_name: "A7_IV".into(),
+        ..Default::default()
+    };
+    store.put(&device).unwrap();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(store.get::<Device>("card").unwrap(), Some(device.clone()));
+    let peer = Store::open_in_memory().unwrap();
+    peer.apply_remote(&store.ops_since(&VersionVector::new(), 1000).unwrap())
+        .unwrap();
+    assert_eq!(peer.get::<Device>("card").unwrap(), Some(device.clone()));
+    device.format_name.clear();
+    store.put(&device).unwrap();
+    peer.apply_remote(
+        &store
+            .ops_since(&peer.version_vector().unwrap(), 1000)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(peer.get::<Device>("card").unwrap(), Some(device));
+}
+
+#[test]
 fn copy_policy_migration_preserves_per_space_maximum_and_syncs_once() {
     use crate::domain::Project;
     use serde_json::json;

@@ -61,6 +61,8 @@ export interface Project {
 export interface Device {
   id: string;
   name: string;
+  /** Optional volume name for quick format; blank or absent uses the device name. */
+  format_name?: string;
   description: string;
   role: DeviceRole;
   kind: DeviceKind;

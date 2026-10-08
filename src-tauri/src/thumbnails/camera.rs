@@ -123,9 +123,10 @@ mod tests {
         let gopro = put(root, "DCIM/100GOPRO/GX010001.MP4", b"v");
         let thm = put(root, "DCIM/100GOPRO/gx010001.thm", JPEG);
         let found = find(&gopro, &rules).unwrap();
-        assert!(found
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&thm.to_string_lossy()));
+        assert_eq!(
+            fs::canonicalize(found).unwrap(),
+            fs::canonicalize(thm).unwrap()
+        );
     }
 
     #[test]
