@@ -46,16 +46,33 @@ function colorForHue(hue: number): string {
     .join("")}`;
 }
 
-/** Prefer the two-row palette, then generate a distinct color when all swatches are in use. */
-export function nextProjectColor(projects: readonly Project[]): string {
-  const used = new Set(projects.map((project) => project.color?.toLowerCase()).filter(Boolean));
-  const available = PROJECT_COLORS.find((color) => !used.has(color.toLowerCase()));
-  if (available) return available;
-  for (let step = 0; step < 720; step++) {
+/** Uses the snapshot tail (new projects are appended), never the sorted display order. */
+export function nextProjectColor(
+  projects: readonly Project[],
+  random: () => number = Math.random,
+  palette: readonly string[] = PROJECT_COLORS,
+): string {
+  const used = new Set(
+    projects
+      .slice(-3)
+      .map((project) => project.color?.toLowerCase())
+      .filter(Boolean),
+  );
+  const available = [
+    ...new Set(palette.filter((color) => /^#[0-9a-f]{6}$/i.test(color)).map((color) => color.toLowerCase())),
+  ].filter((color) => !used.has(color));
+  if (available.length) {
+    const value = random();
+    const index = Number.isFinite(value)
+      ? Math.floor(Math.max(0, Math.min(value, 1 - Number.EPSILON)) * available.length)
+      : 0;
+    return available[index];
+  }
+  // At most three recent colors are excluded, so the first four distinct hues suffice.
+  for (let step = 0; ; step++) {
     const color = colorForHue((step * 137.508) % 360);
     if (!used.has(color.toLowerCase())) return color;
   }
-  throw new Error("Could not choose an unused project color");
 }
 
 /** UTC capture-time buckets mirror domain/project.rs. */

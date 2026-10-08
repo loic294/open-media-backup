@@ -228,7 +228,7 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
                   ></button>`,
               )}
             </div>
-            <p class="label">New projects use the next unused palette color.</p>
+            <p class="label">Random default, avoiding the last three projects in this space.</p>
             ${
               d.color && !PROJECT_COLORS.some((color) => color.toLowerCase() === d.color?.toLowerCase())
                 ? html`<p class="text-xs text-base-content/60">Current color: ${d.color}</p>`

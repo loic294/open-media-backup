@@ -44,6 +44,14 @@ Help me keep the lights on by making a donation via "Buy me a coffee". Any amoun
 
 ### Spaces without projects
 
+New projects get a random default from the project color palette, excluding the
+colors of the last three projects in the same space (including archived projects).
+Recency uses the tail of the snapshot's project order, where newly created projects
+are appended—not the management page's alphabetical/archived display sorting.
+Projects do not store creation timestamps, so restored/synced snapshots use their
+existing order. An exhausted palette falls back to a generated hex color distinct
+from those three. Existing colors and manually selected swatches are preserved.
+
 You can browse, preview, and transfer files before creating a project. Files without
 a matching project stay unassigned and can use project-independent destination paths.
 App destinations still require a manual import and confirmation. **Mark as transferred**

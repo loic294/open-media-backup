@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Project } from "../api/types";
 import { demoSnapshot } from "../api/mock/data";
 import { createMockBackend } from "../api/mock/mock-backend";
 import { newProject, newSource, newSpace } from "./factories";
@@ -20,21 +21,60 @@ const range = (name: string, start: string, end = start) => ({
   end_time: time(end),
 });
 
-describe("project capture ranges", () => {
-  it("assigns each new project an unused palette color, then finds a distinct generated color", () => {
-    const space = newSpace("Space", 0);
-    const projects = PROJECT_COLORS.map((color, index) => ({
-      ...newProject(space, `Project ${index}`),
-      color,
-    }));
-    expect(nextProjectColor([])).toBe(PROJECT_COLORS[0]);
-    expect(nextProjectColor(projects)).not.toBe("");
-    expect(
-      projects.some((project) => project.color?.toLowerCase() === nextProjectColor(projects).toLowerCase()),
-    ).toBe(false);
-    expect(nextProjectColor(projects.slice(0, 3))).toBe(PROJECT_COLORS[3]);
+describe("project default colors", () => {
+  const space = newSpace("Space", 0);
+  const projects = PROJECT_COLORS.map((color, index) => ({
+    ...newProject(space, `Project ${index}`),
+    color,
+  }));
+
+  it("excludes only the last three snapshot entries, including archived projects, case-insensitively", () => {
+    const recent = [
+      { ...projects[0], name: "Z", color: PROJECT_COLORS[0].toLowerCase() },
+      { ...projects[1], name: "A", archived: true },
+      { ...projects[2], name: "B" },
+    ];
+    expect(nextProjectColor([...projects, ...recent], () => 0)).toBe(PROJECT_COLORS[3].toLowerCase());
+    expect(nextProjectColor(projects, () => 0)).toBe(PROJECT_COLORS[0].toLowerCase());
   });
 
+  it("selects every remaining palette option through equal random intervals", () => {
+    const remaining = PROJECT_COLORS.slice(3);
+    remaining.forEach((color, index) => {
+      expect(nextProjectColor(projects.slice(0, 3), () => (index + 0.5) / remaining.length)).toBe(
+        color.toLowerCase(),
+      );
+    });
+  });
+
+  it("handles zero, one, and two prior projects without excluding extra colors", () => {
+    for (let count = 0; count < 3; count++) {
+      expect(nextProjectColor(projects.slice(0, count), () => 0)).toBe(PROJECT_COLORS[count].toLowerCase());
+    }
+  });
+
+  it("generates a valid distinct color for exhausted, empty, or invalid palettes", () => {
+    const exhausted = PROJECT_COLORS.slice(0, 3);
+    const generated = nextProjectColor(projects.slice(0, 3), () => 0, exhausted);
+    expect(generated).toMatch(/^#[0-9a-f]{6}$/);
+    expect(exhausted.map((color) => color.toLowerCase())).not.toContain(generated);
+    const generatedProjects = [0, 1, 2].reduce<Project[]>((recent) => {
+      return [...recent, { ...projects[0], color: nextProjectColor(recent, () => 0, []) }];
+    }, []);
+    const next = nextProjectColor(generatedProjects, () => 0, ["invalid", "#123"]);
+    expect(next).toMatch(/^#[0-9a-f]{6}$/);
+    expect(generatedProjects.map((project) => project.color)).not.toContain(next);
+  });
+
+  it("never returns invalid data for an out-of-range random source or duplicate palette values", () => {
+    for (const value of [-1, 1, 2, NaN, Infinity]) {
+      expect(nextProjectColor([], () => value)).toMatch(/^#[0-9a-f]{6}$/);
+    }
+    expect(nextProjectColor([], () => 0.6, ["#FFFFFF", "#ffffff", "#000000"])).toBe("#000000");
+  });
+});
+
+describe("project capture ranges", () => {
   it("defaults remain compatible with legacy snapshots and new factories", () => {
     const space = newSpace("Space", 0);
     expect(space.allow_project_overlap).toBe(true);

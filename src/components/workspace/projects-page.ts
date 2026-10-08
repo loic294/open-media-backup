@@ -35,7 +35,7 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
     if (!snapshot || !space) return;
     this.draft = {
       ...newProject(space, ""),
-      color: nextProjectColor(spaceProjects(snapshot, space.id)),
+      color: nextProjectColor(snapshot.projects.filter((project) => project.space_id === space.id)),
     };
   }
 
@@ -225,7 +225,7 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
                             ></button>`,
                         )}
                       </div>
-                      <p class="label">New projects choose the next unused palette color.</p>
+                      <p class="label">Random default, avoiding the last three projects in this space.</p>
                     </fieldset>
                     ${projectVariablesSection(space, draft, (name, value) =>
                       change({ values: { ...draft.values, [name]: value } }),

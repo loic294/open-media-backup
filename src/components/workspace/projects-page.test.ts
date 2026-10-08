@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { demoCounts, demoOffline, demoSnapshot } from "../../api/mock/data";
 import { mockStatus } from "../../api/mock/status";
 import { store } from "../../state";
-import { nextProjectColor } from "../../state/projects";
+import { nextProjectColor, PROJECT_COLORS } from "../../state/projects";
 import { OmbFlowBoard } from "./flow-board";
 import { OmbProjectsPage } from "./projects-page";
 import { OmbProjectPicker } from "./project-picker";
@@ -93,8 +93,16 @@ describe("project management page", () => {
     expect(board.textContent).not.toContain("Drag from a source port onto a destination to connect");
   });
 
-  it("creates projects from the management page with the next unused palette color", async () => {
+  it("creates projects with a random color using snapshot rather than alphabetical order", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     store.snapshot = demoSnapshot();
+    const template = store.snapshot.projects[0];
+    store.snapshot.projects = ["Z oldest", "A second", "B third", "C newest"].map((name, index) => ({
+      ...template,
+      id: `project-${index}`,
+      name,
+      color: PROJECT_COLORS[index],
+    }));
     vi.spyOn(store.backend, "saveEntity").mockResolvedValue();
     vi.spyOn(store.backend, "saveSettings").mockResolvedValue();
     vi.spyOn(store.backend, "getWorkspaceStatus").mockResolvedValue({
@@ -115,6 +123,9 @@ describe("project management page", () => {
     );
     const existing = store.snapshot!.projects.filter((project) => project.space_id === store.space!.id);
     const expectedColor = nextProjectColor(existing);
+    expect(expectedColor).not.toBe(
+      nextProjectColor([...existing].sort((a, b) => a.name.localeCompare(b.name))),
+    );
     [...page.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.trim() === "Create project")!
       .click();
