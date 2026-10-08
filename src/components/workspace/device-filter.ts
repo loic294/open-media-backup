@@ -18,11 +18,10 @@ export function filterDestinations(
   filter: DeviceFilter,
 ): Destination[] {
   if (filter.kind === "all") return destinations;
-  return destinations.filter((destination) =>
-    (destination.kind ?? "folder") === "app"
-      ? true
-      : filter.kind === "device"
-        ? destination.device_id === filter.deviceId
-        : !!destination.device_id && !!destinationStatus(status, destination.id)?.available,
-  );
+  return destinations.filter((destination) => {
+    // Manual apps are always visible, including under Mounted devices; this does not change their status.
+    if (destination.kind === "app") return true;
+    if (filter.kind === "device") return destination.device_id === filter.deviceId;
+    return !!destination.device_id && !!destinationStatus(status, destination.id)?.available;
+  });
 }
