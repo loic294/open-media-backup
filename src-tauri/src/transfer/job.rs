@@ -2,14 +2,14 @@ use super::copy::{copy_resolving_with_hasher, CopyError, SkipEvidence};
 use super::handle::{JobHandle, JobState};
 use crate::app::AppSettings;
 use crate::domain::{FileCopy, FileRecord, SafeCopyOverride};
-use crate::paths::{ensure_backup_folder, join_relative, to_relative};
+use crate::paths::{ensure_backup_folder, join_relative, read_backup_folder, to_relative};
 use crate::plan::{
     classify_flow, resolve_workspace_flow, Catalog, Category, FailureMap, FlowContext, PlannedFile,
     RootResolver, WorkspaceContext,
 };
 use crate::store::Store;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 const BATCH: usize = 50;
 
@@ -156,8 +156,37 @@ pub(super) fn prepare(
     }
     if create_marker && ctx.destination.use_backup_marker {
         let root = ctx.source_root.clone().expect("checked above");
-        let folder = ctx.vars.get("backup_folder").cloned().unwrap_or_default();
-        ensure_backup_folder(&root, &folder).map_err(|e| format!("backup marker: {e}"))?;
+        if read_backup_folder(&root).is_none() {
+            let catalog = Catalog::load(store).map_err(|e| e.to_string())?;
+            let planned = classify_flow(&ctx, &catalog, None);
+            let mut folders = BTreeSet::new();
+            for file in planned
+                .iter()
+                .filter(|file| file.category != Category::Ignored && file.target_path.is_some())
+            {
+                let project = file
+                    .project_id
+                    .as_ref()
+                    .and_then(|id| ctx.projects.iter().find(|project| &project.id == id));
+                let vars = ctx.destination_template_vars(project)?;
+                let folder = vars
+                    .get("backup_folder")
+                    .ok_or("Backup marker template did not resolve a folder")?;
+                folders.insert(folder.clone());
+            }
+            if folders.len() > 1 {
+                return Err(format!(
+                    "Backup marker resolves to multiple folders for this source: {}. Use a shared backup marker template or disable the backup marker for this destination.",
+                    folders.into_iter().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            let folder = folders
+                .into_iter()
+                .next()
+                .or_else(|| ctx.vars.get("backup_folder").cloned())
+                .ok_or("Backup marker template did not resolve a folder")?;
+            ensure_backup_folder(&root, &folder).map_err(|e| format!("backup marker: {e}"))?;
+        }
         ctx =
             resolve_workspace_flow(store, resolver, context, flow_id).map_err(|e| e.to_string())?;
     }

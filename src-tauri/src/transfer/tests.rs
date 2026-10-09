@@ -349,6 +349,137 @@ fn backup_marker_folder_is_created_and_reused() {
 }
 
 #[test]
+fn transfer_marker_uses_the_preview_route_date_not_the_workspace_date() {
+    for project_override in [false, true] {
+        for selected_project in [false, true] {
+            let mut fx = Fixture::new();
+            let bytes = capture_fixture(true);
+            fx.write_card_file("DCIM/A.DNG", &bytes);
+            let instant = chrono::DateTime::parse_from_rfc3339("2026-01-01T12:00:00Z")
+                .unwrap()
+                .timestamp_millis();
+            fx.project.start_time = Some(instant);
+            fx.project.end_time = Some(instant);
+            fx.space.backup_marker_template = "{date}".into();
+            fx.space.variables.push(crate::domain::VariableDef {
+                name: "date".into(),
+                default_value: if project_override {
+                    "1999-01-01"
+                } else {
+                    "2026-10-06"
+                }
+                .into(),
+                ..Default::default()
+            });
+            if project_override {
+                fx.project.values.insert("date".into(), "2026-10-06".into());
+            }
+            fx.source.backup_name = "Sony A7 IV".into();
+            fx.destination.path_template = "{backup_folder}".into();
+            fx.destination.use_backup_marker = true;
+            fx.destination.subfolder_per_source = true;
+            fx.store.put(&fx.project).unwrap();
+            fx.store.put(&fx.space).unwrap();
+            fx.store.put(&fx.source).unwrap();
+            fx.store.put(&fx.destination).unwrap();
+            let unrelated = crate::domain::Project {
+                id: "unrelated".into(),
+                name: "Unrelated selection".into(),
+                space_id: fx.space.id.clone(),
+                values: std::collections::BTreeMap::from([("date".into(), "1999-01-01".into())]),
+                ..Default::default()
+            };
+            fx.store.put(&unrelated).unwrap();
+            let context = crate::plan::WorkspaceContext {
+                space_id: fx.space.id.clone(),
+                project_id: selected_project.then(|| unrelated.id.clone()),
+            };
+            let preview = crate::plan::workspace_status(
+                &fx.store,
+                &fx.resolver,
+                &Catalog::load(&fx.store).unwrap(),
+                &context,
+                &FailureMap::new(),
+            )
+            .unwrap();
+            assert_eq!(
+                preview.destinations[0].path_previews[0].path,
+                "2026-10-06/Sony A7 IV"
+            );
+            assert!(crate::paths::read_backup_folder(fx.card_dir.path()).is_none());
+            let h = handle();
+            run_workspace_transfer(
+                &fx.store,
+                &fx.resolver,
+                &context,
+                &fx.flow.id,
+                &h,
+                &Mutex::new(FailureMap::new()),
+            )
+            .unwrap();
+            assert_eq!(h.snapshot().files_done, 1);
+            assert_eq!(
+                std::fs::read(fx.nas_dir.path().join("2026-10-06/Sony A7 IV/A.DNG")).unwrap(),
+                bytes,
+            );
+            assert_eq!(
+                crate::paths::read_backup_folder(fx.card_dir.path()).as_deref(),
+                Some("2026-10-06"),
+            );
+            assert!(fx.store.list::<FileCopy>().unwrap().iter().any(|copy| {
+                copy.device_id == fx.nas.id && copy.path == "2026-10-06/Sony A7 IV/A.DNG"
+            }));
+            assert_eq!(std::fs::read_dir(fx.nas_dir.path()).unwrap().count(), 1);
+        }
+    }
+}
+
+#[test]
+fn conflicting_route_markers_fail_before_writing_marker_or_media() {
+    let mut fx = Fixture::new();
+    fx.write_card_file("DCIM/A.DNG", &capture_fixture(true));
+    let instant = chrono::DateTime::parse_from_rfc3339("2026-01-01T12:00:00Z")
+        .unwrap()
+        .timestamp_millis();
+    fx.space.allow_project_overlap = true;
+    fx.space.backup_marker_template = "{date}".into();
+    fx.store.put(&fx.space).unwrap();
+    for (id, date) in [("a", "2026-10-06"), ("b", "2026-10-07")] {
+        fx.store
+            .put(&crate::domain::Project {
+                id: id.into(),
+                name: id.into(),
+                space_id: fx.space.id.clone(),
+                start_time: Some(instant),
+                end_time: Some(instant),
+                values: std::collections::BTreeMap::from([("date".into(), date.into())]),
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    fx.destination.use_backup_marker = true;
+    fx.destination.path_template = "{backup_folder}".into();
+    fx.store.put(&fx.destination).unwrap();
+    let context = crate::plan::WorkspaceContext {
+        space_id: fx.space.id.clone(),
+        project_id: None,
+    };
+    let error = run_workspace_transfer(
+        &fx.store,
+        &fx.resolver,
+        &context,
+        &fx.flow.id,
+        &handle(),
+        &Mutex::new(FailureMap::new()),
+    )
+    .unwrap_err();
+    assert!(error.contains("multiple folders"), "{error}");
+    assert!(crate::paths::read_backup_folder(fx.card_dir.path()).is_none());
+    assert_eq!(std::fs::read_dir(fx.nas_dir.path()).unwrap().count(), 0);
+    assert!(fx.store.list::<FileCopy>().unwrap().is_empty());
+}
+
+#[test]
 fn offline_destination_fails_cleanly() {
     let fx = Fixture::new();
     fx.unmount("nas");
