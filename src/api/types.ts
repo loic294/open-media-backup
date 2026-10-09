@@ -279,6 +279,16 @@ export interface DestinationStatus {
   failed: number;
   bytes_to_transfer: number;
   last_error: string | null;
+  path_previews?: DestinationPathPreview[];
+}
+
+export interface DestinationPathPreview {
+  source_id: string;
+  project_id: string | null;
+  /** Portable device-relative base path, resolved by the transfer planner. */
+  path: string;
+  variables: Record<string, string>;
+  source_subfolder?: string | null;
 }
 
 export interface ProjectStatus {

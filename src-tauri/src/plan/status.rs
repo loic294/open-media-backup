@@ -4,6 +4,7 @@ use super::{
     WorkspaceContext,
 };
 use crate::domain::{Destination, DestinationKind, Device, Flow, Source};
+use crate::paths::{expand, TemplateVars};
 use crate::scan::ScannedFile;
 use crate::store::Store;
 use serde::Serialize;
@@ -58,6 +59,81 @@ pub struct DestinationStatus {
     pub failed: usize,
     pub bytes_to_transfer: u64,
     pub last_error: Option<String>,
+    /// Distinct source/project routes, resolved by the same planner as transfers.
+    pub path_previews: Vec<DestinationPathPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DestinationPathPreview {
+    pub source_id: String,
+    pub project_id: Option<String>,
+    pub path: String,
+    pub variables: TemplateVars,
+    pub source_subfolder: Option<String>,
+}
+
+fn destination_path_previews(
+    ctx: &super::FlowContext,
+    planned: &[super::PlannedFile],
+) -> Vec<DestinationPathPreview> {
+    if ctx.destination.kind != DestinationKind::Folder || ctx.config_error.is_some() {
+        return Vec::new();
+    }
+    let mut previews = Vec::new();
+    // Prefer pending routes, but keep completed routes visible after a transfer finishes.
+    for file in planned
+        .iter()
+        .filter(|file| file.category == Category::ToTransfer)
+        .chain(
+            planned
+                .iter()
+                .filter(|file| file.category != Category::ToTransfer),
+        )
+        .filter(|file| file.target_path.is_some())
+    {
+        if previews
+            .iter()
+            .any(|preview: &DestinationPathPreview| preview.project_id == file.project_id)
+        {
+            continue;
+        }
+        let project = file
+            .project_id
+            .as_ref()
+            .and_then(|id| ctx.projects.iter().find(|project| &project.id == id));
+        let resolved = ctx.destination_template_vars(project).and_then(|vars| {
+            let path = ctx
+                .target_for_project("", project)?
+                .ok_or("No matching project")?
+                .trim_end_matches('/')
+                .to_string();
+            let mut values = TemplateVars::new();
+            for name in ctx
+                .destination
+                .path_template
+                .split('{')
+                .skip(1)
+                .filter_map(|part| part.split_once('}').map(|(name, _)| name.trim()))
+            {
+                let value = expand(&format!("{{{name}}}"), &vars).map_err(|e| e.to_string())?;
+                values.insert(name.to_string(), value);
+            }
+            Ok(DestinationPathPreview {
+                source_id: ctx.source.id.clone(),
+                project_id: file.project_id.clone(),
+                path,
+                variables: values,
+                source_subfolder: ctx.destination.subfolder_per_source.then(|| {
+                    super::sanitize_segment(ctx.source.resolved_backup_name(&ctx.source_device))
+                }),
+            })
+        });
+        match resolved {
+            Ok(preview) => previews.push(preview),
+            Err(error) => log::warn!("Could not resolve destination path preview: {error}"),
+        }
+    }
+    previews
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -255,6 +331,8 @@ pub fn workspace_status(
         dest.ignored += ignored;
         dest.failed += failed;
         dest.bytes_to_transfer += bytes_to_transfer;
+        dest.path_previews
+            .extend(destination_path_previews(&ctx, &planned));
         if dest.last_error.is_none() {
             dest.last_error = error.clone();
         }
@@ -296,4 +374,140 @@ pub fn workspace_status(
         sources: source_statuses,
         destinations: dest_statuses.into_values().collect(),
     })
+}
+
+#[cfg(test)]
+mod path_preview_tests {
+    use super::*;
+    use crate::domain::{Project, ProjectGranularity};
+    use crate::plan::{classify_files_with_capture_times, resolve_flow, source_files};
+    use crate::testing::Fixture;
+
+    #[test]
+    fn previews_follow_real_routes_not_the_selected_project_or_unused_values() {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", b"photo");
+        let mut first = fx.project.clone();
+        first.name = "Seattle".into();
+        first.start_time = Some(0);
+        first.end_time = Some(0);
+        first.granularity = ProjectGranularity::Day;
+        first.values.insert("client".into(), "Client A".into());
+        let mut second = first.clone();
+        second.id = "second".into();
+        second.name = "Portland".into();
+        second.values.insert("client".into(), "Client B".into());
+        let unused = Project {
+            id: "unused".into(),
+            name: "Not routed".into(),
+            start_time: Some(86400000),
+            end_time: Some(86400000),
+            ..first.clone()
+        };
+        fx.store.put_all(&[first, second, unused]).unwrap();
+        let mut destination = fx.destination.clone();
+        destination.path_template = r"/photo/{client}\{project_name}".into();
+        destination.subfolder_per_source = true;
+        fx.store.put(&destination).unwrap();
+        let ctx = resolve_flow(&fx.store, &fx.resolver, "unused", "flow").unwrap();
+        let catalog = Catalog::load(&fx.store).unwrap();
+        let files = source_files(ctx.source_root.as_deref(), "DCIM", "card", &catalog);
+        let planned = classify_files_with_capture_times(
+            &ctx,
+            &catalog,
+            files,
+            &HashMap::from([("A.JPG".into(), 0)]),
+            None,
+        );
+        let previews = destination_path_previews(&ctx, &planned);
+        assert_eq!(previews.len(), 2);
+        for preview in &previews {
+            let file = planned
+                .iter()
+                .find(|file| file.project_id == preview.project_id)
+                .unwrap();
+            assert_eq!(file.target_path, Some(format!("{}/A.JPG", preview.path)));
+            assert_eq!(preview.source_subfolder.as_deref(), Some("Camera A Card 1"));
+            assert_ne!(preview.variables["project_name"], "Not routed");
+        }
+        let serialized = serde_json::to_value(&previews).unwrap();
+        assert_eq!(serialized[0]["source_id"], "src");
+    }
+
+    #[test]
+    fn status_returns_stored_marker_and_sanitized_source_subfolder_even_offline_destination() {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", b"photo");
+        crate::paths::ensure_backup_folder(fx.card_dir.path(), "Actual Seattle folder").unwrap();
+        let mut destination = fx.destination.clone();
+        destination.path_template = "{backup_folder}".into();
+        destination.use_backup_marker = true;
+        destination.subfolder_per_source = true;
+        fx.store.put(&destination).unwrap();
+        let mut source = fx.source.clone();
+        source.backup_name = "Sony/Card:1".into();
+        fx.store.put(&source).unwrap();
+        fx.unmount("nas");
+        let status = workspace_status(
+            &fx.store,
+            &fx.resolver,
+            &Catalog::load(&fx.store).unwrap(),
+            &WorkspaceContext {
+                space_id: fx.space.id.clone(),
+                project_id: None,
+            },
+            &FailureMap::new(),
+        )
+        .unwrap();
+        let previews = &status.destinations[0].path_previews;
+        assert_eq!(previews.len(), 1);
+        assert_eq!(
+            previews[0].variables["backup_folder"],
+            "Actual Seattle folder"
+        );
+        assert_eq!(previews[0].path, "Actual Seattle folder/Sony_Card_1");
+        assert!(!status.destinations[0].available);
+    }
+
+    #[test]
+    fn ignored_files_and_missing_project_values_never_supply_fake_previews() {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", b"photo");
+        let mut destination = fx.destination.clone();
+        destination.path_template = "{unknown}".into();
+        fx.store.put(&destination).unwrap();
+        let status = workspace_status(
+            &fx.store,
+            &fx.resolver,
+            &Catalog::load(&fx.store).unwrap(),
+            &WorkspaceContext {
+                space_id: fx.space.id.clone(),
+                project_id: None,
+            },
+            &FailureMap::new(),
+        )
+        .unwrap();
+        assert!(status.destinations[0].path_previews.is_empty());
+        assert!(status.destinations[0].last_error.is_some());
+        destination.path_template = "Backups".into();
+        destination.rules = vec![crate::domain::FileRule::path(
+            crate::domain::RuleAction::Exclude,
+            crate::domain::RuleSyntax::Glob,
+            "*",
+        )];
+        fx.store.put(&destination).unwrap();
+        let status = workspace_status(
+            &fx.store,
+            &fx.resolver,
+            &Catalog::load(&fx.store).unwrap(),
+            &WorkspaceContext {
+                space_id: fx.space.id.clone(),
+                project_id: None,
+            },
+            &FailureMap::new(),
+        )
+        .unwrap();
+        assert!(status.destinations[0].path_previews.is_empty());
+        assert_eq!(status.destinations[0].ignored, 1);
+    }
 }

@@ -39,6 +39,47 @@ describe("app destination card", () => {
     store.backend.confirmWorkspaceAppImport = previousBackend.confirmWorkspaceAppImport;
   });
 
+  it("shows resolved destination paths even when the device has a description", async () => {
+    const snapshot = demoSnapshot();
+    store.snapshot = snapshot;
+    store.status = mockStatus(snapshot, "trip", structuredClone(demoCounts), new Set());
+    const destination = snapshot.destinations.find((destination) => destination.id === "d2")!;
+    destination.path_template = "/2026/{backup_folder}";
+    destination.subfolder_per_source = false;
+    const status = store.status.destinations.find((status) => status.destination_id === "d2")!;
+    status.path_previews = [
+      { source_id: "s1", project_id: null, path: "2026/Seattle", variables: { backup_folder: "Seattle" } },
+      { source_id: "s2", project_id: null, path: "2026/Portland", variables: { backup_folder: "Portland" } },
+    ];
+    card = new OmbDestinationCard();
+    card.destination = destination;
+    document.body.append(card);
+    await card.updateComplete;
+    const path = card.querySelector('[aria-label="Destination path"]')!;
+    expect(path.querySelector(".badge")?.textContent?.trim()).toBe("Seattle");
+    expect(path.querySelector('[role="tooltip"]')?.textContent).toContain("{backup_folder}");
+    expect(path.querySelector('[role="tooltip"]')?.textContent).toContain("Portland");
+    expect(path.querySelector("[tabindex]")).not.toBeNull();
+    expect(card.textContent).toContain("Network storage");
+  });
+
+  it("shows unresolved variables honestly when no planner route exists", async () => {
+    const snapshot = demoSnapshot();
+    store.snapshot = snapshot;
+    store.status = null;
+    card = new OmbDestinationCard();
+    card.destination = {
+      ...snapshot.destinations[1],
+      path_template: "{project_name}",
+      subfolder_per_source: false,
+    };
+    document.body.append(card);
+    await card.updateComplete;
+    const badge = card.querySelector('[aria-label="Destination path"] .badge-warning');
+    expect(badge?.textContent?.trim()).toBe("{project_name}");
+    expect(badge?.getAttribute("aria-label")).toContain("Not resolved");
+  });
+
   it("connects an offline NAS by ID, disables duplicate requests, and keeps offline status", async () => {
     const snapshot = demoSnapshot();
     snapshot.computer.os = "macos";

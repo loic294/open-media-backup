@@ -255,6 +255,20 @@ fn normalize(path: &str) -> String {
 }
 
 impl FlowContext {
+    pub fn destination_template_vars(
+        &self,
+        project: Option<&Project>,
+    ) -> Result<TemplateVars, String> {
+        let mut vars =
+            super::source_template_vars(&self.space, project, &self.source_device, &self.source);
+        if self.destination.use_backup_marker {
+            let folder = backup_folder_name(&self.space, &vars, self.source_root.as_deref())
+                .map_err(|e| format!("backup folder: {e}"))?;
+            vars.insert("backup_folder".into(), folder);
+        }
+        Ok(vars)
+    }
+
     /// Every eligible project is included; a missing embedded timestamp never assigns one.
     pub fn matching_projects(&self, capture_time: Option<i64>) -> Vec<&Project> {
         self.projects
@@ -288,13 +302,7 @@ impl FlowContext {
         {
             return Ok(None);
         }
-        let mut vars =
-            super::source_template_vars(&self.space, project, &self.source_device, &self.source);
-        if self.destination.use_backup_marker {
-            let folder = backup_folder_name(&self.space, &vars, self.source_root.as_deref())
-                .map_err(|e| format!("backup folder: {e}"))?;
-            vars.insert("backup_folder".into(), folder);
-        }
+        let vars = self.destination_template_vars(project)?;
         let mut folder = normalize(
             &expand(&self.destination.path_template, &vars)
                 .map_err(|e| format!("destination path: {e}"))?,

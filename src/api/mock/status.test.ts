@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../types";
 import type { Counts } from "./status";
 import { mockStatus } from "./status";
+import { demoCounts, demoSnapshot } from "./data";
+
+describe("demo destination path previews", () => {
+  it("resolves source/project values and omits routes excluded by condition rules", () => {
+    const demo = demoSnapshot();
+    const status = mockStatus(demo, "trip", demoCounts, new Set());
+    const nas = status.destinations.find((destination) => destination.destination_id === "d2")!;
+    expect(nas.path_previews!.length).toBeGreaterThan(0);
+    expect(nas.path_previews!.every((preview) => preview.project_id === "trip")).toBe(true);
+    expect(nas.path_previews![0].variables.project_name).toBe("Trip_2026");
+    expect(nas.path_previews![0].path).not.toContain("{");
+    expect(nas.path_previews![0].source_subfolder).toBe("Camera A · Card 1");
+    expect(
+      status.destinations.find((destination) => destination.destination_id === "d4")?.path_previews,
+    ).toEqual([]);
+  });
+});
 
 const snapshot = (
   temporaryCopiesPerFinal = 0,

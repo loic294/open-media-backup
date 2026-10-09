@@ -4,6 +4,7 @@ import type { Destination, DestinationStatus, FileCategory } from "../../api/typ
 import { destinationStatus, flowStatus, isActive, isRunnable } from "../../state/derived";
 import { deviceById, deviceHosts, mappingFor } from "../../state/selectors";
 import { destinationFreeBytes } from "../../utils/destination-space";
+import { destinationPathParts } from "../../utils/destination-path";
 import { canConnectNetworkDrive } from "../../utils/connect-network-drive";
 import { estimateTransferSeconds } from "../../utils/eta";
 import { fileManagerName } from "../../utils/file-manager";
@@ -212,6 +213,11 @@ export class OmbDestinationCard extends OmbElement {
         : "Counts as a safe copy";
     const canRun = online && this.#runnableIncoming().length > 0 && !this.#busy();
     const hashBadge = nasHashBadge(this.destination.remote_hash, this.store.hashServers);
+    const pathParts = destinationPathParts(
+      this.destination,
+      st?.path_previews ?? [],
+      this.store.selectedSourceId,
+    );
     const missingStatus = this.store.statusLoading
       ? html`<span class="skeleton h-5 w-48"></span>`
       : html`<span class="text-sm text-base-content/60">Status unavailable</span>`;
@@ -361,9 +367,30 @@ export class OmbDestinationCard extends OmbElement {
               <div class="text-xs text-base-content/60 truncate">
                 Device: ${device?.name ?? "No device selected"}
               </div>
-              <div class="text-sm text-base-content/60 truncate">
-                ${details.join(" · ") || this.destination.path_template}
-              </div>
+              ${
+                pathParts.length
+                  ? html`<div class="text-sm text-base-content/60 break-words" aria-label="Destination path">
+                      ${pathParts.map((part) =>
+                        part.name
+                          ? html`<span class="tooltip tooltip-bottom max-w-full align-middle">
+                              <span
+                                class="tooltip-content whitespace-pre-line max-w-80 text-left"
+                                role="tooltip"
+                                >${part.tooltip}</span
+                              >
+                              <span
+                                class="badge badge-sm ${part.unresolved ? "badge-warning badge-outline" : ""} max-w-full h-auto min-h-5 break-all whitespace-normal"
+                                tabindex="0"
+                                aria-label=${part.tooltip}
+                                >${part.text}</span
+                              >
+                            </span>`
+                          : part.text,
+                      )}
+                    </div>`
+                  : nothing
+              }
+              ${details.length ? html`<div class="text-sm text-base-content/60 truncate">${details.join(" · ")}</div>` : nothing}
             </div>
             <span class="flex items-center gap-2 text-sm text-base-content/70">
               <span class="status ${online ? "status-success" : "status-neutral"}"></span

@@ -1,5 +1,6 @@
 import type {
   DestinationStatus,
+  DestinationPathPreview,
   FlowStatus,
   ProjectStatus,
   Snapshot,
@@ -7,9 +8,15 @@ import type {
   WorkspaceContext,
   WorkspaceStatus,
 } from "../types";
-import { usesProjectVariables, validateProjectRanges, validateSourceDestination } from "../../state/projects";
-import { previewVars, templateVars } from "../../utils/template";
-import { sourceBackupName } from "../../utils/names";
+import {
+  matchesCaptureTime,
+  usesProjectVariables,
+  validateProjectRanges,
+  validateSourceDestination,
+} from "../../state/projects";
+import { expandTemplate, previewVars, templateVars } from "../../utils/template";
+import { sanitizeBackupName, sourceBackupName } from "../../utils/names";
+import { rulesAllowPath } from "../../utils/file-rules";
 import { mockSafeCopyDetails } from "./safe-copies";
 
 export type Counts = Record<string, [number, number, number, number]>;
@@ -174,6 +181,59 @@ export function mockWorkspaceStatus(
       const isApp = (d.kind ?? "folder") === "app";
       const assigned = !!deviceOf(d.device_id);
       const available = isApp || (assigned && !offline.has(d.device_id));
+      const pathPreviews: DestinationPathPreview[] = [];
+      if (!isApp && assigned) {
+        for (const flow of flows.filter((flow) => flow.destination_id === d.id)) {
+          const source = snapshot.sources.find((source) => source.id === flow.source_id);
+          const flowStatus = own.find((status) => status.flow_id === flow.id);
+          if (
+            !source ||
+            !deviceOf(source.device_id) ||
+            !flowStatus ||
+            (!flowStatus.transferred && !flowStatus.to_transfer && !flowStatus.failed)
+          )
+            continue;
+          const scope = source.project_scope ?? { mode: "all" };
+          // Demo file capture times mirror mockFiles; real status uses classified routes.
+          const projects = snapshot.projects.filter(
+            (project) =>
+              project.space_id === spaceId &&
+              !project.archived &&
+              scope.mode !== "none" &&
+              (scope.mode !== "selected" || scope.project_ids.includes(project.id)) &&
+              matchesCaptureTime(project, Date.UTC(2026, 0, 14, 9)),
+          );
+          for (const routeProject of projects.length ? projects : [null]) {
+            const vars = previewVars(
+              space,
+              routeProject,
+              sourceBackupName(source, deviceOf(source.device_id)),
+            );
+            if (d.use_backup_marker) {
+              const marker = space.backup_marker_template || "{date}_{project_name}";
+              if (templateVars(marker).some((name) => !vars[name])) continue;
+              vars.backup_folder = sanitizeBackupName(expandTemplate(marker, vars));
+            }
+            if (templateVars(d.path_template).some((name) => !vars[name])) continue;
+            if (!rulesAllowPath(d.rules, "DCIM/100MSDCF/IMG_07412.ARW", routeProject ? vars : {})) continue;
+            const sourceSubfolder = d.subfolder_per_source
+              ? sanitizeBackupName(sourceBackupName(source, deviceOf(source.device_id)))
+              : null;
+            const path = [expandTemplate(d.path_template, vars), sourceSubfolder ?? ""]
+              .join("/")
+              .split(/[/\\]/)
+              .filter((part) => part !== "" && part !== "." && part !== "..")
+              .join("/");
+            pathPreviews.push({
+              source_id: source.id,
+              project_id: routeProject?.id ?? null,
+              path,
+              variables: Object.fromEntries(templateVars(d.path_template).map((name) => [name, vars[name]])),
+              source_subfolder: sourceSubfolder,
+            });
+          }
+        }
+      }
       return {
         destination_id: d.id,
         available,
@@ -192,6 +252,7 @@ export function mockWorkspaceStatus(
           !isApp && !assigned
             ? "No device selected. Choose a device in destination settings."
             : (own.find((f) => f.error)?.error ?? null),
+        path_previews: pathPreviews,
       };
     });
   return { context: structuredClone(context), flows: flowStatuses, sources, destinations };
