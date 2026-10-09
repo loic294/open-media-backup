@@ -4,6 +4,7 @@ import type { Status } from "../../api/types";
 import { store } from "../../state";
 import { installDropdownDismiss } from "../ui/dropdown";
 import { filterDestinations, filterSources } from "./device-filter";
+import type { OmbDestinationCard } from "./destination-card";
 import { OmbFlowBoard } from "./flow-board";
 
 describe("flow board mounted device ordering", () => {
@@ -21,6 +22,7 @@ describe("flow board mounted device ordering", () => {
   describe("independent source and destination device filters", () => {
     const previousSnapshot = store.snapshot;
     const previousStatus = store.status;
+    const previousSelectedSourceId = store.selectedSourceId;
     let board: OmbFlowBoard;
 
     const cardIds = (tag: "source" | "destination") =>
@@ -77,6 +79,7 @@ describe("flow board mounted device ordering", () => {
       board?.remove();
       store.snapshot = previousSnapshot;
       store.status = previousStatus;
+      store.selectedSourceId = previousSelectedSourceId;
       vi.restoreAllMocks();
     });
 
@@ -144,6 +147,36 @@ describe("flow board mounted device ordering", () => {
       await choose("All devices", 0);
       expect(cardIds("source")).toHaveLength(4);
       expect(cardIds("destination").length).toBeLessThan(4);
+    });
+
+    it("updates path badges for device and mounted filters without preferring hidden selections", async () => {
+      await mount();
+      const destination = store.snapshot!.destinations.find((entry) => entry.id === "d1")!;
+      destination.path_template = "{project_name}";
+      destination.subfolder_per_source = false;
+      store.status!.destinations.find((entry) => entry.destination_id === "d1")!.path_previews = [
+        { source_id: "s2", project_id: null, path: "Portland", variables: { project_name: "Portland" } },
+        { source_id: "s1", project_id: null, path: "Seattle", variables: { project_name: "Seattle" } },
+      ];
+      store.selectedSourceId = "s2";
+      store.dispatchEvent(new Event("change"));
+      await board.updateComplete;
+      const pathBadge = async () => {
+        const card = [...board.querySelectorAll<OmbDestinationCard>("omb-destination-card")]
+          .find((entry) => entry.destination.id === "d1")!;
+        await card.updateComplete;
+        return card.querySelector('.badge[aria-label^="{project_name}"]')?.textContent?.trim();
+      };
+      expect(await pathBadge()).toBe("Portland");
+      await choose("Camera A · Card 1");
+      expect(await pathBadge()).toBe("Seattle");
+      await choose("All devices");
+      expect(await pathBadge()).toBe("Portland");
+      await choose("Mounted devices");
+      expect(await pathBadge()).toBe("Seattle");
+      await choose("Home NAS", 1);
+      await choose("All devices", 1);
+      expect(await pathBadge()).toBe("Seattle");
     });
 
     it("resets safely when the selected device is removed without restoring it if it returns", async () => {

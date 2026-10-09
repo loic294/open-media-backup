@@ -13,13 +13,24 @@ export function destinationPathParts(
   destination: Pick<Destination, "path_template" | "subfolder_per_source">,
   previews: readonly DestinationPathPreview[],
   selectedSourceId: string | null,
+  visibleSourceIds?: readonly string[],
 ): DestinationPathPart[] {
-  const primary = previews.find((preview) => preview.source_id === selectedSourceId) ?? previews[0];
+  const sourceOrder = new Map(visibleSourceIds?.map((id, index) => [id, index]));
+  const orderedPreviews = [...previews].sort(
+    (a, b) =>
+      (sourceOrder.get(a.source_id) ?? sourceOrder.size) -
+      (sourceOrder.get(b.source_id) ?? sourceOrder.size),
+  );
+  const selectedIsVisible = visibleSourceIds === undefined || sourceOrder.has(selectedSourceId ?? "");
+  const primary =
+    (selectedIsVisible
+      ? orderedPreviews.find((preview) => preview.source_id === selectedSourceId)
+      : undefined) ?? orderedPreviews[0];
   const parts = templateParts(destination.path_template).map((part): DestinationPathPart => {
     if (!part.variable) return { text: part.text };
     const name = part.text.slice(1, -1).trim();
     const value = primary?.variables[name];
-    const variations = [...new Set(previews.map((preview) => preview.variables[name]))].filter(
+    const variations = [...new Set(orderedPreviews.map((preview) => preview.variables[name]))].filter(
       (other): other is string => other !== undefined && other !== value,
     );
     const tooltip = [
@@ -38,7 +49,7 @@ export function destinationPathParts(
   });
   if (destination.subfolder_per_source) {
     const value = primary?.source_subfolder ?? undefined;
-    const variations = [...new Set(previews.map((preview) => preview.source_subfolder))].filter(
+    const variations = [...new Set(orderedPreviews.map((preview) => preview.source_subfolder))].filter(
       (other): other is string => other != null && other !== value,
     );
     parts.push(

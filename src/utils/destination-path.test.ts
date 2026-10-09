@@ -47,6 +47,49 @@ describe("destination path badges", () => {
     }
   });
 
+  it("prefers visible sources over a selected source hidden by the filter", () => {
+    const parts = destinationPathParts(destination, previews, "s1", ["s2"]);
+    expect(parts.map((part) => part.text).join("")).toBe(previews[1].path);
+    expect(parts.find((part) => part.name === "client")?.tooltip).toContain("Client A");
+    expect(previews[0].source_id).toBe("s1");
+  });
+
+  it("keeps a visible selection first, otherwise follows displayed source order", () => {
+    expect(
+      destinationPathParts(destination, previews, "s1", ["s2", "s1"])
+        .map((part) => part.text).join(""),
+    ).toBe(previews[0].path);
+    expect(
+      destinationPathParts(destination, previews, null, ["s2", "s1"])
+        .map((part) => part.text).join(""),
+    ).toBe(previews[1].path);
+  });
+
+  it("orders alternatives and source subfolders with visible routes before hidden routes", () => {
+    const routes = [
+      { ...previews[0], source_subfolder: "Hidden card" },
+      { ...previews[1], source_subfolder: "Visible card" },
+      {
+        ...previews[0], source_id: "s3",
+        variables: { client: "Client C", project_name: "Tacoma" },
+        source_subfolder: "Selected card",
+      },
+    ];
+    const parts = destinationPathParts(
+      { ...destination, subfolder_per_source: true }, routes, "s3", ["s3", "s2"],
+    );
+    expect(parts.find((part) => part.name === "client")?.tooltip)
+      .toContain("Other variations: Client B · Client A");
+    expect(parts.at(-1)?.tooltip).toContain("Other variations: Visible card · Hidden card");
+  });
+
+  it("falls back to real routes when no visible source has a route", () => {
+    for (const visible of [[], ["unknown"]]) {
+      const parts = destinationPathParts(destination, previews, "s2", visible);
+      expect(parts.map((part) => part.text).join("")).toBe(previews[0].path);
+    }
+  });
+
   it("deduplicates alternatives and preserves spaces, case and repeated variables", () => {
     const parts = destinationPathParts(
       { path_template: "{ client }/{client}", subfolder_per_source: false },

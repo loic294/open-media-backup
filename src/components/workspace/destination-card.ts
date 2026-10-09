@@ -21,6 +21,7 @@ import { buildCardContextMenuItems } from "./card-context-menu-model";
 @customElement("omb-destination-card")
 export class OmbDestinationCard extends OmbElement {
   @property({ attribute: false }) destination!: Destination;
+  @property({ attribute: false }) visibleSourceIds?: readonly string[];
   @state() private menuAt: { x: number; y: number } | null = null;
   @state() private actionBusy = false;
   @state() private connecting = false;
@@ -217,6 +218,7 @@ export class OmbDestinationCard extends OmbElement {
       this.destination,
       st?.path_previews ?? [],
       this.store.selectedSourceId,
+      this.visibleSourceIds,
     );
     const missingStatus = this.store.statusLoading
       ? html`<span class="skeleton h-5 w-48"></span>`

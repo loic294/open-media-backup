@@ -374,3 +374,16 @@ test("hash-server images use the tested commit and release version on both archi
   assert.match(workflow, /ghcr.io\/loic294\/omb-hash-server:latest/);
   assert.match(workflow, /OMB_HASH_VERSION=\$\{\{ needs.prepare.outputs.version \}\}/);
 });
+
+test("container publishing targets only GitHub Container Registry, never Docker Hub", () => {
+  const workflow = readWorkflow("release.yml").split("  hash-server:\n")[1];
+  assert.match(workflow, /registry: ghcr\.io\n/);
+  assert.match(workflow, /push: true\n/);
+  const tags = workflow.match(/          tags: \|\n((?:            .+\n)+)/)?.[1]
+    .trim().split("\n").map((line) => line.trim());
+  assert.deepEqual(tags, [
+    "ghcr.io/loic294/omb-hash-server:${{ needs.prepare.outputs.version }}",
+    "ghcr.io/loic294/omb-hash-server:latest",
+  ]);
+  assert.match(readWorkflow("ci.yml"), /push: false\n/);
+});

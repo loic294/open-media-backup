@@ -154,6 +154,7 @@ export class OmbFlowBoard extends OmbElement {
           (destination.kind ?? "folder") === "app" ? null : destination.device_id,
         )
       : destinations;
+    const visibleSourceIds = orderedSources.map((source) => source.id);
     return html`
       <div
         class="relative grid grid-cols-[minmax(300px,30rem)_minmax(8rem,1fr)_minmax(26rem,48rem)] gap-y-5 h-full content-start"
@@ -171,7 +172,7 @@ export class OmbFlowBoard extends OmbElement {
           <omb-new-volumes data-omb-block></omb-new-volumes>
         </div>
         <div class="col-start-3 flex flex-col gap-5">
-          ${orderedDestinations.map((d) => html`<omb-destination-card data-omb-block .destination=${d}></omb-destination-card>`)}
+          ${orderedDestinations.map((d) => html`<omb-destination-card data-omb-block .destination=${d} .visibleSourceIds=${visibleSourceIds}></omb-destination-card>`)}
           ${
             allDestinations.length === 0
               ? html`<button

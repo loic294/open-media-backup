@@ -150,7 +150,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - name: Publish hash-server image to GitHub Container Registry only
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/hash-server/Dockerfile
