@@ -29,6 +29,7 @@ fn legacy_serialization_defaults_and_new_fields_round_trip() {
     assert_eq!(legacy.capture_range().unwrap(), None);
     assert!(!legacy.matches_capture_time(Some(0)));
     assert_eq!(legacy.granularity, ProjectGranularity::Minute);
+    assert!(!legacy.range_is_exact);
     let space: Space = serde_json::from_str(r#"{"id":"space"}"#).unwrap();
     assert_eq!(space.final_copies_required, 2);
     assert_eq!(space.hash_algo, HashAlgo::Blake3);
@@ -84,6 +85,39 @@ fn capture_buckets_are_inclusive_and_missing_capture_never_matches() {
     assert_eq!(ProjectGranularity::Minute.bucket(-1), Some(-60_000));
     p.end_time = None;
     assert!(p.capture_range().is_err());
+}
+
+#[test]
+fn explicit_local_day_bounds_survive_round_trip_and_match_without_utc_bucketing() {
+    // Los Angeles spring-forward day is 23 hours, with both bounds stored in UTC.
+    let mut p = project(
+        "local",
+        "2026-03-08T08:00:00Z",
+        "2026-03-09T06:59:59.999Z",
+        ProjectGranularity::Day,
+    );
+    p.range_is_exact = true;
+    let p: Project = serde_json::from_value(serde_json::to_value(p).unwrap()).unwrap();
+    let (start, end) = p.capture_range().unwrap().unwrap();
+    assert_eq!(end - start + 1, 23 * 60 * 60 * 1000);
+    assert!(p.matches_capture_time(Some(start)));
+    assert!(p.matches_capture_time(Some(end)));
+    assert!(!p.matches_capture_time(Some(start - 1)));
+    assert!(!p.matches_capture_time(Some(end + 1)));
+    assert!(!p.matches_capture_time(None));
+    let overlapping = project(
+        "legacy",
+        "2026-03-09T06:59:00Z",
+        "2026-03-09T06:59:00Z",
+        ProjectGranularity::Minute,
+    );
+    assert!(validate_project_ranges(&[p.clone(), overlapping], false).is_err());
+    let mut next = p.clone();
+    next.start_time = Some(end + 1);
+    next.end_time = Some(end + 60_000);
+    assert!(validate_project_ranges(&[p.clone(), next.clone()], false).is_ok());
+    next.start_time = Some(end);
+    assert!(validate_project_ranges(&[p, next], false).is_err());
 }
 
 #[test]

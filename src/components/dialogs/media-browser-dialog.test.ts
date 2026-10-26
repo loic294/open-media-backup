@@ -162,7 +162,7 @@ describe("source browser data", () => {
       expect(selectedCaptureRange(items, new Set(keys))).toBeNull();
     }
     expect(captureLabel(file("unknown"))).toBe("Capture date unavailable");
-    expect(captureLabel(file("epoch", 0))).toBe("1970-01-01T00:00:00.000Z");
+    expect(captureLabel(file("epoch", 0))).toBe(new Date(0).toLocaleString());
   });
 
   it("converts embedded local capture times using only a known UTC offset", () => {

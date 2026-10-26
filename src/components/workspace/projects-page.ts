@@ -1,15 +1,19 @@
 import { html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import type { Project, ProjectGranularity } from "../../api/types";
+import type { Project } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { newProject } from "../../state/factories";
 import { nextProjectColor, PROJECT_COLORS } from "../../state/projects";
 import { spaceProjects } from "../../state/selectors";
+import { formatProjectTime } from "../../utils/project-time";
 import { DialogBase } from "../dialogs/dialog-base";
-import { formatProjectTime, parseProjectTime, projectVariablesSection } from "../dialogs/project-dialog";
+import { projectVariablesSection } from "../dialogs/project-dialog";
+import { projectRangeFields } from "../form/project-range";
 
-function dateLabel(value: number | null | undefined): string {
-  return value == null ? "Any time" : new Date(value).toISOString().slice(0, 10);
+function dateLabel(value: number | null | undefined, project: Project): string {
+  return value == null
+    ? "Any time"
+    : formatProjectTime(value, project.granularity ?? "minute").replace("T", " ");
 }
 
 function projectColor(project: Project): string {
@@ -73,10 +77,6 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
     });
   }
 
-  #updateTime(key: "start_time" | "end_time", value: string, granularity: ProjectGranularity) {
-    if (this.draft) this.draft = { ...this.draft, [key]: parseProjectTime(value, granularity) };
-  }
-
   #missingRequiredValues(): string[] {
     if (!this.draft || !this.store.space) return [];
     return this.store.space.variables
@@ -94,7 +94,6 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
     if (!snapshot || !space) return nothing;
     const projects = spaceProjects(snapshot, space.id);
     const draft = this.draft;
-    const granularity = draft?.granularity ?? "minute";
     const isNew = !!draft && !snapshot.projects.some((item) => item.id === draft.id);
     const missing = this.#missingRequiredValues();
     const change = (patch: Partial<Project>) => {
@@ -134,8 +133,7 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
                         >
                           <span class="font-semibold block truncate">${item.name || "Untitled project"}</span>
                           <span class="text-xs text-base-content/70 block mt-1">
-                            ${dateLabel(item.start_time)} – ${dateLabel(item.end_time)} ·
-                            ${item.granularity ?? "minute"} grouping
+                            ${dateLabel(item.start_time, item)} – ${dateLabel(item.end_time, item)}
                           </span>
                           ${item.archived ? html`<span class="badge badge-ghost badge-xs mt-1">Archived</span>` : nothing}
                         </button>
@@ -169,44 +167,11 @@ export class OmbProjectsPage extends DialogBase<Extract<DialogRequest, { type: "
                         @input=${(event: Event) => change({ name: (event.target as HTMLInputElement).value })}
                       />
                     </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Inclusive capture range (UTC)</legend>
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        ${(["start_time", "end_time"] as const).map(
-                          (key) =>
-                            html`<label class="fieldset">
-                              <span class="fieldset-legend"
-                                >${key === "start_time" ? "Start" : "End · inclusive"}</span
-                              >
-                              <input
-                                class="input input-sm w-full"
-                                type=${granularity === "minute" ? "datetime-local" : granularity === "day" ? "date" : "number"}
-                                min=${granularity === "year" ? "1" : nothing}
-                                max=${granularity === "year" ? "9999" : nothing}
-                                step=${granularity === "year" ? "1" : nothing}
-                                .value=${formatProjectTime(draft[key], granularity)}
-                                aria-label=${key === "start_time" ? "Inclusive capture range start" : "Inclusive capture range end"}
-                                @input=${(event: Event) => this.#updateTime(key, (event.target as HTMLInputElement).value, granularity)}
-                              />
-                            </label>`,
-                        )}
-                      </div>
-                    </fieldset>
-                    <fieldset class="fieldset">
-                      <legend class="fieldset-legend">Grouping granularity</legend>
-                      <div class="join w-fit">
-                        ${(["minute", "day", "year"] as const).map(
-                          (value) =>
-                            html`<button
-                              class="btn btn-sm join-item ${granularity === value ? "btn-active btn-primary" : ""}"
-                              aria-pressed=${granularity === value}
-                              @click=${() => change({ granularity: value })}
-                            >
-                              ${value[0].toUpperCase()}${value.slice(1)}
-                            </button>`,
-                        )}
-                      </div>
-                    </fieldset>
+                    ${projectRangeFields(
+                      draft,
+                      (project) => (this.draft = project),
+                      (message) => this.store.toast("error", message),
+                    )}
                     <fieldset class="fieldset">
                       <legend class="fieldset-legend">Project color</legend>
                       <div

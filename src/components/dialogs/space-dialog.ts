@@ -297,7 +297,7 @@ export class OmbSpaceDialog extends DialogBase<Extract<DialogRequest, { type: "s
             <span>
               <span class="font-medium">Allow projects to have overlapping ranges</span>
               <span class="block text-sm text-base-content/60">
-                When disabled, saving a project with an inclusive UTC capture range that overlaps another
+                When disabled, saving a project with an inclusive capture range that overlaps another
                 project is rejected.
               </span>
             </span>

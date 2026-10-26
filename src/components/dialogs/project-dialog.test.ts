@@ -43,9 +43,9 @@ describe("project dialog prefill", () => {
     );
     expect(
       element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range start"]')!.value,
-    ).toBe("2026-06-15T18:27");
+    ).toBe(formatProjectTime(Date.parse("2026-06-15T18:27:34.567Z"), "minute"));
     expect(element.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range end"]')!.value).toBe(
-      "2026-06-16T19:28",
+      formatProjectTime(Date.parse("2026-06-16T19:28:45.678Z"), "minute"),
     );
   });
 
@@ -80,19 +80,20 @@ describe("project dialog prefill", () => {
 });
 
 describe("project dialog capture-time inputs", () => {
-  it("formats and parses minute and day bounds in UTC", () => {
-    const timestamp = Date.parse("2026-06-15T18:27:00Z");
+  it("formats and parses minute and day bounds using the machine timezone", () => {
+    const timestamp = new Date(2026, 5, 15, 18, 27).getTime();
     expect(formatProjectTime(timestamp, "minute")).toBe("2026-06-15T18:27");
     expect(parseProjectTime("2026-06-15T18:27", "minute")).toBe(timestamp);
     expect(formatProjectTime(timestamp, "day")).toBe("2026-06-15");
-    expect(parseProjectTime("2026-06-15", "day")).toBe(Date.parse("2026-06-15T00:00:00Z"));
+    expect(parseProjectTime("2026-06-15", "day")).toBe(new Date(2026, 5, 15).getTime());
+    expect(parseProjectTime("2026-06-15", "day", true)).toBe(new Date(2026, 5, 16).getTime() - 1);
   });
 
-  it("uses the start of the selected UTC year and supports empty bounds", () => {
-    const yearStart = Date.parse("2026-01-01T00:00:00Z");
+  it("uses the start of the selected local year and supports empty bounds", () => {
+    const yearStart = new Date(2026, 0, 1).getTime();
     expect(formatProjectTime(yearStart, "year")).toBe("2026");
     expect(parseProjectTime("2026", "year")).toBe(yearStart);
     expect(parseProjectTime("", "year")).toBeNull();
-    expect(parseProjectTime("26", "year")).toBeNull();
+    expect(() => parseProjectTime("26", "year")).toThrow("Invalid");
   });
 });

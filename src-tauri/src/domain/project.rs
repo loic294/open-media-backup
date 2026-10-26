@@ -37,6 +37,9 @@ pub struct Project {
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,
     pub granularity: ProjectGranularity,
+    /// True for explicit UTC instants computed from local calendar input.
+    /// False preserves the UTC bucket semantics of older synced projects.
+    pub range_is_exact: bool,
     pub color: String,
 }
 impl_entity!(Project, Project);
@@ -52,6 +55,7 @@ impl Default for Project {
             start_time: None,
             end_time: None,
             granularity: ProjectGranularity::Minute,
+            range_is_exact: false,
             color: "#3b82f6".into(),
         }
     }
@@ -62,14 +66,15 @@ impl Project {
         match (self.start_time, self.end_time) {
             (None, None) => Ok(None),
             (Some(start), Some(end)) => {
-                let start = self
-                    .granularity
-                    .bucket(start)
-                    .ok_or("Invalid project start time")?;
-                let end = self
-                    .granularity
-                    .bucket(end)
-                    .ok_or("Invalid project end time")?;
+                let bound = |time| {
+                    if self.range_is_exact {
+                        Utc.timestamp_millis_opt(time).single().map(|_| time)
+                    } else {
+                        self.granularity.bucket(time)
+                    }
+                };
+                let start = bound(start).ok_or("Invalid project start time")?;
+                let end = bound(end).ok_or("Invalid project end time")?;
                 if start > end {
                     return Err("Project start time must not be after end time".into());
                 }
@@ -80,7 +85,13 @@ impl Project {
     }
 
     pub fn matches_capture_time(&self, capture_time: Option<i64>) -> bool {
-        let Some(time) = capture_time.and_then(|t| self.granularity.bucket(t)) else {
+        let Some(time) = capture_time.and_then(|t| {
+            if self.range_is_exact {
+                Some(t)
+            } else {
+                self.granularity.bucket(t)
+            }
+        }) else {
             return false;
         };
         self.capture_range()

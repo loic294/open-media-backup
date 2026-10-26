@@ -45,6 +45,16 @@ Help me keep the lights on by making a donation via "Buy me a coffee". Any amoun
 
 ### Spaces without projects
 
+Project dates and capture-time displays use the current machine's timezone.
+New projects default to **Date only**, including the whole selected local days.
+Choose **Date and time (optional)** to specify minutes, or **Year** for whole local
+years. The final minute, day, or year is inclusive; daylight-saving changes are
+respected. Bounds are stored and synced as explicit UTC instants, so viewing a
+project on another machine changes its displayed dates/times, not its matched
+files. Existing projects retain legacy UTC bucket matching until their range or
+precision is edited. Captures without a known timezone remain unassigned; the
+inspector labels raw camera wall times separately rather than inventing an offset.
+
 New projects get a random default from the project color palette, excluding the
 colors of the last three projects in the same space (including archived projects).
 Recency uses the tail of the snapshot's project order, where newly created projects

@@ -15,8 +15,14 @@ import {
 import { previewVars } from "../utils/template";
 
 const time = (date: string) => Date.parse(date);
-const range = (name: string, start: string, end = start) => ({
+const range = (
+  name: string,
+  start: string,
+  end = start,
+): Project & { start_time: number; end_time: number } => ({
   ...newProject(newSpace("Space", 0), name),
+  granularity: "minute",
+  range_is_exact: false,
   start_time: time(start),
   end_time: time(end),
 });
@@ -83,7 +89,8 @@ describe("project capture ranges", () => {
     expect(project).toMatchObject({
       start_time: null,
       end_time: null,
-      granularity: "minute",
+      granularity: "day",
+      range_is_exact: true,
       color: "#3b82f6",
     });
     expect(matchesCaptureTime(project, time("2026-01-01T00:00:00Z"))).toBe(false);
@@ -100,6 +107,31 @@ describe("project capture ranges", () => {
     expect(matchesCaptureTime(project, time("2027-01-01T00:00:00Z"))).toBe(false);
     expect(matchesCaptureTime(project, null)).toBe(false);
     expect(captureBucket(-1)).toBe(-60000);
+  });
+
+  it("matches explicit local-day UTC boundaries without rebucketing, including DST and mixed overlaps", () => {
+    const project = {
+      ...range("Local day", "2026-03-08T08:00:00Z", "2026-03-09T06:59:59.999Z"),
+      granularity: "day" as const,
+      range_is_exact: true,
+    };
+    for (const bound of [project.start_time, project.end_time]) {
+      expect(matchesCaptureTime(project, bound)).toBe(true);
+    }
+    expect(matchesCaptureTime(project, project.start_time - 1)).toBe(false);
+    expect(matchesCaptureTime(project, project.end_time + 1)).toBe(false);
+    expect(() =>
+      validateProjectRanges([project, range("Legacy minute", "2026-03-09T06:59:00Z")], false),
+    ).toThrow("overlap");
+    expect(() =>
+      validateProjectRanges([project, range("Next minute", "2026-03-09T07:00:00Z")], false),
+    ).not.toThrow();
+    expect(() =>
+      validateProjectRanges(
+        [project, { ...project, id: "next", start_time: project.end_time, end_time: project.end_time + 1 }],
+        false,
+      ),
+    ).toThrow("overlap");
   });
 
   it("rejects overlapping inclusive and mixed-granularity ranges only when disabled", () => {

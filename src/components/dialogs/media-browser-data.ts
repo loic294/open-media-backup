@@ -107,5 +107,5 @@ export function captureRange(times: readonly (number | null)[]): [number, number
 
 export function captureLabel(file: FileEntry): string {
   const time = captureTime(file);
-  return time === null ? "Capture date unavailable" : new Date(time).toISOString();
+  return time === null ? "Capture date unavailable" : new Date(time).toLocaleString();
 }

@@ -28,7 +28,8 @@ export function newProject(space: Space, name: string): Project {
     archived: false,
     start_time: null,
     end_time: null,
-    granularity: "minute",
+    granularity: "day",
+    range_is_exact: true,
     color: "#3b82f6",
   };
 }

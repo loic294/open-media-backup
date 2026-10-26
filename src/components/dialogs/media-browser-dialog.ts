@@ -112,6 +112,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
           project.start_time ?? null,
           project.end_time ?? null,
           project.granularity ?? "minute",
+          project.range_is_exact ?? false,
           project.name,
           project.values,
         ]),
@@ -347,7 +348,7 @@ export class OmbMediaBrowserDialog extends DialogBase<Extract<DialogRequest, { t
         </button>
       </div>
       <p class="text-xs text-base-content/60">
-        Sorted by embedded capture time (UTC), then path; unknown dates last. Shift-click selects an inclusive
+        Sorted by embedded capture time, displayed in this machine's timezone, then path; unknown dates last. Shift-click selects an inclusive
         range. Ctrl/Cmd-click toggles selection. Focus a tile and press Enter or Space to select. Only loaded
         files are included; scrolling loads more and may insert earlier captures.
       </p>

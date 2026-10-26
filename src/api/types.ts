@@ -53,8 +53,10 @@ export interface Project {
   /** Inclusive embedded capture bounds in Unix milliseconds; absent on legacy projects. */
   start_time?: number | null;
   end_time?: number | null;
-  /** UTC calendar buckets; the entire final bucket is included. */
+  /** Input precision; legacy ranges use UTC calendar buckets. */
   granularity?: ProjectGranularity;
+  /** Explicit inclusive UTC bounds; absent/false preserves legacy UTC bucket matching. */
+  range_is_exact?: boolean;
   color?: string;
 }
 

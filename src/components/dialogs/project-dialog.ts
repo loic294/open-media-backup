@@ -1,38 +1,18 @@
 import { html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import type { Project, ProjectGranularity, Space } from "../../api/types";
+import type { Project, Space } from "../../api/types";
 import type { DialogRequest } from "../../state/dialogs";
 import { newProject } from "../../state/factories";
 import { nextProjectColor, PROJECT_COLORS } from "../../state/projects";
 import { deviceById, mappingFor, spaceDestinations } from "../../state/selectors";
 import { destinationTaskName } from "../../utils/names";
 import { configuredDestinationApp } from "../../utils/preview-apps";
+import { localProjectRange } from "../../utils/project-time";
 import { expandTemplate, previewVars } from "../../utils/template";
+import { projectRangeFields } from "../form/project-range";
 import { DialogBase } from "./dialog-base";
 
-export function formatProjectTime(value: number | null | undefined, granularity: ProjectGranularity): string {
-  if (value == null) return "";
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  if (granularity === "year") return String(date.getUTCFullYear()).padStart(4, "0");
-  if (granularity === "day") return date.toISOString().slice(0, 10);
-  return date.toISOString().slice(0, 16);
-}
-
-export function parseProjectTime(value: string, granularity: ProjectGranularity): number | null {
-  if (!value) return null;
-  if (granularity === "year") {
-    if (!/^\d{4}$/.test(value)) return null;
-    const year = Number(value);
-    if (year < 1 || year > 9999) return null;
-    const date = new Date(0);
-    date.setUTCFullYear(year, 0, 1);
-    date.setUTCHours(0, 0, 0, 0);
-    return date.getTime();
-  }
-  const timestamp = Date.parse(granularity === "day" ? `${value}T00:00:00.000Z` : `${value}Z`);
-  return Number.isFinite(timestamp) ? timestamp : null;
-}
+export { formatProjectTime, parseProjectTime } from "../../utils/project-time";
 
 export function projectVariablesSection(
   space: Space,
@@ -105,12 +85,13 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
       typeof this.request.start_time === "number" &&
       typeof this.request.end_time === "number"
     ) {
-      this.draft = {
+      this.draft = localProjectRange({
         ...this.draft,
         start_time: this.request.start_time,
         end_time: this.request.end_time,
         granularity: "minute",
-      };
+        range_is_exact: false,
+      });
     }
   }
 
@@ -155,9 +136,6 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
     const d = this.draft;
     const setValue = (name: string, value: string) =>
       (this.draft = { ...d, values: { ...d.values, [name]: value } });
-    const granularity = d.granularity ?? "minute";
-    const updateTime = (key: "start_time" | "end_time", value: string) =>
-      (this.draft = { ...d, [key]: parseProjectTime(value, granularity) });
     const vars = previewVars(space, d);
     const body = html`
       <div class="flex flex-col gap-5">
@@ -171,48 +149,12 @@ export class OmbProjectDialog extends DialogBase<Extract<DialogRequest, { type: 
             @input=${(e: Event) => (this.draft = { ...d, name: (e.target as HTMLInputElement).value })}
           />
         </fieldset>
-        <section class="flex flex-col gap-3">
-          <div>
-            <h4 class="font-medium">Capture-time range</h4>
-            <p class="text-sm text-base-content/60">
-              Both bounds are inclusive and interpreted in UTC. Leave both empty to match any capture time.
-            </p>
-          </div>
-          <fieldset class="fieldset">
-            <legend class="fieldset-legend">UTC bucket granularity</legend>
-            <select
-              class="select w-full"
-              .value=${granularity}
-              @change=${(e: Event) => (this.draft = { ...d, granularity: (e.target as HTMLSelectElement).value as ProjectGranularity })}
-            >
-              <option value="minute">Minute</option>
-              <option value="day">Day</option>
-              <option value="year">Year</option>
-            </select>
-          </fieldset>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            ${(["start_time", "end_time"] as const).map(
-              (key) =>
-                html`<fieldset class="fieldset">
-                  <legend class="fieldset-legend">
-                    ${key === "start_time" ? "Inclusive start" : "Inclusive end"}
-                  </legend>
-                  <input
-                    class="input w-full"
-                    type=${granularity === "minute" ? "datetime-local" : granularity === "day" ? "date" : "number"}
-                    min=${granularity === "year" ? "1" : nothing}
-                    max=${granularity === "year" ? "9999" : nothing}
-                    step=${granularity === "year" ? "1" : nothing}
-                    .value=${formatProjectTime(d[key], granularity)}
-                    aria-label=${key === "start_time" ? "Inclusive capture range start" : "Inclusive capture range end"}
-                    @input=${(e: Event) => updateTime(key, (e.target as HTMLInputElement).value)}
-                  />
-                </fieldset>`,
-            )}
-          </div>
-          <p class="text-xs text-base-content/60">
-            Day and year buckets include the entire selected UTC day or year.
-          </p>
+        ${projectRangeFields(
+          d,
+          (project) => (this.draft = project),
+          (message) => this.store.toast("error", message),
+        )}
+        <section>
           <fieldset class="fieldset">
             <legend class="fieldset-legend">Project color</legend>
             <div class="grid grid-cols-8 gap-2 w-fit" role="group" aria-label="Predefined project colors">

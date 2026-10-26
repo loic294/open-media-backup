@@ -63,12 +63,12 @@ export class OmbMediaInspector extends OmbElement {
     const rows: [string, string | number | null | undefined][] = [
       ["Path", this.file.rel_path],
       ["Size", formatBytes(metadata?.size_bytes ?? this.file.size)],
-      ["Eligible capture (UTC)", captureLabel(this.file)],
+      ["Eligible capture (local)", captureLabel(this.file)],
     ];
     if (metadata) {
       const { capture_time: capture, dimensions, camera, exposure, video } = metadata;
       rows.push(
-        ["Embedded capture", capture?.local_datetime ?? "Absent"],
+        ["Embedded capture (camera wall time)", capture?.local_datetime ?? "Absent"],
         [
           "Capture timezone",
           capture

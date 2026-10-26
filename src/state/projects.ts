@@ -94,8 +94,8 @@ export function projectRange(project: Project): [number, number] | null {
   if (start == null && end == null) return null;
   if (start == null || end == null) throw new Error("Project start and end times must both be set");
   const range: [number, number] = [
-    captureBucket(start, project.granularity),
-    captureBucket(end, project.granularity),
+    project.range_is_exact ? start : captureBucket(start, project.granularity),
+    project.range_is_exact ? end : captureBucket(end, project.granularity),
   ];
   if (!Number.isFinite(range[0]) || !Number.isFinite(range[1]))
     throw new Error("Invalid project capture time");
@@ -106,7 +106,7 @@ export function projectRange(project: Project): [number, number] | null {
 export function matchesCaptureTime(project: Project, time: number | null | undefined): boolean {
   if (time == null) return false;
   const range = projectRange(project);
-  const bucket = captureBucket(time, project.granularity);
+  const bucket = project.range_is_exact ? time : captureBucket(time, project.granularity);
   return range !== null && range[0] <= bucket && bucket <= range[1];
 }
 

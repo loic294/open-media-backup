@@ -111,6 +111,7 @@ describe("project management page", () => {
       sources: [],
       destinations: [],
     });
+
     page = new OmbProjectsPage();
     page.request = { type: "projects" };
     document.body.append(page);
@@ -146,5 +147,63 @@ describe("project management page", () => {
     expect(store.context?.projectId).toBeNull();
     expect(page.textContent).toContain("Projects in Travel");
     expect(page.textContent).toContain("Project variables");
+  });
+
+  it("saves local whole days and optional minute-precision UTC bounds", async () => {
+    store.snapshot = demoSnapshot();
+    const save = vi.spyOn(store, "save").mockResolvedValue(false);
+    page = new OmbProjectsPage();
+    page.request = { type: "projects" };
+    document.body.append(page);
+    await page.updateComplete;
+    await page.querySelector("omb-modal")!.updateComplete;
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Create project")!
+      .click();
+    await page.updateComplete;
+    const name = page.querySelector<HTMLInputElement>('[aria-label="Project name"]')!;
+    name.value = "Local project";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    await page.updateComplete;
+    const edit = async (label: string, value: string) => {
+      const input = page!.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+      input.value = value;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await page!.updateComplete;
+    };
+    const saveProject = () =>
+      [...page!.querySelectorAll<HTMLButtonElement>("button")]
+        .filter((button) => button.textContent?.includes("Create project"))
+        .at(-1)!
+        .click();
+    expect(page.querySelector<HTMLInputElement>('[aria-label="Inclusive capture range start"]')!.type).toBe(
+      "date",
+    );
+    await edit("Inclusive capture range start", "2026-03-08");
+    await edit("Inclusive capture range end", "2026-03-08");
+    saveProject();
+    expect(save).toHaveBeenLastCalledWith(
+      "project",
+      expect.objectContaining({
+        start_time: new Date(2026, 2, 8).getTime(),
+        end_time: new Date(2026, 2, 9).getTime() - 1,
+        range_is_exact: true,
+        granularity: "day",
+      }),
+    );
+    await page.updateComplete;
+    await edit("Project date precision", "minute");
+    await edit("Inclusive capture range start", "2026-03-08T10:30");
+    await edit("Inclusive capture range end", "2026-03-08T12:45");
+    saveProject();
+    expect(save).toHaveBeenLastCalledWith(
+      "project",
+      expect.objectContaining({
+        start_time: new Date(2026, 2, 8, 10, 30).getTime(),
+        end_time: new Date(2026, 2, 8, 12, 46).getTime() - 1,
+        range_is_exact: true,
+        granularity: "minute",
+      }),
+    );
   });
 });
