@@ -12,6 +12,7 @@ export class OmbWipeDialog extends DialogBase<Extract<DialogRequest, { type: "wi
   @state() private plan: WipePlan | null = null;
   @state() private method: WipeMethod = "delete_files";
   @state() private confirmed = false;
+  @state() private verifyBeforeWipe = true;
   @state() private busy = false;
 
   override connectedCallback(): void {
@@ -27,10 +28,16 @@ export class OmbWipeDialog extends DialogBase<Extract<DialogRequest, { type: "wi
   }
 
   async #wipe() {
+    const verifyBeforeWipe = this.verifyBeforeWipe;
     this.busy = true;
     try {
-      await this.store.backend.wipe(this.request.sourceId, this.method);
-      this.store.toast("success", "Wipe started. Every file is re-verified before anything is deleted.");
+      await this.store.backend.wipe(this.request.sourceId, this.method, verifyBeforeWipe);
+      this.store.toast(
+        "success",
+        verifyBeforeWipe
+          ? "Wipe started. Files will be re-verified before wiping."
+          : "Wipe started without re-verifying file contents.",
+      );
       this.dismiss();
     } catch (e) {
       this.store.toast("error", String(e));
@@ -122,11 +129,31 @@ export class OmbWipeDialog extends DialogBase<Extract<DialogRequest, { type: "wi
               p.eligible
                 ? html`
                     <div class="flex flex-col gap-2">${this.#methods()}</div>
+                    <label class="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-sm"
+                        ?disabled=${this.busy}
+                        .checked=${this.verifyBeforeWipe}
+                        @change=${(e: Event) =>
+                          (this.verifyBeforeWipe = (e.target as HTMLInputElement).checked)}
+                      />
+                      <span>
+                        <span class="font-medium">Verify files before wiping (recommended)</span>
+                        <span class="block text-base-content/60">
+                          Reads and hashes the files again. This can take as long as reading all their
+                          contents from the device.
+                        </span>
+                      </span>
+                    </label>
                     <div role="alert" class="alert alert-warning alert-soft text-sm">
                       <omb-icon name="triangle-alert"></omb-icon>
                       <span
-                        >Before deleting, every file is hashed again and compared with the catalog. If
-                        anything changed, nothing is deleted.</span
+                        >${
+                          this.verifyBeforeWipe
+                            ? "Before wiping, files are hashed again and compared with the catalog. If anything changed, nothing is wiped."
+                            : "File contents will not be checked again. Changes or corruption since backup may go undetected and be lost. Backup-eligibility checks still apply."
+                        }</span
                       >
                     </div>
                     <label class="flex items-center gap-2 text-sm cursor-pointer">

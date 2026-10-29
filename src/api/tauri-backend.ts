@@ -112,7 +112,7 @@ export const tauriBackend: Backend = {
   },
 
   planWipe: (sourceId) => invoke("plan_wipe", { sourceId }),
-  wipe: (sourceId, method) => invoke("wipe", { sourceId, method }),
+  wipe: (sourceId, method, verifyBeforeWipe = true) => invoke("wipe", { sourceId, method, verifyBeforeWipe }),
   markSourceManuallyWiped: (sourceId) => invoke("mark_source_manually_wiped", { sourceId }),
 
   syncStatus: () => invoke("sync_status"),

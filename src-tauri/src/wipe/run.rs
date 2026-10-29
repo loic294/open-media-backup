@@ -17,35 +17,15 @@ pub enum WipeMethod {
     QuickFormat,
 }
 
-/// Re-verifies every source file against its catalogued hash, then wipes the device.
-/// Nothing is deleted if any file fails verification.
+/// Wipes an eligible device, optionally re-verifying source hashes before any deletion.
 pub fn wipe(
     store: &Store,
     resolver: &dyn RootResolver,
     project_id: &str,
     source_id: &str,
     method: WipeMethod,
+    verify_before_wipe: bool,
     handle: &JobHandle,
-) -> Result<(), String> {
-    wipe_preserving(
-        store,
-        resolver,
-        project_id,
-        source_id,
-        method,
-        handle,
-        &Default::default(),
-    )
-}
-
-pub(super) fn wipe_preserving(
-    store: &Store,
-    resolver: &dyn RootResolver,
-    project_id: &str,
-    source_id: &str,
-    method: WipeMethod,
-    handle: &JobHandle,
-    preserve: &std::collections::HashSet<String>,
 ) -> Result<(), String> {
     let Assessed {
         device,
@@ -64,22 +44,33 @@ pub(super) fn wipe_preserving(
         .known
         .iter()
         .filter(|(rel, _)| {
-            !preserve.contains(&assessment.device_path(rel))
-                && assessment.device_files.iter().any(|file| {
-                    file.path == assessment.device_path(rel)
-                        && file.state != crate::plan::SafeCopyState::Excluded
-                })
+            assessment.device_files.iter().any(|file| {
+                file.path == assessment.device_path(rel)
+                    && file.state != crate::plan::SafeCopyState::Excluded
+            })
         })
         .filter_map(|(rel, id)| Some((assessment.device_path(rel), id.clone()?)))
         .collect();
     handle.update(|j| {
         j.label = format!("Wipe {}", device.name);
         j.files_total = known.len();
-        j.bytes_total = assessment.files.iter().map(|f| f.size).sum();
-        j.state = JobState::Verifying;
+        j.bytes_total = if verify_before_wipe {
+            assessment.files.iter().map(|f| f.size).sum()
+        } else {
+            0
+        };
+        j.state = if verify_before_wipe {
+            JobState::Verifying
+        } else {
+            JobState::Running
+        };
+        if !verify_before_wipe {
+            j.warnings
+                .push("File contents were not re-verified before wiping.".into());
+        }
     });
 
-    for (path, id) in &known {
+    for (path, id) in known.iter().filter(|_| verify_before_wipe) {
         handle.checkpoint().map_err(|_| "cancelled".to_string())?;
         handle.update(|j| j.current_file = Some(path.clone()));
         let record = catalog
@@ -110,6 +101,9 @@ pub(super) fn wipe_preserving(
                 std::fs::remove_file(join_relative(&root, path))
                     .map_err(|e| format!("{path}: {e}"))?;
                 removed.push(mark_removed(id, &device.id, path));
+                if !verify_before_wipe {
+                    handle.update(|j| j.files_done += 1);
+                }
             }
             let _ = remove_backup_folder(&root);
             removed
@@ -131,6 +125,9 @@ pub(super) fn wipe_preserving(
                     .ok_or("volume path is not valid UTF-8")?,
             )
             .map_err(|e| format!("volume was formatted, but could not be relinked: {e}"))?;
+            if !verify_before_wipe {
+                handle.update(|j| j.files_done = j.files_total);
+            }
             return Ok(());
         }
     };

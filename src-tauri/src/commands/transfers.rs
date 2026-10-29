@@ -162,9 +162,11 @@ pub async fn wipe(
     state: State<'_, Shared>,
     source_id: String,
     method: WipeMethod,
+    verify_before_wipe: Option<bool>,
 ) -> CmdResult<String> {
     blocking(&state, move |s| {
-        s.core.start_workspace_wipe(&source_id, method)
+        s.core
+            .start_workspace_wipe(&source_id, method, verify_before_wipe.unwrap_or(true))
     })
     .await
 }

@@ -508,7 +508,7 @@ fn deleted_device_blocks_its_tasks_without_breaking_other_flows_and_can_be_reass
         .unwrap_err()
         .contains("source"));
     assert!(core
-        .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
+        .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles, true)
         .is_err());
     assert!(file.exists());
     assert_eq!(core.run_all("project").unwrap().len(), 1);
@@ -630,7 +630,7 @@ fn run_all_then_list_files() {
     assert!(core.run_all("project").unwrap().is_empty());
     let status = core.project_status("project").unwrap();
     assert!(status.sources[0].wipe_eligible);
-    core.start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
+    core.start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles, true)
         .unwrap();
     wait_idle(&core);
     assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
@@ -802,10 +802,10 @@ fn project_free_transfers_preview_verify_and_enable_wipe_under_space_policy() {
     assert_eq!(status.sources[0].required_copies, Some(1));
     assert!(status.sources[0].wipe_eligible);
     assert!(core
-        .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles)
+        .start_wipe("project", "src", crate::wipe::WipeMethod::DeleteFiles, true)
         .is_err());
     assert!(core.run_workspace_all(&context).unwrap().is_empty());
-    core.start_workspace_wipe("src", crate::wipe::WipeMethod::DeleteFiles)
+    core.start_workspace_wipe("src", crate::wipe::WipeMethod::DeleteFiles, true)
         .unwrap();
     wait_idle(&core);
     assert!(!source.exists());

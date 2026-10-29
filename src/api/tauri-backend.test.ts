@@ -21,4 +21,15 @@ describe("jpegBytes", () => {
     expect(jpegBytes([]).byteLength).toBe(0);
     expect(jpegBytes(null).byteLength).toBe(0);
   });
+
+  it.each([undefined, true, false])("passes wipe verification preference %s to IPC", async (verify) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { tauriBackend } = await import("./tauri-backend");
+    await tauriBackend.wipe("s1", "quick_format", verify);
+    expect(invoke).toHaveBeenLastCalledWith("wipe", {
+      sourceId: "s1",
+      method: "quick_format",
+      verifyBeforeWipe: verify ?? true,
+    });
+  });
 });

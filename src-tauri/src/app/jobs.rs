@@ -320,6 +320,7 @@ impl AppCore {
         project_id: &str,
         source_id: &str,
         method: WipeMethod,
+        verify_before_wipe: bool,
     ) -> Result<String, String> {
         let source: Source = self
             .store
@@ -345,7 +346,15 @@ impl AppCore {
             kind: JobKind::Wipe,
             queue: None,
             work: Box::new(move |handle| {
-                wipe(&store, resolver.as_ref(), &project, &source, method, handle)
+                wipe(
+                    &store,
+                    resolver.as_ref(),
+                    &project,
+                    &source,
+                    method,
+                    verify_before_wipe,
+                    handle,
+                )
             }),
         }))
     }
@@ -354,6 +363,7 @@ impl AppCore {
         &self,
         source_id: &str,
         method: WipeMethod,
+        verify_before_wipe: bool,
     ) -> Result<String, String> {
         let source: Source = self
             .store
@@ -382,7 +392,14 @@ impl AppCore {
             kind: JobKind::Wipe,
             queue: None,
             work: Box::new(move |handle| {
-                crate::wipe::wipe_workspace(&store, resolver.as_ref(), &source_id, method, handle)
+                crate::wipe::wipe_workspace(
+                    &store,
+                    resolver.as_ref(),
+                    &source_id,
+                    method,
+                    verify_before_wipe,
+                    handle,
+                )
             }),
         }))
     }

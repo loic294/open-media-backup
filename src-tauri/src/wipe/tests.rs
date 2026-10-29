@@ -77,6 +77,7 @@ fn delete_wipe_preserves_excluded_unknown_and_changed_files_without_affecting_tr
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap();
@@ -107,6 +108,7 @@ fn exclusions_do_not_weaken_hash_guard_for_still_required_files() {
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle()
     )
     .unwrap_err()
@@ -143,6 +145,7 @@ fn device_exclusions_apply_to_overlapping_source_views_and_runtime() {
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap();
@@ -180,6 +183,7 @@ fn workspace_delete_preserves_files_excluded_in_any_active_project() {
         &fx.resolver,
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap();
@@ -393,6 +397,7 @@ fn plan_blocks_until_enough_copies() {
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle()
     )
     .is_err());
@@ -410,6 +415,7 @@ fn delete_files_after_verification() {
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap();
@@ -499,6 +505,7 @@ fn workspace_wipe_deletes_shared_source_files_after_all_active_projects_pass() {
         &fx.resolver,
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap();
@@ -517,11 +524,82 @@ fn modified_file_aborts_everything() {
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap_err();
     assert!(err.contains("B.JPG"), "{err}");
     assert!(fx.card_dir.path().join("DCIM/A.JPG").exists());
+}
+
+#[test]
+fn skipping_verification_deletes_changed_files_without_reading_contents() {
+    let fx = backed_up();
+    fx.write_card_file("DCIM/B.JPG", b"x");
+    let job = handle();
+    wipe_workspace(
+        &fx.store,
+        &fx.resolver,
+        "src",
+        WipeMethod::DeleteFiles,
+        false,
+        &job,
+    )
+    .unwrap();
+    assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
+    assert!(!fx.card_dir.path().join("DCIM/B.JPG").exists());
+    let state = job.snapshot();
+    assert_eq!(state.bytes_done, 0);
+    assert_eq!(state.bytes_total, 0);
+    assert_eq!(state.files_done, state.files_total);
+    assert_eq!(
+        state.warnings,
+        ["File contents were not re-verified before wiping."]
+    );
+    assert!(fx
+        .store
+        .list::<FileCopy>()
+        .unwrap()
+        .iter()
+        .filter(|copy| copy.device_id == "card")
+        .all(|copy| copy.removed));
+}
+
+#[test]
+fn skipping_verification_cannot_bypass_backup_eligibility_for_either_method() {
+    for method in [WipeMethod::DeleteFiles, WipeMethod::QuickFormat] {
+        let fx = Fixture::new();
+        fx.write_card_file("DCIM/A.JPG", b"a");
+        let err =
+            wipe_workspace(&fx.store, &fx.resolver, "src", method, false, &handle()).unwrap_err();
+        assert!(err.contains("Needs"), "{err}");
+        assert!(fx.card_dir.path().join("DCIM/A.JPG").exists());
+    }
+}
+
+#[test]
+fn skipping_verification_still_preserves_excluded_files() {
+    use crate::domain::{FileRule, RuleAction, RuleSyntax};
+    let fx = backed_up();
+    let mut card = fx.card.clone();
+    card.safe_copy_rules = vec![FileRule::path(
+        RuleAction::Exclude,
+        RuleSyntax::Glob,
+        "B.JPG",
+    )];
+    fx.store.put(&card).unwrap();
+    fx.write_card_file("DCIM/B.JPG", b"x");
+    wipe_workspace(
+        &fx.store,
+        &fx.resolver,
+        "src",
+        WipeMethod::DeleteFiles,
+        false,
+        &handle(),
+    )
+    .unwrap();
+    assert!(!fx.card_dir.path().join("DCIM/A.JPG").exists());
+    assert!(fx.card_dir.path().join("DCIM/B.JPG").exists());
 }
 
 #[test]
@@ -545,6 +623,7 @@ fn sibling_safety_blocks_preview_and_execution_without_expanding_deletion_scope(
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle()
     )
     .is_err());
@@ -574,6 +653,7 @@ fn sibling_safety_blocks_preview_and_execution_without_expanding_deletion_scope(
         "project",
         "src",
         WipeMethod::DeleteFiles,
+        true,
         &handle(),
     )
     .unwrap();
@@ -599,6 +679,7 @@ fn unresolved_sibling_path_blocks_wipe_preview_and_execution() {
         "project",
         "src",
         WipeMethod::QuickFormat,
+        true,
         &handle()
     )
     .is_err());

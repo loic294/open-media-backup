@@ -119,19 +119,20 @@ pub fn wipe_workspace(
     resolver: &dyn RootResolver,
     source_id: &str,
     method: super::WipeMethod,
+    verify_before_wipe: bool,
     handle: &crate::transfer::JobHandle,
 ) -> Result<(), String> {
     let plan = plan_workspace_wipe(store, resolver, source_id)?;
     if let Some(reason) = plan.reason {
         return Err(reason);
     }
-    super::run::wipe_preserving(
+    super::run::wipe(
         store,
         resolver,
         "",
         source_id,
         method,
+        verify_before_wipe,
         handle,
-        &Default::default(),
     )
 }

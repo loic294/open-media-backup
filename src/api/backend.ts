@@ -126,7 +126,7 @@ export interface Backend {
   pickPreviewApp(os: string): Promise<string | null>;
 
   planWipe(sourceId: string): Promise<WipePlan>;
-  wipe(sourceId: string, method: WipeMethod): Promise<void>;
+  wipe(sourceId: string, method: WipeMethod, verifyBeforeWipe?: boolean): Promise<void>;
   markSourceManuallyWiped(sourceId: string): Promise<void>;
 
   syncStatus(): Promise<SyncStatus>;
